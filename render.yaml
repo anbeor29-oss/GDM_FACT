@@ -32,7 +32,9 @@ services:
     region: oregon        # más cercano a MX que virginia; ~110 ms latencia
     branch: main
     rootDir: backend
-    buildCommand: npm ci && npm run build
+    # --include=dev fuerza a instalar devDependencies (typescript, @types/*)
+    # incluso con NODE_ENV=production — necesario para compilar TS a JS.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start:prod
     healthCheckPath: /health
     autoDeploy: true      # cada push a main dispara deploy
