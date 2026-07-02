@@ -28,7 +28,7 @@ services:
   - type: web
     name: gdmfac-backend
     runtime: node
-    plan: free            # 512 MB RAM / .5 CPU — suficiente para 10 clientes
+    plan: starter         # $7/mes — Render descontinuó "free" para web services vía Blueprint
     region: oregon        # más cercano a MX que virginia; ~110 ms latencia
     branch: main
     rootDir: backend
@@ -103,10 +103,10 @@ services:
         value: "false"
 
   # ─── Frontend React/Vite estático ──────────────────────────────────
+  # Los sitios estáticos SÍ tienen tier gratuito ilimitado — no lleva `plan`.
   - type: web
     name: gdmfac-frontend
     runtime: static
-    plan: free
     branch: main
     rootDir: frontend
     buildCommand: npm ci && npm run build
