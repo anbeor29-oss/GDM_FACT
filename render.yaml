@@ -83,12 +83,12 @@ services:
       - key: SW_SAPIEN_TOKEN
         sync: false        # SECRETO: se llena a mano desde Environment tab
 
-      # ─── CORS: apuntar al dominio del frontend ────────────────────
+      # ─── CORS: URL completa del frontend (con https://) ───────────
+      # No se puede usar `fromService` porque Render inyecta solo el host sin
+      # protocolo (`gdmfac-frontend.onrender.com`) y el middleware CORS del
+      # backend compara con el header Origin que SÍ incluye protocolo.
       - key: CORS_ORIGIN
-        fromService:
-          name: gdmfac-frontend
-          type: web
-          property: host
+        value: "https://gdmfac-frontend.onrender.com"
       - key: CORS_CREDENTIALS
         value: "true"
 
