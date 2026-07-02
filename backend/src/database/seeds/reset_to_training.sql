@@ -22,7 +22,6 @@ TRUNCATE TABLE
     pac_stamps,
     invoice_items,
     payments,
-    credit_note_items,
     credit_notes,
     invoices,
     customer_products,
