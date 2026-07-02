@@ -29,10 +29,9 @@ TRUNCATE TABLE
     customers
   RESTART IDENTITY CASCADE;
 
--- 2) Contadores de folio a 0 por empresa
-UPDATE companies SET next_folio_invoice = 1,
-                     next_folio_credit_note = 1,
-                     next_folio_payment = 1;
+-- 2) Contadores de folio a 1 por empresa (solo el que realmente existe)
+--    NC y payments manejan su propio contador via MAX(folio)+1 en el service.
+UPDATE companies SET next_invoice_folio = 1;
 
 -- 3) Purge de usuarios EXCEPTO SUPER_ADMIN + los 2 de capacitación que crearemos
 DELETE FROM users
