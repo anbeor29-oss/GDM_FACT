@@ -54,7 +54,7 @@ INSERT INTO users (email, first_name, last_name, password_hash, role,
                    company_id, is_active, password_change_required)
 VALUES ('admin.demo@gdmfac.mx', 'Administrador', 'Demo',
         -- bcrypt('Cap4citAcion!'): usuario forzará cambio al primer login
-        '$2b$12$K7sKB3vLGqDp2rZUn6HuwOzuF/Q0oBBHWnP/o90IPqLwYc3.a2SG.',
+        '$2a$12$uS3mZIu8YqdXIwYBIZaxn.9zaiNanW/dEyoKcmmLnobur9RKmDPX6',
         'ADMIN', '11111111-1111-1111-1111-111111111111', TRUE, TRUE)
 ON CONFLICT (email) DO UPDATE
    SET is_active = TRUE, role = 'ADMIN',
@@ -65,7 +65,7 @@ ON CONFLICT (email) DO UPDATE
 INSERT INTO users (email, first_name, last_name, password_hash, role,
                    company_id, is_active, password_change_required)
 VALUES ('usuario.demo@gdmfac.mx', 'Usuario', 'Demo',
-        '$2b$12$K7sKB3vLGqDp2rZUn6HuwOzuF/Q0oBBHWnP/o90IPqLwYc3.a2SG.',
+        '$2a$12$uS3mZIu8YqdXIwYBIZaxn.9zaiNanW/dEyoKcmmLnobur9RKmDPX6',
         'USER', '11111111-1111-1111-1111-111111111111', TRUE, TRUE)
 ON CONFLICT (email) DO UPDATE
    SET is_active = TRUE, role = 'USER',
