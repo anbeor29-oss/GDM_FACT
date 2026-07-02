@@ -41,8 +41,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: APP_PORT
-        value: 10000       # Render inyecta $PORT; el 10000 es el default cuando corres local
+      # Render inyecta $PORT automáticamente en runtime — el código lo prefiere
+      # sobre APP_PORT. No hay que hardcodearlo aquí.
       - key: API_VERSION
         value: v1
       - key: LOG_LEVEL
