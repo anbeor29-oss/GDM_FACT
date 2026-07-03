@@ -162,22 +162,38 @@ router.post(
     if (!/^image\//.test(file.mimetype)) {
       throw new ValidationError(`El archivo debe ser una imagen, recibido: ${file.mimetype}`);
     }
-
-    const dir = ensureCompanyDir(id);
-    const ext = (file.originalname.match(/\.[a-zA-Z0-9]+$/) || ['.png'])[0].toLowerCase();
-    const logoPath = path.join(dir, 'logo' + ext);
-
-    // Limpiar logos anteriores
-    for (const f of fs.readdirSync(dir)) {
-      if (/^logo\./.test(f)) fs.unlinkSync(path.join(dir, f));
+    if (file.size > 1_048_576) {
+      throw new ValidationError(`El logo excede 1 MB (${Math.round(file.size / 1024)} KB). Comprímelo antes.`);
     }
-    fs.writeFileSync(logoPath, file.buffer);
+
+    // Guardado dual: BD (persistente en Render) + filesystem (dev local).
+    // En Render sin disco persistente, el filesystem se pierde en cada deploy —
+    // pero la BYTEA de la BD siempre está.
+    try {
+      const dir = ensureCompanyDir(id);
+      for (const f of fs.readdirSync(dir)) {
+        if (/^logo\./.test(f)) fs.unlinkSync(path.join(dir, f));
+      }
+      const ext = (file.originalname.match(/\.[a-zA-Z0-9]+$/) || ['.png'])[0].toLowerCase();
+      const logoPath = path.join(dir, 'logo' + ext);
+      fs.writeFileSync(logoPath, file.buffer);
+      await query(
+        `UPDATE companies SET logo_path = $1 WHERE id = $2`,
+        [logoPath, id]
+      );
+    } catch (_e) {
+      // FS puede fallar en Render (read-only o sin permiso) — no es error fatal
+      // porque el logo también quedará en la BD.
+    }
 
     await query(
       `UPDATE companies
-          SET logo_path = $1, logo_uploaded_at = NOW(), updated_at = NOW()
-        WHERE id = $2`,
-      [logoPath, id]
+          SET logo_data = $1,
+              logo_mimetype = $2,
+              logo_uploaded_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $3`,
+      [file.buffer, file.mimetype, id]
     );
 
     res.status(200).json({
@@ -199,16 +215,26 @@ publicRouter.get(
   '/:id/logo',
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
-    const r = await query<{ logo_path: string }>(
-      `SELECT logo_path FROM companies WHERE id = $1`,
+    // Prioridad: 1) BD (BYTEA — persistente en Render).
+    //            2) filesystem (fallback dev local).
+    const r = await query<{ logo_data: Buffer | null; logo_mimetype: string | null; logo_path: string | null }>(
+      `SELECT logo_data, logo_mimetype, logo_path FROM companies WHERE id = $1`,
       [id]
     );
-    const p = r.rows[0]?.logo_path;
-    if (!p || !fs.existsSync(p)) {
-      res.status(404).end();
+    const row = r.rows[0];
+    if (!row) { res.status(404).end(); return; }
+
+    if (row.logo_data) {
+      res.set('Content-Type', row.logo_mimetype || 'image/png');
+      res.set('Cache-Control', 'public, max-age=300');
+      res.send(row.logo_data);
       return;
     }
-    res.sendFile(p);
+    if (row.logo_path && fs.existsSync(row.logo_path)) {
+      res.sendFile(row.logo_path);
+      return;
+    }
+    res.status(404).end();
   })
 );
 

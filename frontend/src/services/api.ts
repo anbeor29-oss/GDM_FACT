@@ -193,6 +193,10 @@ class APIClient {
     return this.client.delete(`/customers/${customerId}`);
   }
 
+  async deleteProduct(productId: string) {
+    return this.client.delete(`/products/${productId}`);
+  }
+
   /**
    * Products endpoints
    */
@@ -416,9 +420,15 @@ class APIClient {
     return r.data;
   }
 
-  /** URL pública del logo (para <img src>) */
+  /**
+   * URL pública del logo — para usar directo en `<img src>`.
+   * Usa el mismo baseURL configurado en el cliente axios, así funciona:
+   *   · Dev: proxy Vite → localhost:3000
+   *   · Prod: apunta al backend en Render (VITE_API_BASE)
+   */
   companyLogoUrl(id: string) {
-    return `/api/public/companies/${id}/logo?t=${Date.now()}`;
+    const base = this.client.defaults.baseURL || '/api/v1';
+    return `${base}/public/companies/${id}/logo?t=${Date.now()}`;
   }
 
   /* ───────────── Complemento de Pago ───────────── */

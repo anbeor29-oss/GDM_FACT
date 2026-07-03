@@ -28,14 +28,13 @@ export function ProductsPage() {
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`¿Eliminar "${name}"?`)) return;
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`/api/products/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Usamos el cliente axios (respeta VITE_API_BASE en producción y el
+      // interceptor de token). El fetch relativo `/api/products/...` NO
+      // funciona en Render porque va al static site del frontend.
+      await api.deleteProduct(id);
       refresh();
     } catch (e: any) {
-      alert(`Error al eliminar: ${e.message}`);
+      alert(`Error al eliminar: ${e.response?.data?.message || e.message}`);
     }
   };
 
