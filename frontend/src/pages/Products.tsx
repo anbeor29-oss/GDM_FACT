@@ -846,18 +846,20 @@ function TaxBadge({ product }: { product: any }) {
   const exempt = !!product?.is_exempt || product?.tax_type === 'EXENTO';
   const isIeps = !!product?.applies_ieps || product?.tax_type === 'IEPS';
 
+  // Nomenclatura corta y homogénea — muestra siempre la tasa base "IVA X%".
+  // Si el preset tiene retenciones, agrega el sufijo "+Ret" y el detalle va en el tooltip.
   const fromPreset: Record<string, { label: string; tone: TaxTone; hint?: string }> = {
-    iva16:        { label: 'IVA 16%',          tone: 'iva16' },
-    iva8:         { label: 'IVA 8% frontera',  tone: 'iva8' },
-    iva0:         { label: 'IVA 0%',           tone: 'iva0' },
-    ivaex:        { label: 'Exento',           tone: 'exento' },
-    hon_pf_pm:    { label: 'Honorarios PF→PM', tone: 'honorarios',     hint: 'IVA 16% · Ret. IVA 10.67% · Ret. ISR 10%' },
-    resico_pf_pm: { label: 'RESICO PF→PM',     tone: 'resico',         hint: 'IVA 16% · Ret. IVA 10.67% · Ret. ISR 1.25%' },
-    arr_pf_pm:    { label: 'Arrendamiento PF', tone: 'arrendamiento',  hint: 'IVA 16% · Ret. IVA 10.67% · Ret. ISR 10%' },
-    auto_carga:   { label: 'Autotransporte',   tone: 'autotransporte', hint: 'IVA 16% · Ret. IVA 4%' },
-    desperdicios: { label: 'Desperdicios',     tone: 'desperdicios',   hint: 'IVA 16% · Ret. IVA 100%' },
-    ieps_tasa:    { label: 'IEPS por tasa',    tone: 'iepsTasa' },
-    ieps_cuota:   { label: 'IEPS por cuota',   tone: 'iepsCuota' },
+    iva16:        { label: 'IVA 16%',       tone: 'iva16' },
+    iva8:         { label: 'IVA 8%',        tone: 'iva8' },
+    iva0:         { label: 'IVA 0%',        tone: 'iva0' },
+    ivaex:        { label: 'Exento',        tone: 'exento' },
+    hon_pf_pm:    { label: 'IVA 16% +Ret',  tone: 'honorarios',     hint: 'Honorarios PF→PM · IVA 16% · Ret. IVA 10.67% · Ret. ISR 10%' },
+    resico_pf_pm: { label: 'IVA 16% +Ret',  tone: 'resico',         hint: 'RESICO PF→PM · IVA 16% · Ret. IVA 10.67% · Ret. ISR 1.25%' },
+    arr_pf_pm:    { label: 'IVA 16% +Ret',  tone: 'arrendamiento',  hint: 'Arrendamiento PF→PM · IVA 16% · Ret. IVA 10.67% · Ret. ISR 10%' },
+    auto_carga:   { label: 'IVA 16% +Ret',  tone: 'autotransporte', hint: 'Autotransporte de carga · IVA 16% · Ret. IVA 4%' },
+    desperdicios: { label: 'IVA 16% +Ret',  tone: 'desperdicios',   hint: 'Desperdicios · IVA 16% · Ret. IVA 100%' },
+    ieps_tasa:    { label: 'IEPS %',        tone: 'iepsTasa' },
+    ieps_cuota:   { label: 'IEPS $',        tone: 'iepsCuota' },
   };
 
   let entry = preset ? fromPreset[preset] : undefined;
