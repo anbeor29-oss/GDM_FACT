@@ -33,6 +33,19 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Módulos administrativos de plataforma — sólo SUPER_ADMIN.
+ * Si un usuario común escribe /import-xml o /admin/... a mano, lo enviamos
+ * al dashboard en lugar de renderizar la página.
+ */
+function SuperAdminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuthStore();
+  if (user?.role !== 'SUPER_ADMIN') {
+    return <Navigate to="/dashboard" replace />;
+  }
+  return <>{children}</>;
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -50,18 +63,22 @@ export function App() {
               </ProtectedRoute>
             }
           >
-            <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="invoices" element={<InvoicesPage />} />
+            {/* Operación diaria — visible para todos los roles autenticados */}
+            <Route path="dashboard"    element={<DashboardPage />} />
+            <Route path="invoices"     element={<InvoicesPage />} />
             <Route path="invoices/new" element={<NewInvoicePage />} />
-            <Route path="customers" element={<CustomersPage />} />
-            <Route path="products" element={<ProductsPage />} />
-            <Route path="reports" element={<ReportsPage />} />
+            <Route path="customers"    element={<CustomersPage />} />
+            <Route path="products"     element={<ProductsPage />} />
+            <Route path="reports"      element={<ReportsPage />} />
             <Route path="credit-notes" element={<CreditNotesPage />} />
-            <Route path="admin/packages"  element={<AdminPackagesPage />} />
-            <Route path="admin/users"     element={<AdminUsersPage />} />
-            <Route path="admin/companies" element={<AdminCompaniesPage />} />
-            <Route path="import-xml"      element={<ImportXMLWizardPage />} />
-            <Route path="suppliers"       element={<SuppliersPage />} />
+
+            {/* Módulos de plataforma — SOLO SUPER_ADMIN (guard por URL directa) */}
+            <Route path="admin/packages"  element={<SuperAdminRoute><AdminPackagesPage /></SuperAdminRoute>} />
+            <Route path="admin/users"     element={<SuperAdminRoute><AdminUsersPage /></SuperAdminRoute>} />
+            <Route path="admin/companies" element={<SuperAdminRoute><AdminCompaniesPage /></SuperAdminRoute>} />
+            <Route path="import-xml"      element={<SuperAdminRoute><ImportXMLWizardPage /></SuperAdminRoute>} />
+            <Route path="suppliers"       element={<SuperAdminRoute><SuppliersPage /></SuperAdminRoute>} />
+
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Routes>

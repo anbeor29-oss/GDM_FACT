@@ -1,35 +1,231 @@
 /**
- * Admin → Paquetes Fiscales.
- *  · Solo accesible para usuarios con rol ADMIN.
- *  · Filtros: compañía + rango de fechas + formato (XML / XML+PDF).
- *  · Descarga ZIP con MANIFEST.json auditable.
+ * Super-Admin → Paquetes fiscales.
  *
- *  Llama a /archive/admin/invoices.zip que ya valida el rol del lado servidor;
- *  el guard del frontend es UX, no seguridad.
+ *  Dos secciones en una página:
+ *    (A) Planes de timbrado — muestra los 4 paquetes con precios (PKG_100,
+ *        PKG_200, PKG_500, PKG_FLEX). El SUPER_ADMIN los asigna a cada
+ *        empresa desde el módulo Empresas.
+ *    (B) Descarga de paquete SAT — genera ZIP con XMLs (+ opcional PDF) de
+ *        una compañía para respaldo fiscal de 5 años (Anexo 20).
+ *
+ *  Guard duro: role === 'SUPER_ADMIN'. El backend también lo valida.
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Building2, Calendar, Package } from 'lucide-react';
+import { Download, Building2, Calendar, Package, Check, Zap, Star, Rocket } from 'lucide-react';
 import api from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 
+/* ─────────────── Catálogo de planes (espejo de stamp_packages) ─────────────── */
+
+interface StampPlan {
+  code: string;
+  name: string;
+  monthlyStamps: number | null;   // null = uso libre / pay-per-stamp
+  monthlyFeeMXN: number;
+  extraStampMXN: number;
+  color: string;                   // clases Tailwind del color de acento
+  ring: string;
+  bg: string;
+  icon: JSX.Element;
+  highlight?: boolean;             // el plan destacado
+  bulletpoints: string[];
+}
+
+const PLANS: StampPlan[] = [
+  {
+    code: 'PKG_100',
+    name: 'Esencial',
+    monthlyStamps: 100,
+    monthlyFeeMXN: 399,
+    extraStampMXN: 2.5,
+    color: 'text-emerald-700',
+    ring: 'border-emerald-200',
+    bg: 'bg-emerald-50',
+    icon: <Zap size={28} className="text-emerald-600" />,
+    bulletpoints: [
+      '100 timbres CFDI 4.0 al mes',
+      'Timbrado ilimitado dentro del cap',
+      'Reportes de cobranza, ventas y fiscal',
+      'Notas de crédito y complementos de pago',
+      'Multi-usuario (ADMIN + operativos)',
+      'Timbre extra: $2.50 MXN',
+    ],
+  },
+  {
+    code: 'PKG_200',
+    name: 'Pyme',
+    monthlyStamps: 200,
+    monthlyFeeMXN: 699,
+    extraStampMXN: 2.25,
+    color: 'text-indigo-700',
+    ring: 'border-indigo-200',
+    bg: 'bg-indigo-50',
+    icon: <Star size={28} className="text-indigo-600" />,
+    highlight: true,
+    bulletpoints: [
+      '200 timbres CFDI 4.0 al mes',
+      'Todo lo del plan Esencial',
+      'Importación de XMLs recibidos',
+      'Gestión de proveedores',
+      'Reporte de cobranza detallado',
+      'Timbre extra: $2.25 MXN',
+    ],
+  },
+  {
+    code: 'PKG_500',
+    name: 'Empresarial',
+    monthlyStamps: 500,
+    monthlyFeeMXN: 1399,
+    extraStampMXN: 2.0,
+    color: 'text-violet-700',
+    ring: 'border-violet-200',
+    bg: 'bg-violet-50',
+    icon: <Rocket size={28} className="text-violet-600" />,
+    bulletpoints: [
+      '500 timbres CFDI 4.0 al mes',
+      'Todo lo del plan Pyme',
+      'Prioridad en soporte',
+      'Backup mensual SAT en ZIP',
+      'Multi-empresa (multi-tenant)',
+      'Timbre extra: $2.00 MXN',
+    ],
+  },
+  {
+    code: 'PKG_FLEX',
+    name: 'Uso libre',
+    monthlyStamps: null,
+    monthlyFeeMXN: 0,
+    extraStampMXN: 2.5,
+    color: 'text-slate-700',
+    ring: 'border-slate-200',
+    bg: 'bg-slate-50',
+    icon: <Package size={28} className="text-slate-600" />,
+    bulletpoints: [
+      'Sin renta mensual',
+      'Pago por timbre consumido',
+      'Ideal para bajo volumen (< 30/mes)',
+      'Facturación al final del mes',
+      'Sin compromiso de permanencia',
+    ],
+  },
+];
+
+/* ─────────────── Página ─────────────── */
+
 export function AdminPackagesPage() {
   const { user } = useAuthStore();
+
+  if (user?.role !== 'SUPER_ADMIN') {
+    return (
+      <div className="bg-amber-50 border border-amber-200 text-amber-900 p-6 rounded-lg">
+        <p className="font-semibold mb-1">Acceso restringido</p>
+        <p className="text-sm">
+          Esta sección requiere rol <b>SUPER_ADMIN</b>. Tu rol actual: <b>{user?.role}</b>.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-4xl font-bold text-gray-900 flex items-center gap-3">
+          <Package className="text-indigo-600" size={36} /> Paquetes fiscales
+        </h1>
+        <p className="text-gray-600 mt-2">
+          Planes de timbrado disponibles y descarga de respaldos SAT.
+        </p>
+      </div>
+
+      {/* ─── SECCIÓN A: Planes de timbrado ─── */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">Planes de timbrado</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {PLANS.map((p) => <PlanCard key={p.code} plan={p} />)}
+        </div>
+        <p className="text-xs text-gray-500 mt-4">
+          La asignación de plan a una empresa se hace desde el módulo{' '}
+          <b>Empresas → editar → Plan de timbrado</b>.
+        </p>
+      </section>
+
+      {/* ─── SECCIÓN B: Descarga de respaldo SAT ─── */}
+      <SectionDownloadZip />
+    </div>
+  );
+}
+
+/* ─────────────── Componente: card de plan ─────────────── */
+
+function PlanCard({ plan }: { plan: StampPlan }) {
+  const priceLabel = plan.monthlyFeeMXN === 0
+    ? 'Sin renta'
+    : `$${plan.monthlyFeeMXN.toLocaleString('es-MX')}`;
+  const perLabel = plan.monthlyFeeMXN === 0 ? 'pay-per-stamp' : '/ mes';
+
+  return (
+    <div
+      className={`bg-white rounded-xl border-2 ${plan.ring} p-5 flex flex-col relative overflow-hidden ${
+        plan.highlight ? 'shadow-lg' : 'shadow-sm'
+      }`}
+    >
+      {plan.highlight && (
+        <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-bl-lg">
+          Recomendado
+        </div>
+      )}
+
+      <div className={`w-14 h-14 ${plan.bg} rounded-xl flex items-center justify-center mb-3`}>
+        {plan.icon}
+      </div>
+
+      <h3 className={`text-xl font-bold ${plan.color}`}>{plan.name}</h3>
+      <p className="text-xs text-gray-500 font-mono mb-3">{plan.code}</p>
+
+      <div className="mb-4">
+        <span className="text-3xl font-bold text-gray-900">{priceLabel}</span>
+        {' '}
+        <span className="text-sm text-gray-500">MXN {perLabel}</span>
+      </div>
+
+      {plan.monthlyStamps !== null && (
+        <div className={`${plan.bg} rounded-lg px-3 py-2 mb-4 flex items-center justify-between`}>
+          <span className="text-xs text-gray-600">Timbres/mes</span>
+          <span className={`font-bold ${plan.color}`}>{plan.monthlyStamps}</span>
+        </div>
+      )}
+
+      <ul className="space-y-1.5 flex-1 text-sm text-gray-700">
+        {plan.bulletpoints.map((b) => (
+          <li key={b} className="flex items-start gap-2">
+            <Check size={16} className={`${plan.color} shrink-0 mt-0.5`} />
+            <span>{b}</span>
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-4 pt-4 border-t border-gray-100 text-[11px] text-gray-500">
+        Timbre extra: <b>${plan.extraStampMXN.toFixed(2)} MXN</b>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────── Sección: descarga de respaldo SAT ─────────────── */
+
+function SectionDownloadZip() {
   const [companyId, setCompanyId] = useState('');
-  const [from, setFrom]           = useState(() => firstOfMonth());
-  const [to, setTo]               = useState(() => todayISO());
-  const [format, setFormat]       = useState<'xml' | 'both'>('xml');
-  const [limit, setLimit]         = useState(100);
-  const [error, setError]         = useState('');
+  const [from, setFrom] = useState(() => firstOfMonth());
+  const [to, setTo] = useState(() => todayISO());
+  const [format, setFormat] = useState<'xml' | 'both'>('xml');
+  const [limit, setLimit] = useState(100);
+  const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(false);
 
-  const isAdmin = user?.role === 'ADMIN';
-
-  // Si el backend aún no expone /companies, mostramos input UUID manual.
   const companiesQ = useQuery({
     queryKey: ['companies-list'],
     queryFn: () => api.listCompanies(),
-    enabled: isAdmin,
     retry: 0,
   });
   const companies = (companiesQ.data?.data?.companies || []) as Array<{
@@ -51,28 +247,16 @@ export function AdminPackagesPage() {
     }
   };
 
-  if (!isAdmin) {
-    return (
-      <div className="bg-amber-50 border border-amber-200 text-amber-900 p-6 rounded-lg">
-        <p className="font-semibold mb-1">Acceso restringido</p>
-        <p className="text-sm">Esta sección requiere rol <b>ADMIN</b>. Tu rol actual: <b>{user?.role}</b>.</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-4xl font-bold text-gray-900 flex items-center gap-3">
-          <Package className="text-indigo-600" size={36} /> Paquetes fiscales
-        </h1>
-        <p className="text-gray-600 mt-2">
-          Descarga ZIP con los XML (y opcionalmente PDF) de una compañía para respaldo SAT.
-        </p>
-      </div>
+    <section>
+      <h2 className="text-lg font-semibold text-gray-800 mb-1">Respaldo SAT (ZIP)</h2>
+      <p className="text-xs text-gray-500 mb-4">
+        Genera un paquete comprimido con los XMLs (y opcionalmente PDFs) de una
+        compañía en un rango de fechas. Retención SAT: 5 años.
+      </p>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm mb-4">
           {error}
         </div>
       )}
@@ -83,11 +267,7 @@ export function AdminPackagesPage() {
             <Building2 size={16} /> Compañía
           </span>
           {companies.length > 0 ? (
-            <select
-              value={companyId}
-              onChange={(e) => setCompanyId(e.target.value)}
-              className="input"
-            >
+            <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="input">
               <option value="">— seleccionar compañía —</option>
               {companies.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -100,7 +280,7 @@ export function AdminPackagesPage() {
               type="text"
               value={companyId}
               onChange={(e) => setCompanyId(e.target.value.trim())}
-              placeholder="UUID de la compañía (00000000-0000-0000-0000-000000000000)"
+              placeholder="UUID de la compañía"
               className="input font-mono text-xs"
             />
           )}
@@ -154,9 +334,11 @@ export function AdminPackagesPage() {
           guarda los paquetes mensuales en almacenamiento frío (S3 Glacier / Azure Archive).
         </p>
       </div>
-    </div>
+    </section>
   );
 }
+
+/* ─────────────── helpers ─────────────── */
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10);

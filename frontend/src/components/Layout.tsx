@@ -78,17 +78,15 @@ export function Layout() {
 
         {/* Navegación */}
         <nav className="flex-1 p-3 space-y-1">
+          {/* Operación diaria — todos los roles */}
           <NavItem to="/dashboard"    icon={<LayoutGrid size={20} />}  accent="sky"     label="Dashboard"        open={sidebarOpen} />
           <NavItem to="/invoices"     icon={<FileText size={20} />}    accent="amber"   label="Facturas"         open={sidebarOpen} />
           <NavItem to="/credit-notes" icon={<FileMinus2 size={20} />}  accent="rose"    label="Notas de Crédito" open={sidebarOpen} />
           <NavItem to="/customers"    icon={<Users size={20} />}       accent="emerald" label="Clientes"         open={sidebarOpen} />
           <NavItem to="/products"     icon={<Boxes size={20} />}       accent="fuchsia" label="Productos"        open={sidebarOpen} />
           <NavItem to="/reports"      icon={<BarChart3 size={20} />}   accent="violet"  label="Reportes"         open={sidebarOpen} />
-          <NavItem to="/import-xml"   icon={<FileUp size={20} />}      accent="emerald" label="Importar XML"     open={sidebarOpen} />
-          <NavItem to="/suppliers"    icon={<Truck size={20} />}       accent="amber"   label="Proveedores"      open={sidebarOpen} />
-          {user?.role === 'ADMIN' && (
-            <NavItem to="/admin/packages" icon={<Package size={20} />} accent="violet" label="Paquetes fiscales" open={sidebarOpen} />
-          )}
+
+          {/* Módulos avanzados — SOLO SUPER_ADMIN los gestiona */}
           {user?.role === 'SUPER_ADMIN' && (
             <>
               <div className={`mt-4 ${sidebarOpen ? 'px-3' : 'text-center'}`}>
@@ -96,9 +94,11 @@ export function Layout() {
                   {sidebarOpen ? 'Plataforma' : '•'}
                 </p>
               </div>
-              <NavItem to="/admin/users"     icon={<Shield size={20} />}    accent="violet" label="Usuarios"        open={sidebarOpen} />
-              <NavItem to="/admin/companies" icon={<Building2 size={20} />} accent="violet" label="Empresas"        open={sidebarOpen} />
-              <NavItem to="/admin/packages"  icon={<Package size={20} />}   accent="violet" label="Paquetes fiscales" open={sidebarOpen} />
+              <NavItem to="/import-xml"      icon={<FileUp size={20} />}    accent="emerald" label="Importar XML"      open={sidebarOpen} />
+              <NavItem to="/suppliers"       icon={<Truck size={20} />}     accent="amber"   label="Proveedores"       open={sidebarOpen} />
+              <NavItem to="/admin/users"     icon={<Shield size={20} />}    accent="violet"  label="Usuarios"          open={sidebarOpen} />
+              <NavItem to="/admin/companies" icon={<Building2 size={20} />} accent="violet"  label="Empresas"          open={sidebarOpen} />
+              <NavItem to="/admin/packages"  icon={<Package size={20} />}   accent="violet"  label="Paquetes fiscales" open={sidebarOpen} />
             </>
           )}
         </nav>

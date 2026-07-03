@@ -6,7 +6,7 @@
  */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Building2, Plus, FileKey, Trash2, X, ShieldCheck } from 'lucide-react';
+import { Building2, Plus, FileKey, Trash2, X, ShieldCheck, ScanText, Upload } from 'lucide-react';
 import api from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 
@@ -114,19 +114,86 @@ export function AdminCompaniesPage() {
   );
 }
 
+/* ─────────────── Catálogo de planes (espejo de stamp_packages) ─────────────── */
+
+interface StampPlanOption {
+  code: string;
+  label: string;                // texto que va en el <option>
+  billingPlan: 'iguala' | 'renta';
+  capTimbres: number;           // 0 = sin cap (pay-per-stamp)
+  monthlyFee: number;
+}
+
+const PLAN_OPTIONS: StampPlanOption[] = [
+  { code:'PKG_100',  label:'Esencial · 100 timbres · $399/mes',    billingPlan:'iguala', capTimbres:100, monthlyFee:399 },
+  { code:'PKG_200',  label:'Pyme · 200 timbres · $699/mes',        billingPlan:'iguala', capTimbres:200, monthlyFee:699 },
+  { code:'PKG_500',  label:'Empresarial · 500 timbres · $1,399/mes', billingPlan:'iguala', capTimbres:500, monthlyFee:1399 },
+  { code:'PKG_FLEX', label:'Uso libre (pay-per-stamp) · sin renta', billingPlan:'renta',  capTimbres:0,   monthlyFee:0 },
+];
+
+/* ─────────────── Modal Nueva Empresa ─────────────── */
+
 function CreateCompanyModal({ onClose, onDone }: any) {
   const [form, setForm] = useState({
     rfc:'', businessName:'', fiscalRegime:'601', postalCode:'',
-    billingPlan:'iguala', capTimbres:100, monthlyFee:500, extraStampFee:0.80,
+    // Default: plan Pyme (PKG_200) — el más recomendado.
+    planCode:'PKG_200',
+    billingPlan:'iguala' as 'iguala'|'renta',
+    capTimbres:200, monthlyFee:699,
+    // Timbre extra fijo $2.00 MXN — se puede ajustar por empresa si se negocia.
+    extraStampFee:2.00,
   });
-  const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [csfLoading, setCsfLoading] = useState(false);
+
+  // Aplica un plan al form (autollena billing_plan + cap + fee)
+  const applyPlan = (code: string) => {
+    const p = PLAN_OPTIONS.find((x) => x.code === code);
+    if (!p) return;
+    setForm((f) => ({
+      ...f,
+      planCode: p.code,
+      billingPlan: p.billingPlan,
+      capTimbres: p.capTimbres,
+      monthlyFee: p.monthlyFee,
+    }));
+  };
+
+  // Lector de CIF: sube PDF a /csf/extract y autollena RFC + razón + régimen + CP.
+  const handleReadCIF = async (file: File) => {
+    setError(''); setCsfLoading(true);
+    try {
+      const r = await api.extractCSF(file);
+      const d = r.data || {};
+      setForm((f) => ({
+        ...f,
+        rfc: (d.rfc || f.rfc).toUpperCase(),
+        businessName: (d.businessName || d.razonSocial || f.businessName).toUpperCase(),
+        fiscalRegime: d.fiscalRegime || d.regimenFiscal || f.fiscalRegime,
+        postalCode: d.postalCode || d.cp || f.postalCode,
+      }));
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'No se pudo leer el CIF. Verifica que sea un PDF de Constancia de Situación Fiscal SAT.');
+    } finally { setCsfLoading(false); }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setBusy(true);
-    try { await api.adminCreateCompany(form); onDone(); }
-    catch (e: any) { setError(e.response?.data?.message || e.message); }
-    finally { setBusy(false); }
+    try {
+      // Enviamos también `stampPackageCode` para que el backend lo guarde
+      // en la nueva columna `stamp_package_code` cuando esté disponible.
+      await api.adminCreateCompany({
+        ...form,
+        stampPackageCode: form.planCode,
+      });
+      onDone();
+    } catch (e: any) {
+      setError(e.response?.data?.message || e.message);
+    } finally { setBusy(false); }
   };
+
+  const currentPlan = PLAN_OPTIONS.find((x) => x.code === form.planCode)!;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -135,8 +202,26 @@ function CreateCompanyModal({ onClose, onDone }: any) {
           <h2 className="font-bold">Nueva empresa</h2>
           <button type="button" onClick={onClose} className="p-2 hover:bg-gray-100 rounded"><X size={20}/></button>
         </div>
-        <div className="p-5 space-y-3">
+        <div className="p-5 space-y-4">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
+
+          {/* ─── Botón lector de CIF (CSF SAT) ─── */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <p className="text-sm font-semibold text-blue-900 mb-1 flex items-center gap-2">
+              <ScanText size={16}/> Leer Constancia de Situación Fiscal (CIF)
+            </p>
+            <p className="text-xs text-blue-700 mb-2">
+              Sube el PDF de la CSF del SAT y autollenamos RFC, razón social, régimen y CP.
+            </p>
+            <label className="inline-flex items-center gap-2 cursor-pointer bg-white border border-blue-300 rounded px-3 py-1.5 hover:bg-blue-100 text-sm">
+              <Upload size={14}/> {csfLoading ? 'Leyendo PDF…' : 'Seleccionar PDF'}
+              <input type="file" accept="application/pdf,.pdf" className="hidden"
+                disabled={csfLoading}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleReadCIF(f); }}/>
+            </label>
+          </div>
+
+          {/* ─── Datos fiscales (llenados a mano o por CIF) ─── */}
           <div className="grid grid-cols-2 gap-3">
             <label className="block"><span className="text-sm font-medium block mb-1">RFC *</span>
               <input required className="input w-full font-mono uppercase" maxLength={13}
@@ -152,24 +237,44 @@ function CreateCompanyModal({ onClose, onDone }: any) {
             <input className="input w-full" maxLength={5} value={form.postalCode}
               onChange={(e)=>setForm({...form,postalCode:e.target.value})}/></label>
 
+          {/* ─── Plan de cobro con selector ─── */}
           <div className="border-t pt-3">
             <p className="text-sm font-semibold text-gray-700 mb-2">Plan de cobro</p>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block"><span className="text-sm block mb-1">Tipo</span>
-                <select className="input w-full" value={form.billingPlan}
-                  onChange={(e)=>setForm({...form,billingPlan:e.target.value})}>
-                  <option value="iguala">Iguala (cap fijo de timbres)</option>
-                  <option value="renta">Renta + cargo por timbre</option>
-                </select></label>
-              <label className="block"><span className="text-sm block mb-1">Renta mensual ($)</span>
-                <input type="number" step="0.01" className="input w-full" value={form.monthlyFee}
-                  onChange={(e)=>setForm({...form,monthlyFee:parseFloat(e.target.value)})}/></label>
-              <label className="block"><span className="text-sm block mb-1">Cap timbres / mes</span>
-                <input type="number" className="input w-full" value={form.capTimbres}
-                  onChange={(e)=>setForm({...form,capTimbres:parseInt(e.target.value)})}/></label>
-              <label className="block"><span className="text-sm block mb-1">Timbre extra ($)</span>
-                <input type="number" step="0.01" className="input w-full" value={form.extraStampFee}
-                  onChange={(e)=>setForm({...form,extraStampFee:parseFloat(e.target.value)})}/></label>
+
+            <label className="block">
+              <span className="text-sm block mb-1">Paquete de timbres</span>
+              <select className="input w-full" value={form.planCode}
+                onChange={(e)=>applyPlan(e.target.value)}>
+                {PLAN_OPTIONS.map((p) => (
+                  <option key={p.code} value={p.code}>{p.label}</option>
+                ))}
+              </select>
+            </label>
+
+            {/* Resumen del plan seleccionado (read-only, autollenado) */}
+            <div className="grid grid-cols-3 gap-3 mt-3">
+              <div className="bg-gray-50 border rounded px-3 py-2">
+                <p className="text-[10px] uppercase text-gray-500">Cap timbres/mes</p>
+                <p className="text-lg font-bold text-gray-900">
+                  {currentPlan.capTimbres || '∞'}
+                </p>
+              </div>
+              <div className="bg-gray-50 border rounded px-3 py-2">
+                <p className="text-[10px] uppercase text-gray-500">Renta mensual</p>
+                <p className="text-lg font-bold text-gray-900">
+                  ${currentPlan.monthlyFee.toLocaleString('es-MX')}
+                </p>
+              </div>
+              <label className="block bg-white border rounded px-3 py-2">
+                <span className="text-[10px] uppercase text-gray-500 block">Timbre extra</span>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-lg font-bold text-gray-900">$</span>
+                  <input type="number" step="0.01" min="0"
+                    className="text-lg font-bold text-gray-900 border-0 p-0 w-full focus:ring-0"
+                    value={form.extraStampFee}
+                    onChange={(e)=>setForm({...form,extraStampFee:parseFloat(e.target.value)||0})}/>
+                </div>
+              </label>
             </div>
           </div>
         </div>

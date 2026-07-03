@@ -595,7 +595,8 @@ class APIClient {
   }
   async adminCreateCompany(data: { rfc: string; businessName: string; fiscalRegime: string;
                                    postalCode?: string; billingPlan?: string; capTimbres?: number;
-                                   monthlyFee?: number; extraStampFee?: number }) {
+                                   monthlyFee?: number; extraStampFee?: number;
+                                   stampPackageCode?: string }) {
     const r = await this.client.post('/admin/companies', data);
     return r.data;
   }
