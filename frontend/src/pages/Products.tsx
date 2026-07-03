@@ -12,6 +12,31 @@ import {
 } from 'lucide-react';
 import api from '@/services/api';
 
+/* ─── Helper: mapa preset → tasas visibles en la tabla ─── */
+function ratesFor(presetId?: string, taxType?: string, taxRate?: number): {
+  iva: string; retIva: string | null; retIsr: string | null;
+} {
+  const table: Record<string, { iva: string; retIva: string | null; retIsr: string | null }> = {
+    iva16:        { iva: '16%',    retIva: null,     retIsr: null },
+    iva8:         { iva: '8%',     retIva: null,     retIsr: null },
+    iva0:         { iva: '0%',     retIva: null,     retIsr: null },
+    ivaex:        { iva: 'Exento', retIva: null,     retIsr: null },
+    hon_pf_pm:    { iva: '16%',    retIva: '10.67%', retIsr: '10%' },
+    resico_pf_pm: { iva: '16%',    retIva: '10.67%', retIsr: '1.25%' },
+    arr_pf_pm:    { iva: '16%',    retIva: '10.67%', retIsr: '10%' },
+    auto_carga:   { iva: '16%',    retIva: '4%',     retIsr: null },
+    desperdicios: { iva: '16%',    retIva: '16%',    retIsr: null },
+    ieps_tasa:    { iva: 'IEPS %', retIva: null,     retIsr: null },
+    ieps_cuota:   { iva: 'IEPS $', retIva: null,     retIsr: null },
+  };
+  if (presetId && table[presetId]) return table[presetId];
+  // Fallback para productos legacy (sin preset guardado)
+  if (taxType === 'EXENTO') return { iva: 'Exento', retIva: null, retIsr: null };
+  if (taxType === 'IEPS')   return { iva: 'IEPS',   retIva: null, retIsr: null };
+  const r = typeof taxRate === 'number' ? taxRate : 0.16;
+  return { iva: `${(r * 100).toFixed(0)}%`, retIva: null, retIsr: null };
+}
+
 export function ProductsPage() {
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
@@ -61,40 +86,60 @@ export function ProductsPage() {
         <table className="w-full">
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">SKU</th>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Nombre</th>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Clave SAT</th>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Unidad</th>
-              <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">Precio</th>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Impuesto</th>
-              <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Acciones</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">SKU</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Nombre</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Clave SAT</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Unidad</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-900 uppercase tracking-wide">Precio</th>
+              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-900 uppercase tracking-wide" title="IVA trasladado">IVA</th>
+              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-900 uppercase tracking-wide" title="Retención IVA">Ret. IVA</th>
+              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-900 uppercase tracking-wide" title="Retención ISR">Ret. ISR</th>
+              <th className="px-4 py-3 text-center text-xs font-semibold text-gray-900 uppercase tracking-wide">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {isLoading ? (
-              <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-600">Cargando…</td></tr>
+              <tr><td colSpan={9} className="px-6 py-8 text-center text-gray-600">Cargando…</td></tr>
             ) : productsData?.data?.products?.length === 0 ? (
-              <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-600">No hay productos. Crea uno o importa XMLs.</td></tr>
+              <tr><td colSpan={9} className="px-6 py-8 text-center text-gray-600">No hay productos. Crea uno o importa XMLs.</td></tr>
             ) : (
-              productsData?.data?.products?.map((p: any) => (
+              productsData?.data?.products?.map((p: any) => {
+                const rates = ratesFor(p.tax_preset_id, p.tax_type, Number(p.tax_rate));
+                return (
                 <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 text-sm font-mono text-gray-700">{p.sku}</td>
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900 uppercase">{p.name}</td>
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-3 text-sm font-mono text-gray-700">{p.sku}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900 uppercase">{p.name}</td>
+                  <td className="px-4 py-3">
                     <span className="inline-flex items-center gap-1 px-2 py-1 rounded bg-green-50 text-green-700 text-xs font-mono">
                       <CheckCircle size={12} />
                       {p.clave_sat}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-600 font-mono">{p.unit_code}</td>
-                  <td className="px-6 py-4 text-sm font-semibold text-gray-900 text-right">
+                  <td className="px-4 py-3 text-sm text-gray-600 font-mono">{p.unit_code}</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
                     ${Number(p.base_price || 0).toFixed(2)}
                   </td>
-                  <td className="px-6 py-4 text-sm">
-                    <TaxBadge product={p} />
+                  <td className="px-4 py-3 text-center">
+                    <span className="inline-block min-w-[3rem] px-2 py-1 rounded bg-sky-50 text-sky-700 text-xs font-semibold border border-sky-100">
+                      {rates.iva}
+                    </span>
                   </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-1">
+                  <td className="px-4 py-3 text-center">
+                    {rates.retIva ? (
+                      <span className="inline-block min-w-[3rem] px-2 py-1 rounded bg-amber-50 text-amber-800 text-xs font-semibold border border-amber-200">
+                        {rates.retIva}
+                      </span>
+                    ) : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {rates.retIsr ? (
+                      <span className="inline-block min-w-[3rem] px-2 py-1 rounded bg-rose-50 text-rose-700 text-xs font-semibold border border-rose-200">
+                        {rates.retIsr}
+                      </span>
+                    ) : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-center gap-1">
                       <button
                         onClick={() => setEditingId(p.id)}
                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
@@ -112,7 +157,7 @@ export function ProductsPage() {
                     </div>
                   </td>
                 </tr>
-              ))
+              );})
             )}
           </tbody>
         </table>
@@ -408,12 +453,20 @@ function ProductModal({
     }
   }, [existing, mode, nextSkuData]);
 
+  const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: (data: any) =>
       mode === 'create'
         ? api.createProduct(data)
-        : (api as any).updateProduct?.(productId!, data),
-    onSuccess: () => onSaved(),
+        : api.updateProduct(productId!, data),
+    onSuccess: () => {
+      // Invalida TODAS las caches del producto (la lista, el detalle y next SKU)
+      // para que la tabla y el próximo abrir del editor traigan los datos frescos.
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['product', productId] });
+      queryClient.invalidateQueries({ queryKey: ['nextSku'] });
+      onSaved();
+    },
     onError: (e: any) => setError(e.response?.data?.message || e.message),
   });
 
@@ -901,67 +954,5 @@ function Field({
   );
 }
 
-/* ===================== Badge de impuesto para la tabla =====================
- * Cada preset tiene su propio color para distinguirlo de un vistazo.
- * Fallback para productos legacy sin tax_preset_id: deriva del tax_type/rate/banderas.
- */
-type TaxTone =
-  | 'iva16' | 'iva8' | 'iva0' | 'exento'
-  | 'honorarios' | 'resico' | 'arrendamiento' | 'autotransporte' | 'desperdicios'
-  | 'iepsTasa' | 'iepsCuota';
-
-const TAX_TONE_PALETTE: Record<TaxTone, string> = {
-  iva16:          'bg-sky-50 text-sky-700 border-sky-200',
-  iva8:           'bg-cyan-50 text-cyan-700 border-cyan-200',
-  iva0:           'bg-teal-50 text-teal-700 border-teal-200',
-  exento:         'bg-slate-100 text-slate-600 border-slate-300',
-  honorarios:     'bg-amber-50 text-amber-800 border-amber-200',
-  resico:         'bg-orange-50 text-orange-700 border-orange-200',
-  arrendamiento:  'bg-yellow-50 text-yellow-800 border-yellow-200',
-  autotransporte: 'bg-lime-50 text-lime-700 border-lime-200',
-  desperdicios:   'bg-rose-50 text-rose-700 border-rose-200',
-  iepsTasa:       'bg-violet-50 text-violet-700 border-violet-200',
-  iepsCuota:      'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200',
-};
-
-function TaxBadge({ product }: { product: any }) {
-  const preset = product?.tax_preset_id as string | undefined;
-  const rate = Number(product?.tax_rate || 0);
-  const exempt = !!product?.is_exempt || product?.tax_type === 'EXENTO';
-  const isIeps = !!product?.applies_ieps || product?.tax_type === 'IEPS';
-
-  // Nomenclatura corta y homogénea — muestra siempre la tasa base "IVA X%".
-  // Si el preset tiene retenciones, agrega el sufijo "+Ret" y el detalle va en el tooltip.
-  const fromPreset: Record<string, { label: string; tone: TaxTone; hint?: string }> = {
-    iva16:        { label: 'IVA 16%',       tone: 'iva16' },
-    iva8:         { label: 'IVA 8%',        tone: 'iva8' },
-    iva0:         { label: 'IVA 0%',        tone: 'iva0' },
-    ivaex:        { label: 'Exento',        tone: 'exento' },
-    hon_pf_pm:    { label: 'IVA 16% +Ret',  tone: 'honorarios',     hint: 'Honorarios PF→PM · IVA 16% · Ret. IVA 10.67% · Ret. ISR 10%' },
-    resico_pf_pm: { label: 'IVA 16% +Ret',  tone: 'resico',         hint: 'RESICO PF→PM · IVA 16% · Ret. IVA 10.67% · Ret. ISR 1.25%' },
-    arr_pf_pm:    { label: 'IVA 16% +Ret',  tone: 'arrendamiento',  hint: 'Arrendamiento PF→PM · IVA 16% · Ret. IVA 10.67% · Ret. ISR 10%' },
-    auto_carga:   { label: 'IVA 16% +Ret',  tone: 'autotransporte', hint: 'Autotransporte de carga · IVA 16% · Ret. IVA 4%' },
-    desperdicios: { label: 'IVA 16% +Ret',  tone: 'desperdicios',   hint: 'Desperdicios · IVA 16% · Ret. IVA 100%' },
-    ieps_tasa:    { label: 'IEPS %',        tone: 'iepsTasa' },
-    ieps_cuota:   { label: 'IEPS $',        tone: 'iepsCuota' },
-  };
-
-  let entry = preset ? fromPreset[preset] : undefined;
-  if (!entry) {
-    // Fallback retro-compatible para productos viejos sin preset
-    if (exempt)             entry = { label: 'Exento',     tone: 'exento' };
-    else if (isIeps)        entry = { label: 'IEPS',       tone: 'iepsTasa' };
-    else if (rate === 0)    entry = { label: 'IVA 0%',     tone: 'iva0' };
-    else if (rate === 0.08) entry = { label: 'IVA 8%',     tone: 'iva8' };
-    else                    entry = { label: `IVA ${(rate * 100).toFixed(0)}%`, tone: 'iva16' };
-  }
-
-  return (
-    <span
-      title={entry.hint}
-      className={`inline-flex items-center px-2 py-1 rounded border text-xs font-medium ${TAX_TONE_PALETTE[entry.tone]}`}
-    >
-      {entry.label}
-    </span>
-  );
-}
+/* TaxBadge fue reemplazado por columnas separadas IVA / Ret.IVA / Ret.ISR
+ * (ver ratesFor arriba). Se conserva la función vacía para no romper imports. */

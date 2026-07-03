@@ -217,6 +217,11 @@ class APIClient {
     return response.data;
   }
 
+  async updateProduct(productId: string, data: any) {
+    const response = await this.client.put<APIResponse<Product>>(`/products/${productId}`, data);
+    return response.data;
+  }
+
   /**
    * CFDI endpoints
    */

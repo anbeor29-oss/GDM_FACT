@@ -561,10 +561,12 @@ function generateTotals(doc: PDFDoc, invoice: any) {
   // Retenciones desglosadas — preferimos las columnas nuevas; si no, caemos al total
   const retIva = Number(invoice.tax_retained_iva) || 0;
   const retIsr = Number(invoice.tax_retained_isr) || 0;
-  if (retIva > 0) line('Ret. IVA', `−$ ${fmtMoney(retIva)}`);
-  if (retIsr > 0) line('Ret. ISR', `−$ ${fmtMoney(retIsr)}`);
+  // Nota: el signo Unicode "−" (U+2212) se renderiza mal en algunas fuentes
+  // PDF (aparece como comilla). Usamos "-" ASCII para máxima compatibilidad.
+  if (retIva > 0) line('Ret. IVA', `-$ ${fmtMoney(retIva)}`);
+  if (retIsr > 0) line('Ret. ISR', `-$ ${fmtMoney(retIsr)}`);
   if (!retIva && !retIsr && Number(invoice.tax_retained) > 0) {
-    line('Retenciones', `−$ ${fmtMoney(invoice.tax_retained)}`);
+    line('Retenciones', `-$ ${fmtMoney(invoice.tax_retained)}`);
   }
   line('TOTAL', `$ ${fmtMoney(invoice.total)} ${invoice.currency || 'MXN'}`, false, true);
 
