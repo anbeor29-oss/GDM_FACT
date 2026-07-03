@@ -16,9 +16,9 @@ import {
   Building2,
   Sparkles,
   FileMinus2,
-  Package,
-  Shield,
-  FileUp,
+  ShieldCheck,
+  Wallet,
+  FileInput,
   Truck,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -78,27 +78,33 @@ export function Layout() {
 
         {/* Navegación */}
         <nav className="flex-1 p-3 space-y-1">
-          {/* Operación diaria — todos los roles */}
-          <NavItem to="/dashboard"    icon={<LayoutGrid size={20} />}  accent="sky"     label="Dashboard"        open={sidebarOpen} />
-          <NavItem to="/invoices"     icon={<FileText size={20} />}    accent="amber"   label="Facturas"         open={sidebarOpen} />
-          <NavItem to="/credit-notes" icon={<FileMinus2 size={20} />}  accent="rose"    label="Notas de Crédito" open={sidebarOpen} />
-          <NavItem to="/customers"    icon={<Users size={20} />}       accent="emerald" label="Clientes"         open={sidebarOpen} />
-          <NavItem to="/products"     icon={<Boxes size={20} />}       accent="fuchsia" label="Productos"        open={sidebarOpen} />
-          <NavItem to="/reports"      icon={<BarChart3 size={20} />}   accent="violet"  label="Reportes"         open={sidebarOpen} />
+          {/* Operación diaria — SOLO para roles de empresa (no SUPER_ADMIN).
+              El SUPER_ADMIN es operador de la plataforma; los módulos operativos
+              pertenecen a cada empresa usuaria y aparecen cuando impersona. */}
+          {user?.role !== 'SUPER_ADMIN' && (
+            <>
+              <NavItem to="/dashboard"    icon={<LayoutGrid size={20} />}  accent="sky"     label="Dashboard"        open={sidebarOpen} />
+              <NavItem to="/invoices"     icon={<FileText size={20} />}    accent="amber"   label="Facturas"         open={sidebarOpen} />
+              <NavItem to="/credit-notes" icon={<FileMinus2 size={20} />}  accent="rose"    label="Notas de Crédito" open={sidebarOpen} />
+              <NavItem to="/customers"    icon={<Users size={20} />}       accent="emerald" label="Clientes"         open={sidebarOpen} />
+              <NavItem to="/products"     icon={<Boxes size={20} />}       accent="fuchsia" label="Productos"        open={sidebarOpen} />
+              <NavItem to="/reports"      icon={<BarChart3 size={20} />}   accent="violet"  label="Reportes"         open={sidebarOpen} />
+            </>
+          )}
 
-          {/* Módulos avanzados — SOLO SUPER_ADMIN los gestiona */}
+          {/* Módulos de plataforma — SOLO SUPER_ADMIN */}
           {user?.role === 'SUPER_ADMIN' && (
             <>
-              <div className={`mt-4 ${sidebarOpen ? 'px-3' : 'text-center'}`}>
+              <div className={`${sidebarOpen ? 'px-3' : 'text-center'} mb-1`}>
                 <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">
                   {sidebarOpen ? 'Plataforma' : '•'}
                 </p>
               </div>
-              <NavItem to="/import-xml"      icon={<FileUp size={20} />}    accent="emerald" label="Importar XML"      open={sidebarOpen} />
-              <NavItem to="/suppliers"       icon={<Truck size={20} />}     accent="amber"   label="Proveedores"       open={sidebarOpen} />
-              <NavItem to="/admin/users"     icon={<Shield size={20} />}    accent="violet"  label="Usuarios"          open={sidebarOpen} />
-              <NavItem to="/admin/companies" icon={<Building2 size={20} />} accent="violet"  label="Empresas"          open={sidebarOpen} />
-              <NavItem to="/admin/packages"  icon={<Package size={20} />}   accent="violet"  label="Paquetes fiscales" open={sidebarOpen} />
+              <NavItem to="/admin/companies" icon={<Building2 size={20} />}  accent="sky"     label="Empresas"          open={sidebarOpen} />
+              <NavItem to="/admin/users"     icon={<ShieldCheck size={20} />} accent="emerald" label="Usuarios"          open={sidebarOpen} />
+              <NavItem to="/admin/packages"  icon={<Wallet size={20} />}     accent="violet"  label="Paquetes fiscales" open={sidebarOpen} />
+              <NavItem to="/import-xml"      icon={<FileInput size={20} />}  accent="amber"   label="Importar XML"      open={sidebarOpen} />
+              <NavItem to="/suppliers"       icon={<Truck size={20} />}      accent="rose"    label="Proveedores"       open={sidebarOpen} />
             </>
           )}
         </nav>

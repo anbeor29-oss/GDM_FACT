@@ -34,6 +34,29 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * Landing según rol:
+ *   · SUPER_ADMIN → /admin/companies (operador de plataforma)
+ *   · Otros roles → /dashboard (operativo de empresa)
+ */
+function HomeRedirect() {
+  const { user } = useAuthStore();
+  return <Navigate to={user?.role === 'SUPER_ADMIN' ? '/admin/companies' : '/dashboard'} replace />;
+}
+
+/**
+ * Rutas operativas (Dashboard, Facturas, etc.) — bloqueadas para SUPER_ADMIN
+ * porque son módulos de empresa usuaria, no de plataforma. Si entra a la URL
+ * a mano lo mandamos al menú de Empresas.
+ */
+function CompanyOnlyRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuthStore();
+  if (user?.role === 'SUPER_ADMIN') {
+    return <Navigate to="/admin/companies" replace />;
+  }
+  return <>{children}</>;
+}
+
+/**
  * Módulos administrativos de plataforma — sólo SUPER_ADMIN.
  * Si un usuario común escribe /import-xml o /admin/... a mano, lo enviamos
  * al dashboard en lugar de renderizar la página.
@@ -63,14 +86,14 @@ export function App() {
               </ProtectedRoute>
             }
           >
-            {/* Operación diaria — visible para todos los roles autenticados */}
-            <Route path="dashboard"    element={<DashboardPage />} />
-            <Route path="invoices"     element={<InvoicesPage />} />
-            <Route path="invoices/new" element={<NewInvoicePage />} />
-            <Route path="customers"    element={<CustomersPage />} />
-            <Route path="products"     element={<ProductsPage />} />
-            <Route path="reports"      element={<ReportsPage />} />
-            <Route path="credit-notes" element={<CreditNotesPage />} />
+            {/* Operación diaria — ADMIN / MANAGER / USER (SUPER_ADMIN redirigido) */}
+            <Route path="dashboard"    element={<CompanyOnlyRoute><DashboardPage /></CompanyOnlyRoute>} />
+            <Route path="invoices"     element={<CompanyOnlyRoute><InvoicesPage /></CompanyOnlyRoute>} />
+            <Route path="invoices/new" element={<CompanyOnlyRoute><NewInvoicePage /></CompanyOnlyRoute>} />
+            <Route path="customers"    element={<CompanyOnlyRoute><CustomersPage /></CompanyOnlyRoute>} />
+            <Route path="products"     element={<CompanyOnlyRoute><ProductsPage /></CompanyOnlyRoute>} />
+            <Route path="reports"      element={<CompanyOnlyRoute><ReportsPage /></CompanyOnlyRoute>} />
+            <Route path="credit-notes" element={<CompanyOnlyRoute><CreditNotesPage /></CompanyOnlyRoute>} />
 
             {/* Módulos de plataforma — SOLO SUPER_ADMIN (guard por URL directa) */}
             <Route path="admin/packages"  element={<SuperAdminRoute><AdminPackagesPage /></SuperAdminRoute>} />
@@ -79,7 +102,7 @@ export function App() {
             <Route path="import-xml"      element={<SuperAdminRoute><ImportXMLWizardPage /></SuperAdminRoute>} />
             <Route path="suppliers"       element={<SuperAdminRoute><SuppliersPage /></SuperAdminRoute>} />
 
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/" element={<HomeRedirect />} />
           </Route>
         </Routes>
       </Router>

@@ -12,7 +12,7 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Building2, Calendar, Package, Check, Zap, Star, Rocket } from 'lucide-react';
+import { Download, Building2, Calendar, Wallet, Check, Zap, Star, Rocket, Coins } from 'lucide-react';
 import api from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 
@@ -49,7 +49,7 @@ const PLANS: StampPlan[] = [
       'Reportes de cobranza, ventas y fiscal',
       'Notas de crédito y complementos de pago',
       'Multi-usuario (ADMIN + operativos)',
-      'Timbre extra: $2.50 MXN',
+      'Timbre extra: $2.50 MXN + IVA',
     ],
   },
   {
@@ -69,7 +69,7 @@ const PLANS: StampPlan[] = [
       'Importación de XMLs recibidos',
       'Gestión de proveedores',
       'Reporte de cobranza detallado',
-      'Timbre extra: $2.25 MXN',
+      'Timbre extra: $2.25 MXN + IVA',
     ],
   },
   {
@@ -88,7 +88,7 @@ const PLANS: StampPlan[] = [
       'Prioridad en soporte',
       'Backup mensual SAT en ZIP',
       'Multi-empresa (multi-tenant)',
-      'Timbre extra: $2.00 MXN',
+      'Timbre extra: $2.00 MXN + IVA',
     ],
   },
   {
@@ -96,14 +96,14 @@ const PLANS: StampPlan[] = [
     name: 'Uso libre',
     monthlyStamps: null,
     monthlyFeeMXN: 0,
-    extraStampMXN: 2.5,
+    extraStampMXN: 4.99,
     color: 'text-slate-700',
     ring: 'border-slate-200',
     bg: 'bg-slate-50',
-    icon: <Package size={28} className="text-slate-600" />,
+    icon: <Coins size={28} className="text-slate-600" />,
     bulletpoints: [
       'Sin renta mensual',
-      'Pago por timbre consumido',
+      'Timbre a $4.99 MXN + IVA',
       'Ideal para bajo volumen (< 30/mes)',
       'Facturación al final del mes',
       'Sin compromiso de permanencia',
@@ -131,7 +131,7 @@ export function AdminPackagesPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-4xl font-bold text-gray-900 flex items-center gap-3">
-          <Package className="text-indigo-600" size={36} /> Paquetes fiscales
+          <Wallet className="text-indigo-600" size={36} /> Paquetes fiscales
         </h1>
         <p className="text-gray-600 mt-2">
           Planes de timbrado disponibles y descarga de respaldos SAT.
@@ -183,11 +183,12 @@ function PlanCard({ plan }: { plan: StampPlan }) {
       <h3 className={`text-xl font-bold ${plan.color}`}>{plan.name}</h3>
       <p className="text-xs text-gray-500 font-mono mb-3">{plan.code}</p>
 
-      <div className="mb-4">
+      <div className="mb-1">
         <span className="text-3xl font-bold text-gray-900">{priceLabel}</span>
         {' '}
         <span className="text-sm text-gray-500">MXN {perLabel}</span>
       </div>
+      <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-4">Precios más IVA</p>
 
       {plan.monthlyStamps !== null && (
         <div className={`${plan.bg} rounded-lg px-3 py-2 mb-4 flex items-center justify-between`}>
@@ -207,6 +208,7 @@ function PlanCard({ plan }: { plan: StampPlan }) {
 
       <div className="mt-4 pt-4 border-t border-gray-100 text-[11px] text-gray-500">
         Timbre extra: <b>${plan.extraStampMXN.toFixed(2)} MXN</b>
+        <span className="text-gray-400"> (+ IVA)</span>
       </div>
     </div>
   );
@@ -223,9 +225,11 @@ function SectionDownloadZip() {
   const [error, setError] = useState('');
   const [downloading, setDownloading] = useState(false);
 
+  // El SUPER_ADMIN ve TODAS las empresas usuarias — usamos el endpoint admin
+  // (adminListCompanies) porque listCompanies solo devuelve la del JWT.
   const companiesQ = useQuery({
-    queryKey: ['companies-list'],
-    queryFn: () => api.listCompanies(),
+    queryKey: ['admin-companies-zip'],
+    queryFn: () => api.adminListCompanies(),
     retry: 0,
   });
   const companies = (companiesQ.data?.data?.companies || []) as Array<{
@@ -264,26 +268,25 @@ function SectionDownloadZip() {
       <div className="bg-white rounded-lg shadow-lg p-6 space-y-4 max-w-3xl">
         <label className="block">
           <span className="text-sm font-medium text-gray-700 flex items-center gap-2 mb-1">
-            <Building2 size={16} /> Compañía
+            <Building2 size={16} /> Empresa usuaria
           </span>
-          {companies.length > 0 ? (
-            <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="input">
-              <option value="">— seleccionar compañía —</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.rfc} · {c.business_name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              type="text"
-              value={companyId}
-              onChange={(e) => setCompanyId(e.target.value.trim())}
-              placeholder="UUID de la compañía"
-              className="input font-mono text-xs"
-            />
-          )}
+          <select value={companyId} onChange={(e) => setCompanyId(e.target.value)} className="input">
+            <option value="">
+              {companiesQ.isLoading
+                ? 'Cargando empresas…'
+                : companies.length === 0
+                  ? 'No hay empresas registradas'
+                  : `— seleccionar empresa (${companies.length} disponible${companies.length === 1 ? '' : 's'}) —`}
+            </option>
+            {companies.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.rfc} · {c.business_name}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-gray-500 mt-1">
+            El ZIP se genera solo con las facturas emitidas por esta empresa.
+          </p>
         </label>
 
         <div className="grid grid-cols-2 gap-3">
