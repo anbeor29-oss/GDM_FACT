@@ -330,6 +330,25 @@ export async function updateCustomer(
 export async function deleteCustomer(companyId: string, customerId: string): Promise<void> {
   const customer = await getCustomerById(companyId, customerId);
 
+  // Guard: no borrar si el cliente tiene facturas (SAT: retención 5 años).
+  const usageR = await query<{ n: string; sample: string | null }>(
+    `SELECT COUNT(*)::text AS n,
+            (SELECT CONCAT(serie, '-', folio) FROM invoices
+              WHERE customer_id = $1 AND deleted_at IS NULL LIMIT 1) AS sample
+       FROM invoices
+      WHERE customer_id = $1 AND deleted_at IS NULL`,
+    [customerId]
+  );
+  const uses = parseInt(usageR.rows[0]?.n || '0', 10);
+  if (uses > 0) {
+    const sample = usageR.rows[0]?.sample || '';
+    throw new ValidationError(
+      `No se puede eliminar el cliente "${customer.business_name || customer.rfc}" — tiene ${uses} factura(s)` +
+      (sample ? ` (ej. ${sample})` : '') +
+      '. Márcalo como inactivo desde el catálogo si ya no se usará.'
+    );
+  }
+
   await query(
     'UPDATE customers SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1',
     [customerId]

@@ -460,7 +460,7 @@ function ProductModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto">
         <div className="sticky top-0 bg-white flex items-center justify-between p-6 border-b border-gray-200 z-10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-amber-400 to-orange-500 rounded-lg flex items-center justify-center shadow-md">
@@ -710,6 +710,8 @@ interface TaxPresetOption {
   group: 'IVA' | 'RETENCIONES' | 'IEPS';
   hint?: string;
   retencion?: string;          // descripción si hay retención típica
+  retIva?: number;             // porcentaje de retención IVA (ej. 0.106667 = 10.67%)
+  retIsr?: number;             // porcentaje de retención ISR (ej. 0.10 = 10%)
 }
 
 // Catálogo derivado del wiki: cliente-impuestos-retenciones.md
@@ -726,22 +728,27 @@ const TAX_PRESETS: TaxPresetOption[] = [
   { id: 'hon_pf_pm', group: 'RETENCIONES',
     label: 'Honorarios PF (612) → PM — IVA 16% + Ret. IVA 10.67% + Ret. ISR 10%',
     taxType: 'IVA', taxRate: 0.16,
+    retIva: 0.106667, retIsr: 0.10,
     retencion: 'Cliente PM retiene 2/3 del IVA (10.6667%) y 10% de ISR (LIVA 1o.-A fr. II inciso a; LISR 106)' },
   { id: 'resico_pf_pm', group: 'RETENCIONES',
     label: 'Servicios PF RESICO (626) → PM — IVA 16% + Ret. IVA 10.67% + Ret. ISR 1.25%',
     taxType: 'IVA', taxRate: 0.16,
+    retIva: 0.106667, retIsr: 0.0125,
     retencion: '2/3 del IVA (10.6667%) + 1.25% de ISR sobre subtotal (LISR 113-J — régimen simplificado de confianza)' },
   { id: 'arr_pf_pm', group: 'RETENCIONES',
     label: 'Arrendamiento inmueble PF (606) → PM',
     taxType: 'IVA', taxRate: 0.16,
+    retIva: 0.106667, retIsr: 0.10,
     retencion: 'PM retiene 10.6667% IVA y 10% ISR (LIVA 1o.-A fr. II inciso a; LISR 116)' },
   { id: 'auto_carga', group: 'RETENCIONES',
     label: 'Autotransporte de carga — Ret. IVA 4%',
     taxType: 'IVA', taxRate: 0.16,
+    retIva: 0.04,
     retencion: 'Cliente PM retiene 4% del valor (LIVA 1o.-A fr. II inciso c)' },
   { id: 'desperdicios', group: 'RETENCIONES',
     label: 'Compra de desperdicios — Ret. IVA 16% total',
     taxType: 'IVA', taxRate: 0.16,
+    retIva: 0.16,
     retencion: 'PM compradora retiene el 100% del IVA (LIVA 1o.-A fr. II inciso b)' },
 
   { id: 'ieps_tasa', group: 'IEPS', label: 'IEPS por Tasa', taxType: 'IEPS', taxRate: 0,
@@ -763,38 +770,115 @@ function TaxPreset({
     (groups[p.group] ||= []).push(p);
   }
 
+  const ivaGroup = groups['IVA'] || [];
+  const retGroup = groups['RETENCIONES'] || [];
+  const iepsGroup = groups['IEPS'] || [];
+
+  // Cálculos numéricos del preset seleccionado (para el panel visual)
+  const info = selectedPreset ? {
+    iva:  selectedPreset.taxRate * 100,
+    retIva: selectedPreset.retIva ? selectedPreset.retIva * 100 : null,
+    retIsr: selectedPreset.retIsr ? selectedPreset.retIsr * 100 : null,
+  } : null;
+
   return (
-    <div>
-      <label className="block">
-        <span className="text-sm font-medium text-gray-700 block mb-1">
+    <div className="space-y-4">
+      <div>
+        <label className="text-sm font-semibold text-gray-800 block mb-2">
           Tipo de impuesto (con retenciones aplicables)
-        </span>
-        <select
-          value={value}
-          onChange={(e) => {
-            const p = TAX_PRESETS.find((x) => x.id === e.target.value);
-            if (p) onChange(p.id, p.taxType, p.taxRate);
-          }}
-          className="input"
-        >
-          <option value="">— seleccionar —</option>
-          {Object.entries(groups).map(([group, items]) => (
-            <optgroup key={group} label={group}>
-              {items.map((p) => (
+        </label>
+
+        {/* Grupo IVA — 4 opciones como radio-cards horizontales */}
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">IVA general</p>
+          <div className="grid grid-cols-4 gap-2 mb-3">
+            {ivaGroup.map((p) => {
+              const active = p.id === value;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onChange(p.id, p.taxType, p.taxRate)}
+                  className={`px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                    active
+                      ? 'border-blue-500 bg-blue-50 text-blue-800 shadow-sm'
+                      : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300'
+                  }`}
+                >
+                  {p.label.replace(' (general)', '').replace(' (frontera)', '')}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Retenciones — dropdown con detalle SAT */}
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Con retenciones (RESICO, Honorarios, Arr., Autotransporte...)</p>
+          <select
+            value={retGroup.some((r) => r.id === value) ? value : ''}
+            onChange={(e) => {
+              const p = TAX_PRESETS.find((x) => x.id === e.target.value);
+              if (p) onChange(p.id, p.taxType, p.taxRate);
+            }}
+            className="input"
+          >
+            <option value="">— sin retenciones —</option>
+            {retGroup.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* IEPS — dropdown (menos común) */}
+        {iepsGroup.length > 0 && (
+          <div className="mt-3">
+            <p className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">IEPS (Alcohol, tabaco, refresco, etc.)</p>
+            <select
+              value={iepsGroup.some((r) => r.id === value) ? value : ''}
+              onChange={(e) => {
+                const p = TAX_PRESETS.find((x) => x.id === e.target.value);
+                if (p) onChange(p.id, p.taxType, p.taxRate);
+              }}
+              className="input"
+            >
+              <option value="">— sin IEPS —</option>
+              {iepsGroup.map((p) => (
                 <option key={p.id} value={p.id}>{p.label}</option>
               ))}
-            </optgroup>
-          ))}
-        </select>
-      </label>
-      {selectedPreset && (
-        <div className="mt-2 text-xs space-y-1">
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* Panel destacado con desglose numérico */}
+      {selectedPreset && info && (
+        <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-lg p-4">
+          <p className="text-xs uppercase tracking-wider text-indigo-700 font-bold mb-2">Desglose fiscal aplicable</p>
+          <div className="grid grid-cols-3 gap-3 mb-3">
+            <div className="bg-white rounded p-3 border border-indigo-100">
+              <p className="text-[10px] uppercase text-gray-500">IVA trasladado</p>
+              <p className="text-2xl font-bold text-blue-700">{info.iva.toFixed(0)}%</p>
+            </div>
+            <div className={`rounded p-3 border ${info.retIva ? 'bg-white border-amber-200' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
+              <p className="text-[10px] uppercase text-gray-500">Ret. IVA</p>
+              <p className={`text-2xl font-bold ${info.retIva ? 'text-amber-700' : 'text-gray-400'}`}>
+                {info.retIva ? info.retIva.toFixed(2) + '%' : '—'}
+              </p>
+            </div>
+            <div className={`rounded p-3 border ${info.retIsr ? 'bg-white border-rose-200' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
+              <p className="text-[10px] uppercase text-gray-500">Ret. ISR</p>
+              <p className={`text-2xl font-bold ${info.retIsr ? 'text-rose-700' : 'text-gray-400'}`}>
+                {info.retIsr ? info.retIsr.toFixed(2) + '%' : '—'}
+              </p>
+            </div>
+          </div>
           {selectedPreset.hint && (
-            <p className="text-gray-500">{selectedPreset.hint}</p>
+            <p className="text-xs text-gray-600 mb-1">{selectedPreset.hint}</p>
           )}
           {selectedPreset.retencion && (
-            <p className="bg-amber-50 border border-amber-200 text-amber-800 px-2 py-1 rounded">
-              <span className="font-semibold">Retención aplicable:</span> {selectedPreset.retencion}
+            <p className="text-xs bg-white border border-amber-200 text-amber-800 px-2 py-1 rounded">
+              <span className="font-semibold">Fundamento legal: </span>{selectedPreset.retencion}
             </p>
           )}
         </div>

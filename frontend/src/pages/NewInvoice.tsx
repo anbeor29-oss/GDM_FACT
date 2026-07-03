@@ -144,8 +144,11 @@ export function NewInvoicePage() {
   // aparece la siguiente, hasta llegar a MAX_LINES.
   const [lines, setLines] = useState<InvoiceLine[]>(() => [emptyLine()]);
   const [cfdiUse, setCfdiUse] = useState('G03');
-  const [paymentForm, setPaymentForm] = useState('03');
-  const [paymentMethod, setPaymentMethod] = useState('PUE');
+  // Defaults recomendados por contabilidad HCGM:
+  //   · Forma de pago: 99 (Por definir) — se ajusta al cobrar
+  //   · Método:        PPD (Parcialidades o diferido) — obliga complemento de pago
+  const [paymentForm, setPaymentForm] = useState('99');
+  const [paymentMethod, setPaymentMethod] = useState('PPD');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
 
@@ -260,6 +263,10 @@ export function NewInvoicePage() {
             quantity: l.cantidad,
             unitPrice: l.precioUnit,
             taxPresetId: l.taxPresetId,
+            // Descripción custom para esta línea — el usuario puede haber cambiado
+            // el texto respecto al catálogo (ej. clave SAT 01010101 genérica pero
+            // descripción específica por factura). El backend la usa en el XML.
+            description: (l.description || '').trim() || undefined,
           })),
       }),
     onSuccess: (res: any) => {

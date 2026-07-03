@@ -121,7 +121,9 @@ export async function createInvoice(
         claveSat: product.clave_sat,
         unitCode: product.unit_code,
         taxRate: preset.rateIva,
-        description: product.name,
+        // Prioriza descripción custom del item (usuario puede cambiarla en
+        // Nueva Factura sin tocar el catálogo). Solo fallback al name del producto.
+        description: ((item as any).description || product.name || '').toString().trim(),
         taxPresetId: preset.id,
         retIvaRate: preset.retIva,
         retIsrRate: preset.retIsr,

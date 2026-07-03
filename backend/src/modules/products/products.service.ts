@@ -472,6 +472,27 @@ export async function updateProduct(
 export async function deleteProduct(companyId: string, productId: string): Promise<void> {
   const product = await getProductById(companyId, productId);
 
+  // Guard: no borrar si el producto está en alguna factura (SAT obliga retención 5 años).
+  const usageR = await query<{ n: string; sample: string | null }>(
+    `SELECT COUNT(*)::text AS n,
+            (SELECT CONCAT(i.serie, '-', i.folio)
+               FROM invoice_items ii
+               JOIN invoices i ON i.id = ii.invoice_id
+              WHERE ii.product_id = $1 LIMIT 1) AS sample
+       FROM invoice_items
+      WHERE product_id = $1`,
+    [productId]
+  );
+  const uses = parseInt(usageR.rows[0]?.n || '0', 10);
+  if (uses > 0) {
+    const sample = usageR.rows[0]?.sample || '';
+    throw new ValidationError(
+      `No se puede eliminar el producto "${product.sku}" — está usado en ${uses} concepto(s) de factura` +
+      (sample ? ` (ej. ${sample})` : '') +
+      '. Marca el producto como inactivo desde el catálogo si ya no se usará.'
+    );
+  }
+
   await query(
     'UPDATE products SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1',
     [productId]
