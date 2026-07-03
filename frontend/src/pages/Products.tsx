@@ -392,13 +392,15 @@ function ProductModal({
         basePrice: Number(p.base_price) || 0,
         taxType: p.tax_type || 'IVA',
         taxRate: Number(p.tax_rate) || 0.16,
-        // Inferimos un preset razonable a partir de taxType/taxRate
+        // Priorizar el preset guardado (hon_pf_pm, resico_pf_pm, etc.). Sólo si
+        // viene NULL (productos legacy) usamos la inferencia por tax_type/rate.
         taxPresetId:
-          p.tax_type === 'EXENTO' ? 'ivaex'
-          : p.tax_type === 'IEPS' ? 'ieps_tasa'
-          : Number(p.tax_rate) === 0.08 ? 'iva8'
-          : Number(p.tax_rate) === 0 ? 'iva0'
-          : 'iva16',
+          p.tax_preset_id
+          || (p.tax_type === 'EXENTO' || p.is_exempt ? 'ivaex'
+            : p.tax_type === 'IEPS' ? 'ieps_tasa'
+            : Number(p.tax_rate) === 0.08 ? 'iva8'
+            : Number(p.tax_rate) === 0 ? 'iva0'
+            : 'iva16'),
         currency: p.currency || 'MXN',
       });
     } else if (mode === 'create' && nextSkuData?.data?.nextSku) {

@@ -22,8 +22,13 @@ interface Entry {
 let cache: Entry[] | null = null;
 let loadError: Error | null = null;
 
-// Desde src/modules/products subimos 2 niveles para llegar a src/data
-const DATA_FILE = path.join(__dirname, '..', '..', 'data', 'c_ClaveProdServ.json.gz');
+// Buscar el archivo en dist/data (prod compilado) y en src/data (dev con ts-node).
+// __dirname es dist/modules/products (prod) o src/modules/products (dev).
+const CANDIDATE_PATHS = [
+  path.join(__dirname, '..', '..', 'data', 'c_ClaveProdServ.json.gz'),               // dist/data o src/data
+  path.join(__dirname, '..', '..', '..', 'src', 'data', 'c_ClaveProdServ.json.gz'),  // fallback src/data si estamos en dist/
+];
+const DATA_FILE = CANDIDATE_PATHS.find((p) => fs.existsSync(p)) || CANDIDATE_PATHS[0];
 
 function norm(s: string): string {
   return (s || '')
