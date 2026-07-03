@@ -31,7 +31,7 @@ import {
   FORMA_PAGO, drawCommonHeader, drawReceptor, drawFooter, drawTimbreFiscal,
   drawPageNumbers, loadRegimenDesc,
 } from './pdf-helpers';
-import { getOptimizedLogo } from './logo-cache';
+import { getCompanyLogo } from './logo-cache';
 
 export async function generatePaymentPDF(companyId: string, paymentId: string): Promise<Buffer> {
   // 1) Cargar pago + factura asociada
@@ -76,7 +76,7 @@ export async function generatePaymentPDF(companyId: string, paymentId: string): 
 
   // Header con título morado/verde (color distintivo para CFDI de Pago)
   const folio = `${payment.serie || 'P'}-${String(payment.folio).padStart(6, '0')}`;
-  const logoBuf = await getOptimizedLogo((company as any).logo_path);
+  const logoBuf = await getCompanyLogo((company as any).id);
   let y = drawCommonHeader(doc, company, {
     titulo: 'COMPLEMENTO DE PAGO',
     folio,

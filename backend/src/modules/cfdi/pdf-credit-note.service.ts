@@ -35,7 +35,7 @@ import {
   PDFDoc, PAGE_LEFT, PAGE_RIGHT, fmtMoney, montoEnLetra,
   drawCommonHeader, drawReceptor, drawFooter, drawTimbreFiscal, drawPageNumbers, loadRegimenDesc,
 } from './pdf-helpers';
-import { getOptimizedLogo } from './logo-cache';
+import { getCompanyLogo } from './logo-cache';
 import { MOTIVOS } from '../credit-notes/credit-notes.service';
 
 export async function generateCreditNotePDF(companyId: string, creditNoteId: string): Promise<Buffer> {
@@ -62,7 +62,7 @@ export async function generateCreditNotePDF(companyId: string, creditNoteId: str
   doc.on('data', (b: Buffer) => chunks.push(b));
 
   const folio = `${note.serie || 'NC'}-${String(note.folio).padStart(6, '0')}`;
-  const logoBuf = await getOptimizedLogo((company as any).logo_path);
+  const logoBuf = await getCompanyLogo((company as any).id);
   let y = drawCommonHeader(doc, company, {
     titulo: 'NOTA DE CRÉDITO',
     folio,

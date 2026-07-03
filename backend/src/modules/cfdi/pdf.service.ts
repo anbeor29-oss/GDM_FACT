@@ -31,7 +31,7 @@ import * as customersService from '../customers/customers.service';
 import { query } from '../../config/database';
 import { NotFoundError } from '../../middleware/errorHandler';
 import logger from '../../middleware/logger';
-import { getOptimizedLogo } from './logo-cache';
+import { getCompanyLogo } from './logo-cache';
 import { drawTimbreFiscal, drawPageNumbers } from './pdf-helpers';
 
 type PDFDoc = InstanceType<typeof PDFDocument>;
@@ -205,7 +205,7 @@ export async function generateInvoicePDF(data: PDFGenerationData): Promise<Buffe
     invoice.cfdi_use
   );
 
-  const logoBuf = await getOptimizedLogo((company as any).logo_path);
+  const logoBuf = await getCompanyLogo((company as any).id);
 
   const doc = new PDFDocument({ size: 'letter', margin: 40, bufferPages: true });
   const chunks: Buffer[] = [];
