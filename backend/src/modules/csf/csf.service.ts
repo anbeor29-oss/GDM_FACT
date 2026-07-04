@@ -139,6 +139,43 @@ function extractBetween(
 }
 
 /**
+ * Extractor DUAL — inspirado en el procedimiento probado del proyecto NOM_COM.
+ *   1) Busca los labels en el texto ORIGINAL preservando espacios internos
+ *      (así una razón social como "SERVICIOS ADMINISTRATIVOS JOCARM" se
+ *      recupera con los espacios reales entre palabras).
+ *   2) Si el label no se encuentra literal (porque pdf-parse pegó todo),
+ *      cae al método sin-espacios como fallback.
+ *
+ * Este approach maneja las 3 variantes del PDF SAT: espacios normales,
+ * pegado, y híbrido (labels pegados pero valores con espacios).
+ */
+function extractBetweenDual(
+  pre: PreText,
+  startVariants: string[],
+  endVariants: string[]
+): string {
+  const { original, noSpace, map } = pre;
+
+  // (1) Búsqueda literal en el original — preserva espacios internos.
+  const orig = original.toLowerCase();
+  for (const start of startVariants) {
+    const iStart = orig.indexOf(start.toLowerCase());
+    if (iStart === -1) continue;
+    const from = iStart + start.length;
+    for (const end of endVariants) {
+      const iEnd = orig.indexOf(end.toLowerCase(), from);
+      if (iEnd === -1) continue;
+      const val = original.substring(from, iEnd).replace(/\s{2,}/g, ' ').trim();
+      if (val && val.length < 250) return val;
+    }
+  }
+
+  // (2) Fallback sin espacios — usa el método clásico contra la primera
+  //     variante de cada label.
+  return extractBetween(original, noSpace, map, startVariants[0], endVariants[0]);
+}
+
+/**
  * Extrae N caracteres del texto original que siguen a `label`.
  */
 function extractAfter(
@@ -226,9 +263,16 @@ function extractPF(pre: PreText): CSFRawData {
   return {
     rfc: extractRFC(pre, false),
     curp: extractAfter(original, noSpace, map, 'CURP:', 18).match(/[A-Z0-9]{18}/)?.[0] || '',
-    nombre:           extractBetween(original, noSpace, map, 'Nombre(s):',       'PrimerApellido:'),
-    apellido_paterno: extractBetween(original, noSpace, map, 'PrimerApellido:',  'SegundoApellido:'),
-    apellido_materno: extractBetween(original, noSpace, map, 'SegundoApellido:', 'Fechainicio'),
+    // Búsqueda dual: primero con espacios (SAT PF normal), luego pegado (fallback).
+    nombre: extractBetweenDual(pre,
+      ['Nombre (s):', 'Nombre(s):'],
+      ['Primer Apellido:', 'PrimerApellido:']),
+    apellido_paterno: extractBetweenDual(pre,
+      ['Primer Apellido:', 'PrimerApellido:'],
+      ['Segundo Apellido:', 'SegundoApellido:']),
+    apellido_materno: extractBetweenDual(pre,
+      ['Segundo Apellido:', 'SegundoApellido:'],
+      ['Fecha inicio de operaciones:', 'Fechainicio', 'Régimen', 'Régimenes']),
     denominacion: '',
     regimen_capital: '',
     codigo_postal:   extractBetween(original, noSpace, map, 'CódigoPostal:',      'TipodeVialidad:'),
@@ -250,19 +294,31 @@ function extractPF(pre: PreText): CSFRawData {
 function extractPM(pre: PreText): CSFRawData {
   const { original, noSpace, map } = pre;
 
-  // Denominación/Razón Social: el SAT escribe "Denominación/Razón Social:" y
-  // termina cuando aparece la siguiente etiqueta "Régimen Capital:".
-  const denominacion = extractBetween(
-    original, noSpace, map,
-    'Denominación/RazónSocial:',
-    'RégimenCapital:'
-  );
+  // Denominación/Razón Social — el SAT escribe distintos separadores según la
+  // versión de la CSF. Usamos búsqueda dual (con espacios primero, sin
+  // espacios como fallback) para no colapsar "SERVICIOS ADMINISTRATIVOS ..."
+  // en "SERVICIOSADMINISTRATIVOS...".
+  const denominacion = extractBetweenDual(pre,
+    [
+      'Denominación / Razón Social:',
+      'Denominación/Razón Social:',
+      'Denominación o Razón Social:',
+      'Denominación / RazónSocial:',
+      'Denominación/RazónSocial:',
+      'Razón Social:',
+      'RazónSocial:',
+    ],
+    [
+      'Régimen Capital:',
+      'RégimenCapital:',
+      'Nombre Comercial:',
+      'NombreComercial:',
+      'Régimen',
+    ]);
 
-  const regimenCapital = extractBetween(
-    original, noSpace, map,
-    'RégimenCapital:',
-    'NombreComercial:'
-  );
+  const regimenCapital = extractBetweenDual(pre,
+    ['Régimen Capital:', 'RégimenCapital:'],
+    ['Nombre Comercial:', 'NombreComercial:', 'Fecha inicio', 'Fechainicio', 'Régimen']);
 
   // Régimen fiscal: aparece en la sección "Regímenes:" como tabla
   // "RégimenFecha InicioFecha Fin / <Nombre del régimen><dd/mm/yyyy>..."
@@ -342,6 +398,84 @@ function normNS(s: string): string {
   return norm(s).replace(/\s+/g, '');
 }
 
+/**
+ * Sociedades mercantiles y siglas comunes en el SAT. Cuando aparecen pegadas
+ * a la razón social ("SERVICIOSSA DE CV") las separamos con espacios.
+ * Se procesa por longitud descendente para evitar match parcial.
+ */
+const SOCIEDADES = [
+  'SOCIEDAD ANONIMA DE CAPITAL VARIABLE',
+  'SOCIEDAD DE RESPONSABILIDAD LIMITADA',
+  'SOCIEDAD POR ACCIONES SIMPLIFICADA',
+  'SOCIEDAD CIVIL PARTICULAR',
+  'SOCIEDAD COOPERATIVA',
+  'SOCIEDAD ANONIMA',
+  'SOCIEDAD CIVIL',
+  'ASOCIACION CIVIL',
+  'SA DE CV',
+  'S DE RL DE CV',
+  'S DE RL',
+  'S EN NC',
+  'S EN C',
+  'S DE C',
+  'SAS DE CV',
+  'SAS',
+  'SC',
+  'AC',
+  'SCP',
+  'SPR DE RL',
+  'SPR DE CV',
+  'SNC',
+  'SA',
+];
+
+/**
+ * Inserta espacios entre palabras cuando el PDF los eliminó.
+ *
+ *   "SERVICIOSADMINISTRATIVOSJOCARMSA DE CV"
+ *       → "SERVICIOS ADMINISTRATIVOS JOCARM SA DE CV"
+ *   "GRUPOTECNOSAS"
+ *       → "GRUPOTECNO SAS"
+ *
+ * Estrategia: la razón social termina con la sociedad mercantil. Detectamos
+ * el sufijo de sociedad (con o sin espacios internos) y lo separamos con un
+ * espacio del cuerpo. No partimos el cuerpo (el pdf-parse SAT solo pega en
+ * el sufijo mercantil; nombres/apellidos normalmente sí llegan con espacios).
+ */
+function normalizeSpacing(s: string): string {
+  if (!s) return '';
+  const collapsed = s.replace(/\s+/g, ' ').trim();
+  const upper = collapsed.toUpperCase();
+
+  for (const soc of SOCIEDADES) {
+    // Sufijo compacto: "SADECV" al final
+    const socNS = soc.replace(/\s+/g, '');
+    // Sufijo con espacios como los tiene el catálogo: "SA DE CV" al final
+    const socSp = soc;
+
+    // Caso 1: ya viene con espacios internos ("SA DE CV") pero pegado sin
+    // espacio previo — ej. "JOCARMSA DE CV". Buscamos "SA DE CV" al final.
+    if (upper.endsWith(socSp) && upper.length > socSp.length) {
+      const cut = upper.length - socSp.length;
+      const charBefore = upper[cut - 1];
+      if (/[A-ZÑ&0-9]/.test(charBefore)) {
+        return (collapsed.substring(0, cut) + ' ' + soc).replace(/\s+/g, ' ').trim();
+      }
+    }
+
+    // Caso 2: sin espacios internos ("SADECV") pegado al final del cuerpo.
+    if (upper.endsWith(socNS) && upper.length > socNS.length) {
+      const cut = upper.length - socNS.length;
+      const charBefore = upper[cut - 1];
+      if (/[A-ZÑ&0-9]/.test(charBefore)) {
+        return (collapsed.substring(0, cut) + ' ' + soc).replace(/\s+/g, ' ').trim();
+      }
+    }
+  }
+
+  return collapsed;
+}
+
 async function resolveRegimen(desc: string): Promise<string | null> {
   if (!desc) return null;
   const numMatch = desc.match(/\b(6\d{2})\b/);
@@ -386,14 +520,22 @@ async function resolveEstado(desc: string): Promise<string | null> {
 }
 
 export async function mapCSFToCustomer(raw: CSFRawData): Promise<CSFMapped> {
-  // Razón social: PM usa denominacion + regimen_capital concatenado;
-  // PF usa nombre + apellidos.
+  // Razón social:
+  //   PM: "SERVICIOS ADMINISTRATIVOS JOCARM SA DE CV" (denominación + régimen capital).
+  //   PF: apellido paterno + materno + nombre(s), formato del SAT emisor.
+  // Insertamos espacios donde la CSF pegó dos palabras en mayúsculas
+  // (ej. "SERVICIOSADMINISTRATIVOS" → "SERVICIOS ADMINISTRATIVOS").
   let businessName = '';
   if (raw.tipo === 'PM') {
-    businessName = [raw.denominacion, raw.regimen_capital].filter(Boolean).join(' ').trim();
+    const denom = normalizeSpacing(raw.denominacion);
+    const capital = normalizeSpacing(raw.regimen_capital);
+    businessName = [denom, capital].filter(Boolean).join(' ').trim();
   } else {
-    businessName = [raw.nombre, raw.apellido_paterno, raw.apellido_materno]
-      .filter(Boolean).join(' ').trim();
+    const nom = normalizeSpacing(raw.nombre);
+    const ap  = normalizeSpacing(raw.apellido_paterno);
+    const am  = normalizeSpacing(raw.apellido_materno);
+    // Formato SAT emisor persona física: APELLIDO_PAT APELLIDO_MAT NOMBRE(S)
+    businessName = [ap, am, nom].filter(Boolean).join(' ').trim();
   }
 
   const [fiscalRegime, state] = await Promise.all([
