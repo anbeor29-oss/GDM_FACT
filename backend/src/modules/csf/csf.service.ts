@@ -520,22 +520,22 @@ async function resolveEstado(desc: string): Promise<string | null> {
 }
 
 export async function mapCSFToCustomer(raw: CSFRawData): Promise<CSFMapped> {
-  // Razón social:
-  //   PM: "SERVICIOS ADMINISTRATIVOS JOCARM SA DE CV" (denominación + régimen capital).
-  //   PF: apellido paterno + materno + nombre(s), formato del SAT emisor.
-  // Insertamos espacios donde la CSF pegó dos palabras en mayúsculas
-  // (ej. "SERVICIOSADMINISTRATIVOS" → "SERVICIOS ADMINISTRATIVOS").
+  // Razón social (regla HCGM):
+  //   PM: SOLO la Denominación / Razón Social (NO se concatena el Régimen
+  //       Capital "SOCIEDAD CIVIL", "SA DE CV", etc. — eso es un dato
+  //       aparte que el SAT muestra en otra celda).
+  //       Ej.: CSF dice "GLOBAL FLUENCY NETWORK" + "SOCIEDAD CIVIL"
+  //            → razón social = "GLOBAL FLUENCY NETWORK"
+  //   PF: Nombre(s) + Primer Apellido + Segundo Apellido, en ese orden.
+  //       Ej.: "RAMON" + "GONZALEZ" + "JASSO" → "RAMON GONZALEZ JASSO"
   let businessName = '';
   if (raw.tipo === 'PM') {
-    const denom = normalizeSpacing(raw.denominacion);
-    const capital = normalizeSpacing(raw.regimen_capital);
-    businessName = [denom, capital].filter(Boolean).join(' ').trim();
+    businessName = raw.denominacion.replace(/\s+/g, ' ').trim();
   } else {
-    const nom = normalizeSpacing(raw.nombre);
-    const ap  = normalizeSpacing(raw.apellido_paterno);
-    const am  = normalizeSpacing(raw.apellido_materno);
-    // Formato SAT emisor persona física: APELLIDO_PAT APELLIDO_MAT NOMBRE(S)
-    businessName = [ap, am, nom].filter(Boolean).join(' ').trim();
+    const nom = raw.nombre.replace(/\s+/g, ' ').trim();
+    const ap  = raw.apellido_paterno.replace(/\s+/g, ' ').trim();
+    const am  = raw.apellido_materno.replace(/\s+/g, ' ').trim();
+    businessName = [nom, ap, am].filter(Boolean).join(' ').trim();
   }
 
   const [fiscalRegime, state] = await Promise.all([
