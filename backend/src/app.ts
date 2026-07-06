@@ -28,6 +28,7 @@ import reportsRoutes from './modules/reports/reports.routes';
 import pacRoutes from './modules/pac/pac.routes';
 import catalogsRoutes from './modules/catalogs/catalogs.routes';
 import csfRoutes from './modules/csf/csf.routes';
+import mailerRoutes from './modules/mailer/mailer.routes';
 import paymentsRoutes from './modules/payments/payments.routes';
 import creditNotesRoutes from './modules/credit-notes/credit-notes.routes';
 import archiveRoutes from './modules/archive/archive.routes';
@@ -126,6 +127,9 @@ export function createApp(): Express {
   app.use(`/api/${config.apiVersion}/pac`, pacRoutes);
   app.use(`/api/${config.apiVersion}/catalogs`, catalogsRoutes);
   app.use(`/api/${config.apiVersion}/csf`, csfRoutes);
+  // Mailer expone POST /invoices/:id/send-email — se monta en la raíz para
+  // que la ruta llegue sin conflicto con el módulo de invoices.
+  app.use(`/api/${config.apiVersion}`, mailerRoutes);
   app.use(`/api/${config.apiVersion}/payments`, paymentsRoutes);
   app.use(`/api/${config.apiVersion}/credit-notes`, creditNotesRoutes);
   app.use(`/api/${config.apiVersion}/archive`, archiveRoutes);

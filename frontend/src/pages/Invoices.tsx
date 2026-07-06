@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Download, FileDown, CheckCircle, Eye, Stamp, X, Ban, Loader2, Wallet, Coins, History,
+  Mail, Send, FileText, FileMinus2,
 } from 'lucide-react';
 import api from '@/services/api';
 import { Invoice } from '@/types';
@@ -546,6 +547,7 @@ function IconBtn({
 /* ───────────── Detalle de saldo (abonos + NC + remanente) ───────────── */
 
 function BalanceModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
+  const [showMail, setShowMail] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ['invoice-balance', invoice.id],
     queryFn: () => api.getInvoiceBalance(invoice.id),
@@ -646,11 +648,243 @@ function BalanceModal({ invoice, onClose }: { invoice: Invoice; onClose: () => v
           </div>
         )}
 
-        <div className="flex justify-end p-5 border-t border-gray-200">
+        <div className="flex items-center justify-between p-5 border-t border-gray-200 bg-gray-50">
+          <button
+            onClick={() => setShowMail(true)}
+            disabled={!d}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white px-4 py-2 rounded-lg shadow"
+            title="Enviar factura + NCs + pagos por correo"
+          >
+            <Mail size={16}/> Enviar por correo
+          </button>
           <button onClick={onClose} className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
             Cerrar
           </button>
         </div>
+
+        {showMail && d && (
+          <SendMailModal
+            invoice={invoice}
+            balance={d}
+            onClose={() => setShowMail(false)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ───────────── Modal: enviar PDF + XML por correo ─────────────
+ * Recibe el balance ya cargado (factura + NCs + pagos) para mostrar
+ * todos los documentos como checkboxes seleccionables.
+ */
+function SendMailModal({
+  invoice, balance, onClose,
+}: {
+  invoice: Invoice;
+  balance: any;
+  onClose: () => void;
+}) {
+  // Cargamos datos del cliente para prellenar el email destino
+  const customerQ = useQuery({
+    queryKey: ['customer', invoice.customer_id],
+    queryFn: () => api.getCustomer(invoice.customer_id),
+    enabled: !!invoice.customer_id,
+  });
+  const customerEmail = customerQ.data?.data?.email || '';
+
+  const [to, setTo] = useState('');
+  const [cc, setCc] = useState('');
+  const [subject, setSubject] = useState(
+    `Factura ${invoice.serie}-${String(invoice.folio).padStart(6, '0')}`
+  );
+  const [message, setMessage] = useState(
+    'Adjuntamos la factura y documentos fiscales relacionados para su registro contable.\n\nQuedamos atentos a cualquier duda.'
+  );
+
+  // Prellenamos "to" cuando llega el cliente
+  useEffect(() => { if (customerEmail && !to) setTo(customerEmail); }, [customerEmail]);
+
+  // Selección de adjuntos — factura marcada por default (PDF+XML)
+  const [sel, setSel] = useState<Record<string, boolean>>({
+    [`invoice_pdf:${invoice.id}`]: true,
+    [`invoice_xml:${invoice.id}`]: !!invoice.cfdi_uuid,
+  });
+  const toggle = (key: string) => setSel((s) => ({ ...s, [key]: !s[key] }));
+
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [ok, setOk] = useState('');
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setOk('');
+    const attachments = Object.entries(sel)
+      .filter(([_, v]) => v)
+      .map(([k]) => {
+        const [kind, id] = k.split(':');
+        return { kind, id };
+      });
+    if (attachments.length === 0) {
+      setError('Selecciona al menos un archivo para enviar'); return;
+    }
+    if (!to) { setError('Captura el correo destino'); return; }
+    setBusy(true);
+    try {
+      const r = await api.sendInvoiceMail(invoice.id, { to, cc, subject, message, attachments });
+      setOk(`Correo enviado a ${r.data.recipients.join(', ')} con ${attachments.length} adjunto(s).`);
+    } catch (e: any) {
+      setError(e.response?.data?.message || e.message);
+    } finally { setBusy(false); }
+  };
+
+  const invoiceHasXml = !!invoice.cfdi_uuid;
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+      <form onSubmit={submit} className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+              <Mail className="text-indigo-700" size={20}/>
+            </div>
+            <div>
+              <h2 className="font-bold">Enviar documentos por correo</h2>
+              <p className="text-xs text-gray-500">
+                {invoice.serie}-{String(invoice.folio).padStart(6, '0')} — selecciona los archivos y captura el destinatario
+              </p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="p-2 hover:bg-gray-100 rounded"><X size={18}/></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
+          {ok    && <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-2 rounded text-sm">{ok}</div>}
+
+          {/* Destinatario */}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-sm font-medium block mb-1">Para *</span>
+              <input required type="email" value={to} onChange={(e)=>setTo(e.target.value)}
+                placeholder="cliente@empresa.com" className="input w-full"/>
+              {customerEmail && (
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Prellenado con el correo del cliente ({customerEmail})
+                </p>
+              )}
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium block mb-1">CC (opcional)</span>
+              <input type="email" value={cc} onChange={(e)=>setCc(e.target.value)}
+                placeholder="copia@ejemplo.com" className="input w-full"/>
+            </label>
+          </div>
+
+          {/* Asunto */}
+          <label className="block">
+            <span className="text-sm font-medium block mb-1">Asunto</span>
+            <input value={subject} onChange={(e)=>setSubject(e.target.value)} className="input w-full"/>
+          </label>
+
+          {/* Mensaje */}
+          <label className="block">
+            <span className="text-sm font-medium block mb-1">Mensaje</span>
+            <textarea value={message} onChange={(e)=>setMessage(e.target.value)}
+              rows={4} className="input w-full font-sans"/>
+          </label>
+
+          {/* Selección de adjuntos */}
+          <div>
+            <p className="text-sm font-semibold text-gray-700 mb-2">Adjuntos disponibles</p>
+            <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-[280px] overflow-y-auto">
+              {/* Factura */}
+              <AttachRow
+                icon={<FileText size={16} className="text-amber-600"/>}
+                title={`Factura ${invoice.serie}-${String(invoice.folio).padStart(6,'0')}`}
+                pdfKey={`invoice_pdf:${invoice.id}`}
+                xmlKey={`invoice_xml:${invoice.id}`}
+                xmlDisabled={!invoiceHasXml}
+                xmlHint={!invoiceHasXml ? 'Sin XML (no timbrada)' : undefined}
+                sel={sel} toggle={toggle}
+              />
+              {/* NCs */}
+              {balance.creditNotes.map((n: any) => (
+                <AttachRow key={n.id}
+                  icon={<FileMinus2 size={16} className="text-rose-600"/>}
+                  title={`Nota de Crédito ${n.serie || 'NC'}-${String(n.folio).padStart(6,'0')}`}
+                  subtitle={`${n.tipo_relacion || ''} · $${Number(n.total).toLocaleString('es-MX',{minimumFractionDigits:2})}`}
+                  pdfKey={`credit_note_pdf:${n.id}`}
+                  xmlKey={`credit_note_xml:${n.id}`}
+                  xmlDisabled={!n.uuid}
+                  xmlHint={!n.uuid ? 'Sin XML timbrado' : undefined}
+                  sel={sel} toggle={toggle}
+                />
+              ))}
+              {/* Pagos */}
+              {balance.payments.map((p: any) => (
+                <AttachRow key={p.id}
+                  icon={<Wallet size={16} className="text-emerald-600"/>}
+                  title={`Complemento de Pago ${p.serie || 'P'}-${String(p.folio || '').padStart(6,'0')}`}
+                  subtitle={`${new Date(p.payment_date).toLocaleDateString('es-MX')} · $${Number(p.payment_amount).toLocaleString('es-MX',{minimumFractionDigits:2})}`}
+                  pdfKey={`payment_pdf:${p.id}`}
+                  xmlKey={`payment_xml:${p.id}`}
+                  xmlDisabled={!p.uuid}
+                  xmlHint={!p.uuid ? 'Sin XML timbrado' : undefined}
+                  sel={sel} toggle={toggle}
+                />
+              ))}
+              {balance.payments.length === 0 && balance.creditNotes.length === 0 && (
+                <p className="px-4 py-3 text-xs text-gray-500 italic">
+                  Solo se puede enviar la factura — aún no hay NCs ni complementos de pago asociados.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 p-5 border-t bg-gray-50">
+          <button type="button" onClick={onClose} className="px-4 py-2 border rounded-lg hover:bg-white">
+            Cerrar
+          </button>
+          <button type="submit" disabled={busy}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-5 py-2 rounded-lg shadow">
+            <Send size={16}/> {busy ? 'Enviando…' : 'Enviar correo'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function AttachRow({
+  icon, title, subtitle, pdfKey, xmlKey, xmlDisabled, xmlHint, sel, toggle,
+}: {
+  icon: React.ReactNode; title: string; subtitle?: string;
+  pdfKey: string; xmlKey: string;
+  xmlDisabled?: boolean; xmlHint?: string;
+  sel: Record<string, boolean>; toggle: (k: string) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-50">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="shrink-0">{icon}</div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-gray-900 truncate">{title}</p>
+          {subtitle && <p className="text-[11px] text-gray-500">{subtitle}</p>}
+        </div>
+      </div>
+      <div className="flex items-center gap-4 shrink-0">
+        <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+          <input type="checkbox" checked={!!sel[pdfKey]} onChange={()=>toggle(pdfKey)}/>
+          <span className="text-red-600 font-mono text-xs">PDF</span>
+        </label>
+        <label
+          className={`flex items-center gap-1.5 text-sm cursor-pointer ${xmlDisabled ? 'opacity-40 pointer-events-none' : ''}`}
+          title={xmlHint}
+        >
+          <input type="checkbox" checked={!!sel[xmlKey]} disabled={xmlDisabled} onChange={()=>toggle(xmlKey)}/>
+          <span className="text-blue-600 font-mono text-xs">XML</span>
+        </label>
       </div>
     </div>
   );

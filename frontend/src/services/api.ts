@@ -198,6 +198,22 @@ class APIClient {
   }
 
   /**
+   * Envía por correo los archivos seleccionados (PDF y XML de factura, NCs y pagos).
+   * El backend usa el `contact_email` de la empresa emisora como remitente si está
+   * configurado; si no, cae al MAIL_FROM del env.
+   */
+  async sendInvoiceMail(invoiceId: string, body: {
+    to: string;
+    cc?: string;
+    subject: string;
+    message: string;
+    attachments: Array<{ kind: string; id: string }>;
+  }) {
+    const r = await this.client.post(`/invoices/${invoiceId}/send-email`, body);
+    return r.data;
+  }
+
+  /**
    * Products endpoints
    */
   async getProducts(page: number = 1, limit: number = 10) {

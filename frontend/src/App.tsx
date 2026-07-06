@@ -7,6 +7,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 import { Layout } from '@/components/Layout';
 import { LoginPage } from '@/pages/Login';
+import { PublicHomePage } from '@/pages/PublicHome';
 import { DashboardPage } from '@/pages/Dashboard';
 import { InvoicesPage } from '@/pages/Invoices';
 import { NewInvoicePage } from '@/pages/NewInvoice';
@@ -34,13 +35,24 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Landing según rol:
+ * Landing por rol tras login:
  *   · SUPER_ADMIN → /admin/companies (operador de plataforma)
  *   · Otros roles → /dashboard (operativo de empresa)
  */
 function HomeRedirect() {
   const { user } = useAuthStore();
   return <Navigate to={user?.role === 'SUPER_ADMIN' ? '/admin/companies' : '/dashboard'} replace />;
+}
+
+/**
+ * Redirección desde la raíz "/" según sesión.
+ *   · Sin sesión → landing pública con planes y CTA
+ *   · Con sesión → HomeRedirect (dashboard o admin/companies)
+ */
+function RootLanding() {
+  const { isAuthenticated } = useAuthStore();
+  if (isAuthenticated) return <HomeRedirect />;
+  return <PublicHomePage />;
 }
 
 /**
@@ -74,12 +86,11 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <Router>
         <Routes>
-          {/* Public Routes */}
+          {/* Rutas públicas */}
           <Route path="/login" element={<LoginPage />} />
 
-          {/* Protected Routes */}
+          {/* Layout privado — bajo "/" — pero la ruta index es el landing público */}
           <Route
-            path="/"
             element={
               <ProtectedRoute>
                 <Layout />
@@ -102,8 +113,13 @@ export function App() {
             <Route path="import-xml"      element={<SuperAdminRoute><ImportXMLWizardPage /></SuperAdminRoute>} />
             <Route path="suppliers"       element={<SuperAdminRoute><SuppliersPage /></SuperAdminRoute>} />
 
-            <Route path="/" element={<HomeRedirect />} />
           </Route>
+
+          {/* Ruta raíz "/" — landing público si no hay sesión, redirect si sí */}
+          <Route path="/" element={<RootLanding />} />
+
+          {/* Cualquier URL desconocida → landing */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Router>
     </QueryClientProvider>
