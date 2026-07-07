@@ -226,6 +226,77 @@ export async function createPayment(companyId: string, data: PaymentInput) {
   });
 }
 
+/* ─────────────── cancelación ─────────────── */
+
+/**
+ * Cancela un complemento de pago (marca document_status='CANCELLED') y
+ * recalcula el status de la factura padre (PAID / PARTIAL_PAYMENT / STAMPED
+ * según pagos vigentes + NC vigentes). No borra el registro — mantiene la
+ * huella para auditoría/SAT.
+ *
+ * En producción con PAC real, aquí también invocaríamos el endpoint de
+ * cancelación del PAC. Por ahora solo estado local.
+ */
+export async function cancelPayment(companyId: string, paymentId: string, motivo?: string) {
+  return transaction(async (client) => {
+    const r = await transactionQuery<any>(
+      client,
+      `SELECT id, invoice_id, payment_amount, document_status, uuid, serie, folio
+         FROM payments WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL`,
+      [paymentId, companyId]
+    );
+    const pay = r.rows[0];
+    if (!pay) throw new NotFoundError('Complemento de pago no encontrado');
+    if (pay.document_status === 'CANCELLED') {
+      throw new ValidationError('El complemento de pago ya está cancelado');
+    }
+
+    await transactionQuery(
+      client,
+      `UPDATE payments
+          SET document_status = 'CANCELLED',
+              notes = COALESCE(notes, '') || $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [`\n[Cancelado ${new Date().toISOString().slice(0, 19)}]${motivo ? ' — ' + motivo : ''}`, paymentId]
+    );
+
+    // Recalcular status de la factura padre (excluyendo pagos cancelados)
+    const invR = await transactionQuery<any>(
+      client,
+      `SELECT id, total, status FROM invoices WHERE id = $1`,
+      [pay.invoice_id]
+    );
+    const inv = invR.rows[0];
+    if (inv && inv.status !== 'CANCELLED') {
+      const sumR = await transactionQuery<{ paid: number; credited: number }>(
+        client,
+        `SELECT
+           (SELECT COALESCE(SUM(payment_amount), 0) FROM payments
+             WHERE invoice_id = $1 AND deleted_at IS NULL AND document_status != 'CANCELLED') AS paid,
+           (SELECT COALESCE(SUM(total), 0) FROM credit_notes
+             WHERE invoice_id = $1 AND deleted_at IS NULL AND status != 'CANCELLED') AS credited`,
+        [pay.invoice_id]
+      );
+      const paid = Number(sumR.rows[0].paid) || 0;
+      const credited = Number(sumR.rows[0].credited) || 0;
+      const total = Number(inv.total);
+      let newStatus: string;
+      if (paid + credited >= total - 0.01) newStatus = 'PAID';
+      else if (paid > 0)                   newStatus = 'PARTIAL_PAYMENT';
+      else                                 newStatus = 'STAMPED';
+      await transactionQuery(
+        client,
+        `UPDATE invoices SET status = $1, updated_at = NOW() WHERE id = $2`,
+        [newStatus, pay.invoice_id]
+      );
+    }
+
+    logger.info(`Complemento de pago ${pay.serie}-${pay.folio} cancelado. Motivo: ${motivo || 'sin motivo'}`);
+    return { id: pay.id, uuid: pay.uuid, status: 'CANCELLED' as const };
+  });
+}
+
 /* ─────────────── lectura ─────────────── */
 
 export async function listPayments(companyId: string, opts: { limit?: number; offset?: number } = {}) {

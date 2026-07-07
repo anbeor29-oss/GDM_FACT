@@ -314,3 +314,72 @@ export async function listCreditNotes(companyId: string, opts: { limit?: number;
 }
 
 export const MOTIVOS = MOTIVOS_NC;
+
+/**
+ * Cancela una nota de crédito y recalcula el status de la factura padre.
+ * No borra el registro — marca status='CANCELLED' para auditoría.
+ *
+ * Al cancelar la NC, el saldo de la factura padre aumenta, así que puede
+ * cambiar de PAID → PARTIAL_PAYMENT o STAMPED según pagos vigentes.
+ */
+export async function cancelCreditNote(companyId: string, creditNoteId: string, motivo?: string) {
+  return transaction(async (client) => {
+    const r = await transactionQuery<any>(
+      client,
+      `SELECT id, invoice_id, total, status, serie, folio, uuid
+         FROM credit_notes WHERE id = $1 AND company_id = $2 AND deleted_at IS NULL`,
+      [creditNoteId, companyId]
+    );
+    const nc = r.rows[0];
+    if (!nc) throw new NotFoundError('Nota de crédito no encontrada');
+    if (nc.status === 'CANCELLED') {
+      throw new ValidationError('La nota de crédito ya está cancelada');
+    }
+
+    await transactionQuery(
+      client,
+      `UPDATE credit_notes
+          SET status = 'CANCELLED',
+              motivo = COALESCE(motivo, '') || $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      [`\n[Cancelada ${new Date().toISOString().slice(0, 19)}]${motivo ? ' — ' + motivo : ''}`, creditNoteId]
+    );
+
+    // Recalcular status de la factura padre
+    if (nc.invoice_id) {
+      const invR = await transactionQuery<any>(
+        client,
+        `SELECT id, total, status FROM invoices WHERE id = $1`,
+        [nc.invoice_id]
+      );
+      const inv = invR.rows[0];
+      if (inv && inv.status !== 'CANCELLED') {
+        const sumR = await transactionQuery<{ paid: number; credited: number }>(
+          client,
+          `SELECT
+             (SELECT COALESCE(SUM(payment_amount), 0) FROM payments
+               WHERE invoice_id = $1 AND deleted_at IS NULL AND document_status != 'CANCELLED') AS paid,
+             (SELECT COALESCE(SUM(total), 0) FROM credit_notes
+               WHERE invoice_id = $1 AND deleted_at IS NULL AND status != 'CANCELLED') AS credited`,
+          [nc.invoice_id]
+        );
+        const paid = Number(sumR.rows[0].paid) || 0;
+        const credited = Number(sumR.rows[0].credited) || 0;
+        const total = Number(inv.total);
+        let newStatus: string;
+        if (paid + credited >= total - 0.01) newStatus = 'PAID';
+        else if (paid > 0)                   newStatus = 'PARTIAL_PAYMENT';
+        else                                 newStatus = 'STAMPED';
+        await transactionQuery(
+          client,
+          `UPDATE invoices SET status = $1, updated_at = NOW() WHERE id = $2`,
+          [newStatus, nc.invoice_id]
+        );
+      }
+    }
+
+    logger.info(`NC ${nc.serie}-${nc.folio} cancelada. Motivo: ${motivo || 'sin motivo'}`);
+    return { id: nc.id, uuid: nc.uuid, status: 'CANCELLED' as const };
+  });
+}

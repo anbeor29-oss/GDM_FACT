@@ -29,6 +29,22 @@ router.post(
   })
 );
 
+/** POST /payments/:id/cancel — cancela el complemento y recalcula estado
+ *  de la factura padre. Requerido para poder cancelar después la factura. */
+router.post(
+  '/:id/cancel',
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await paymentsService.cancelPayment(
+      companyId(req), req.params.id, req.body?.motivo
+    );
+    res.status(200).json({
+      success: true,
+      message: 'Complemento de Pago cancelado',
+      data: result,
+    });
+  })
+);
+
 /** GET /payments — listar pagos de la empresa */
 router.get(
   '/',

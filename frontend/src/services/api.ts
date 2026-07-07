@@ -354,6 +354,16 @@ class APIClient {
     return response.data;
   }
 
+  async cancelPayment(paymentId: string, motivo?: string) {
+    const response = await this.client.post(`/payments/${paymentId}/cancel`, { motivo });
+    return response.data;
+  }
+
+  async cancelCreditNote(creditNoteId: string, motivo?: string) {
+    const response = await this.client.post(`/credit-notes/${creditNoteId}/cancel`, { motivo });
+    return response.data;
+  }
+
   async getPACAccountStatus() {
     const response = await this.client.get('/pac/account-status');
     return response.data;

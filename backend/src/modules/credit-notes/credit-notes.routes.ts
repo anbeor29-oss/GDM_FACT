@@ -46,6 +46,21 @@ router.post(
   })
 );
 
+/** POST /credit-notes/:id/cancel — cancela la NC y recalcula factura padre. */
+router.post(
+  '/:id/cancel',
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await service.cancelCreditNote(
+      companyId(req), req.params.id, req.body?.motivo
+    );
+    res.status(200).json({
+      success: true,
+      message: 'Nota de Crédito cancelada',
+      data: result,
+    });
+  })
+);
+
 /** GET /credit-notes/:id/pdf */
 router.get(
   '/:id/pdf',

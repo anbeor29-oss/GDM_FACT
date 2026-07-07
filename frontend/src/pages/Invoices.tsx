@@ -920,11 +920,39 @@ function AttachRow({
  * Cada renglón muestra UUID, fecha de timbrado, importe y permite descargar PDF.
  */
 function TimbresModal({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
+  const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ['invoice-balance', invoice.id],
     queryFn: () => api.getInvoiceBalance(invoice.id),
   });
   const d = data?.data;
+  const [busyCancelId, setBusyCancelId] = useState<string | null>(null);
+
+  const cancelDependent = async (
+    kind: 'payment' | 'creditNote',
+    id: string,
+    label: string,
+    folio: string
+  ) => {
+    const motivo = prompt(
+      `Cancelar ${label} ${folio}\n\nEscribe el motivo (opcional). Esta acción marca el ` +
+      `comprobante como CANCELADO y recalcula el saldo de la factura.`,
+      ''
+    );
+    if (motivo === null) return; // cancel del prompt
+    setBusyCancelId(id);
+    try {
+      if (kind === 'payment') await api.cancelPayment(id, motivo || undefined);
+      else                    await api.cancelCreditNote(id, motivo || undefined);
+      // Refresca este modal + la lista de facturas (status cambia)
+      queryClient.invalidateQueries({ queryKey: ['invoice-balance', invoice.id] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    } catch (e: any) {
+      alert(e.response?.data?.message || e.message);
+    } finally {
+      setBusyCancelId(null);
+    }
+  };
 
   const fmt = (n: any) =>
     Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -932,12 +960,15 @@ function TimbresModal({ invoice, onClose }: { invoice: Invoice; onClose: () => v
 
   // Construye lista cronológica unificada (cada fila con descarga PDF + XML)
   const rows: Array<{
+    id?: string;
+    kind?: 'payment' | 'creditNote';
     tipo: 'I' | 'P' | 'E';
     label: string;
     folio: string;
     fecha: any;
     importe: number;
     uuid: string | null;
+    isCancelled?: boolean;
     badgeBg: string;
     badgeText: string;
     onPdf?: () => Promise<void>;
@@ -967,12 +998,15 @@ function TimbresModal({ invoice, onClose }: { invoice: Invoice; onClose: () => v
     for (const p of d.payments) {
       const f = `${p.serie || 'P'}-${String(p.folio || 0).padStart(6, '0')}`;
       rows.push({
+        id: p.id,
+        kind: 'payment',
         tipo: 'P',
         label: 'Complemento de Pago',
         folio: f,
         fecha: p.pac_timestamp || p.payment_date,
         importe: Number(p.payment_amount),
-        uuid: p.payment_uuid,
+        uuid: p.uuid || p.payment_uuid,
+        isCancelled: p.document_status === 'CANCELLED',
         badgeBg: 'bg-emerald-100',
         badgeText: 'text-emerald-800',
         onPdf: async () => {
@@ -988,12 +1022,15 @@ function TimbresModal({ invoice, onClose }: { invoice: Invoice; onClose: () => v
     for (const n of d.creditNotes) {
       const f = `${n.serie || 'NC'}-${String(n.folio).padStart(6, '0')}`;
       rows.push({
+        id: n.id,
+        kind: 'creditNote',
         tipo: 'E',
         label: 'Nota de Crédito',
         folio: f,
         fecha: n.pac_timestamp || n.date_issued,
         importe: Number(n.total),
         uuid: n.uuid,
+        isCancelled: n.status === 'CANCELLED',
         badgeBg: 'bg-rose-100',
         badgeText: 'text-rose-800',
         onPdf: async () => {
@@ -1050,9 +1087,14 @@ function TimbresModal({ invoice, onClose }: { invoice: Invoice; onClose: () => v
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className={`font-bold ${r.tipo === 'E' ? 'text-rose-700' : 'text-gray-900'}`}>
+                      <p className={`font-bold ${r.tipo === 'E' ? 'text-rose-700' : 'text-gray-900'} ${r.isCancelled ? 'line-through opacity-60' : ''}`}>
                         {r.tipo === 'E' ? '−' : ''}$ {fmt(r.importe)}
                       </p>
+                      {r.isCancelled && (
+                        <span className="inline-block mt-1 px-2 py-0.5 bg-gray-200 text-gray-700 text-[10px] font-bold rounded uppercase">
+                          Cancelado
+                        </span>
+                      )}
                       {r.uuid && (
                         <div className="flex justify-end gap-3 mt-1">
                           {r.onPdf && (
@@ -1071,6 +1113,20 @@ function TimbresModal({ invoice, onClose }: { invoice: Invoice; onClose: () => v
                               className="text-xs text-emerald-700 hover:text-emerald-900 hover:underline inline-flex items-center gap-1"
                             >
                               <Download size={12} /> XML
+                            </button>
+                          )}
+                          {/* Cancelar — solo NC y pagos, y solo si no están ya cancelados */}
+                          {r.kind && r.id && !r.isCancelled && (
+                            <button
+                              type="button"
+                              disabled={busyCancelId === r.id}
+                              onClick={() =>
+                                cancelDependent(r.kind!, r.id!, r.label, r.folio)
+                              }
+                              className="text-xs text-orange-600 hover:text-orange-800 hover:underline inline-flex items-center gap-1 disabled:opacity-50"
+                            >
+                              <Ban size={12} />
+                              {busyCancelId === r.id ? 'Cancelando…' : 'Cancelar'}
                             </button>
                           )}
                         </div>

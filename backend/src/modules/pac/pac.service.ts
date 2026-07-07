@@ -216,6 +216,28 @@ export async function cancelInvoice(
     throw new ValidationError('La factura ya está cancelada');
   }
 
+  // Regla SAT: no se puede cancelar una factura padre si tiene CFDIs
+  // dependientes vigentes (NC o complementos de pago). Primero se cancelan
+  // los dependientes desde el modal de Historia, luego la factura.
+  const depsR = await query<{ ncs: number; pays: number }>(
+    `SELECT
+       (SELECT COUNT(*)::int FROM credit_notes
+         WHERE invoice_id = $1 AND deleted_at IS NULL AND status != 'CANCELLED') AS ncs,
+       (SELECT COUNT(*)::int FROM payments
+         WHERE invoice_id = $1 AND deleted_at IS NULL AND document_status != 'CANCELLED') AS pays`,
+    [invoiceId]
+  );
+  const { ncs, pays } = depsR.rows[0];
+  if (ncs > 0 || pays > 0) {
+    const partes: string[] = [];
+    if (pays > 0) partes.push(`${pays} complemento(s) de pago`);
+    if (ncs > 0)  partes.push(`${ncs} nota(s) de crédito`);
+    throw new ValidationError(
+      `La factura tiene ${partes.join(' y ')} vigente(s). ` +
+      `Cancela primero esos comprobantes desde el ícono de Historia.`
+    );
+  }
+
   if (!MOTIVOS_CANCELACION[motivo]) {
     throw new ValidationError(
       `Motivo inválido. Válidos: ${Object.keys(MOTIVOS_CANCELACION).join(', ')}`
@@ -226,8 +248,17 @@ export async function cancelInvoice(
     throw new ValidationError('El motivo 01 requiere el folio fiscal de sustitución');
   }
 
-  // RFC emisor (placeholder; vendría de la empresa)
-  const rfcEmisor = 'ABC010101ABC';
+  // RFC emisor REAL de la empresa. Antes venía hardcodeado como
+  // 'ABC010101ABC' (placeholder) y por eso SW respondia 404: buscaba
+  // ese RFC inexistente en su vault.
+  const compR = await query<{ rfc: string }>(
+    `SELECT rfc FROM companies WHERE id = $1`,
+    [companyId]
+  );
+  const rfcEmisor = compR.rows[0]?.rfc;
+  if (!rfcEmisor) {
+    throw new ValidationError('La empresa emisora no tiene RFC configurado');
+  }
 
   const provider = getProvider();
   const credentials = getCredentials(companyId);
