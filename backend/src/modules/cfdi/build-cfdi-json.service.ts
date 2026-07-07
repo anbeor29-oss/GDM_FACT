@@ -116,17 +116,21 @@ function qty(n: number | string | null | undefined): string {
 /**
  * Fecha local sin milisegundos ni zona: "YYYY-MM-DDTHH:MM:SS".
  * SAT NO acepta 'Z' final, ni ±HH:MM offset, ni milisegundos.
+ *
+ * OJO: SAT valida contra hora de México (America/Mexico_City), NO contra UTC.
+ * Nuestros servers (Render) corren en UTC, así que si usáramos getHours()
+ * quedaríamos 5–6h adelantados y el PAC rechaza con
+ * "La fecha de emisión no se encuentra en el rango permitido".
+ * Por eso forzamos la zona horaria explícitamente con toLocaleString.
  */
 function fmtFechaSAT(d: Date = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return (
-    d.getFullYear() + '-' +
-    pad(d.getMonth() + 1) + '-' +
-    pad(d.getDate()) + 'T' +
-    pad(d.getHours()) + ':' +
-    pad(d.getMinutes()) + ':' +
-    pad(d.getSeconds())
-  );
+  // 'sv-SE' (Suecia) usa formato ISO por default: "YYYY-MM-DD HH:MM:SS"
+  // Con timeZone convertimos correctamente aunque corramos en UTC.
+  const s = d.toLocaleString('sv-SE', {
+    timeZone: 'America/Mexico_City',
+    hour12: false,
+  });
+  return s.replace(' ', 'T');
 }
 
 /**
