@@ -1095,42 +1095,42 @@ function TimbresModal({ invoice, onClose }: { invoice: Invoice; onClose: () => v
                           Cancelado
                         </span>
                       )}
-                      {r.uuid && (
-                        <div className="flex justify-end gap-3 mt-1">
-                          {r.onPdf && (
-                            <button
-                              type="button"
-                              onClick={() => r.onPdf!().catch((e) => alert(e?.message || 'Error PDF'))}
-                              className="text-xs text-red-600 hover:text-red-800 hover:underline inline-flex items-center gap-1"
-                            >
-                              <FileDown size={12} /> PDF
-                            </button>
-                          )}
-                          {r.onXml && (
-                            <button
-                              type="button"
-                              onClick={() => r.onXml!().catch((e) => alert(e?.message || 'Error XML'))}
-                              className="text-xs text-emerald-700 hover:text-emerald-900 hover:underline inline-flex items-center gap-1"
-                            >
-                              <Download size={12} /> XML
-                            </button>
-                          )}
-                          {/* Cancelar — solo NC y pagos, y solo si no están ya cancelados */}
-                          {r.kind && r.id && !r.isCancelled && (
-                            <button
-                              type="button"
-                              disabled={busyCancelId === r.id}
-                              onClick={() =>
-                                cancelDependent(r.kind!, r.id!, r.label, r.folio)
-                              }
-                              className="text-xs text-orange-600 hover:text-orange-800 hover:underline inline-flex items-center gap-1 disabled:opacity-50"
-                            >
-                              <Ban size={12} />
-                              {busyCancelId === r.id ? 'Cancelando…' : 'Cancelar'}
-                            </button>
-                          )}
-                        </div>
-                      )}
+                      <div className="flex justify-end gap-3 mt-1 flex-wrap">
+                        {r.uuid && r.onPdf && (
+                          <button
+                            type="button"
+                            onClick={() => r.onPdf!().catch((e) => alert(e?.message || 'Error PDF'))}
+                            className="text-xs text-red-600 hover:text-red-800 hover:underline inline-flex items-center gap-1"
+                          >
+                            <FileDown size={12} /> PDF
+                          </button>
+                        )}
+                        {r.uuid && r.onXml && (
+                          <button
+                            type="button"
+                            onClick={() => r.onXml!().catch((e) => alert(e?.message || 'Error XML'))}
+                            className="text-xs text-emerald-700 hover:text-emerald-900 hover:underline inline-flex items-center gap-1"
+                          >
+                            <Download size={12} /> XML
+                          </button>
+                        )}
+                        {/* Cancelar — solo NC y pagos, y solo si no están ya cancelados.
+                           Se muestra AUN sin UUID (pagos/NC en DRAFT o modo mock) para
+                           que la factura no quede bloqueada por comprobantes sin timbre. */}
+                        {r.kind && r.id && !r.isCancelled && (
+                          <button
+                            type="button"
+                            disabled={busyCancelId === r.id}
+                            onClick={() =>
+                              cancelDependent(r.kind!, r.id!, r.label, r.folio)
+                            }
+                            className="text-xs text-orange-600 hover:text-orange-800 hover:underline inline-flex items-center gap-1 disabled:opacity-50"
+                          >
+                            <Ban size={12} />
+                            {busyCancelId === r.id ? 'Cancelando…' : 'Cancelar'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
