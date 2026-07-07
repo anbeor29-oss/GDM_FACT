@@ -68,6 +68,17 @@ export interface IPACProvider {
   /** Timbrar un CFDI (enviar XML, recibir XML timbrado + UUID) */
   stamp(xmlContent: string, credentials: PACCredentials): Promise<StampResult>;
 
+  /**
+   * Timbrar desde JSON — el PAC arma el XML, lo sella con la .key del emisor
+   * (guardada en su vault) y timbra ante el SAT. Preferimos esta ruta cuando
+   * está disponible porque evita manejar la clave privada en nuestro backend.
+   * Devuelve XML timbrado + UUID + sellos + QR.
+   *
+   * Providers que no soporten JSON pueden dejar este método sin implementar
+   * (throw). El registry / caller decidirá.
+   */
+  stampFromJson?(payload: any, credentials: PACCredentials): Promise<StampResult>;
+
   /** Cancelar un CFDI ante el SAT */
   cancel(
     uuid: string,

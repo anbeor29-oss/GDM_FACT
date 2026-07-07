@@ -22,6 +22,7 @@ import { MockPACProvider } from './providers/mock.provider';
 import { SWSapienProvider } from './providers/sw-sapien.provider';
 import * as invoicesService from '../invoices/invoices.service';
 import * as cfdiService from '../cfdi/cfdi.service';
+import { buildCFDIJson } from '../cfdi/build-cfdi-json.service';
 
 /**
  * REGISTRY de proveedores PAC disponibles.
@@ -106,16 +107,42 @@ export async function stampInvoice(companyId: string, invoiceId: string): Promis
     );
   }
 
-  // Generar XML si no existe
-  let xmlContent = invoice.xml_content;
-  if (!xmlContent) {
-    xmlContent = await cfdiService.generateCFDIXML({ companyId, invoiceId });
-  }
-
-  // Timbrar con el provider
+  // Elegir provider y ruta.
+  //   · Si el provider soporta stampFromJson (SW Sapien), preferimos JSON:
+  //     no manejamos la .key en el backend — SW la trae del vault + sella + timbra.
+  //   · Fallback a la ruta XML clásica (MOCK y providers legacy).
   const provider = getProvider();
   const credentials = getCredentials(companyId);
-  const result = await provider.stamp(xmlContent, credentials);
+  let result: StampResult;
+
+  if (typeof provider.stampFromJson === 'function') {
+    const payload = await buildCFDIJson(companyId, invoiceId);
+
+    // SW sandbox SOLO acepta RFC EKU9003173C9 (su CSD de prueba).
+    // Si el emisor no coincide, SW rechaza con 401/CFDI40140 sin timbrar.
+    const isSwSandbox =
+      provider.name === 'SW_SAPIEN' &&
+      (process.env.SW_SAPIEN_ENV || 'sandbox') !== 'production';
+    if (isSwSandbox && payload.Emisor.Rfc !== 'EKU9003173C9') {
+      throw new ValidationError(
+        `SW Sapien sandbox solo acepta el RFC de prueba EKU9003173C9. ` +
+        `Esta empresa emite con ${payload.Emisor.Rfc}. ` +
+        `Para timbrado real cambia SW_SAPIEN_ENV=production en el backend y sube tu CSD al vault SW.`
+      );
+    }
+
+    logger.info(
+      `Timbrando factura ${invoiceId} vía ${provider.name} (JSON): ` +
+      `${payload.Serie || ''}${payload.Folio || ''} → ${payload.Receptor.Rfc}`
+    );
+    result = await provider.stampFromJson(payload, credentials);
+  } else {
+    let xmlContent = invoice.xml_content;
+    if (!xmlContent) {
+      xmlContent = await cfdiService.generateCFDIXML({ companyId, invoiceId });
+    }
+    result = await provider.stamp(xmlContent, credentials);
+  }
 
   if (!result.success) {
     logger.error(`Timbrado fallido para factura ${invoiceId}`, { errors: result.errors });

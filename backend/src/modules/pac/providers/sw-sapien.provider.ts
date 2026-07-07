@@ -119,6 +119,46 @@ export class SWSapienProvider implements IPACProvider {
     }
   }
 
+  /* ─────────────── TIMBRADO JSON (Emisión SW) ─────────────── */
+
+  /**
+   * Endpoint /v3/cfdi33/issue/json/v4
+   *   · Aceptamos un JSON (SW arma el XML, lo sella con nuestra .key subida al
+   *     vault, y timbra ante SAT).
+   *   · Content-Type: application/jsontoxml
+   *   · Respuesta idéntica a stamp(): data.uuid, data.cfdi, sellos, qrCode.
+   *   · Ventaja: no manejamos CSD/.key en nuestro backend, solo en el vault SW.
+   */
+  async stampFromJson(payload: any, _credentials: PACCredentials): Promise<StampResult> {
+    try {
+      const http = this.http();
+      const r = await http.post('/v3/cfdi33/issue/json/v4', payload, {
+        headers: { 'Content-Type': 'application/jsontoxml' },
+      });
+      const d = r.data?.data;
+      if (r.data?.status !== 'success' || !d?.uuid) {
+        return {
+          success: false,
+          errors: [r.data?.messageDetail || r.data?.message || 'Respuesta SW inválida'],
+        };
+      }
+      return {
+        success: true,
+        uuid: d.uuid,
+        xml_stamped: d.cfdi,
+        sello_sat: d.selloSAT,
+        sello_cfd: d.selloCFD,
+        no_certificado_sat: d.noCertificadoSAT,
+        fecha_timbrado: d.fechaTimbrado,
+        cadena_original_sat: d.cadenaOriginalSAT,
+        qr_code: d.qrCode,
+        errors: [],
+      };
+    } catch (e) {
+      return this.handleAxiosError(e, 'timbrado-json');
+    }
+  }
+
   /* ─────────────── CANCELACIÓN ─────────────── */
 
   async cancel(
