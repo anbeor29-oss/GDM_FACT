@@ -16,23 +16,30 @@ function getCompanyId(req: Request): string {
 
 /**
  * POST /api/v1/pac/stamp/:invoiceId
- * Timbrar factura (MOCK por ahora)
+ * Timbrar factura. El mensaje/provider reales se toman del pac.service —
+ * antes venían hardcoded como MOCK y confundían al usuario aunque el
+ * timbrado se hubiera hecho contra SW Sapien real.
  */
 export async function stamp(req: Request, res: Response) {
   const companyId = getCompanyId(req);
   const { invoiceId } = req.params;
 
   const result = await pacService.stampInvoice(companyId, invoiceId);
+  const { active: activeProvider } = pacService.listProviders();
+  const isMock = activeProvider === 'MOCK';
 
   res.status(200).json({
     success: true,
-    message: 'Factura timbrada (MODO SIMULACIÓN - sin validez fiscal)',
+    message: isMock
+      ? 'Factura timbrada (MODO SIMULACIÓN - sin validez fiscal)'
+      : `Factura timbrada con ${activeProvider}`,
     data: {
       uuid: result.uuid,
       fecha_timbrado: result.fecha_timbrado,
       sello_sat: result.sello_sat?.substring(0, 20) + '...',
       qr_code: result.qr_code,
-      provider: 'MOCK',
+      provider: activeProvider,
+      is_mock: isMock,
     },
   });
 }
@@ -95,11 +102,20 @@ export async function testConnection(req: Request, res: Response) {
  */
 export async function providers(_req: Request, res: Response) {
   const list = pacService.listProviders();
+  const isMock = list.active === 'MOCK';
 
   res.status(200).json({
     success: true,
-    message: 'PAC real pendiente de integración. Actualmente en modo MOCK.',
-    data: list,
+    message: isMock
+      ? 'PAC en modo MOCK — los timbres NO tienen validez fiscal.'
+      : `PAC real activo: ${list.active}. Los timbres son reales.`,
+    data: {
+      ...list,
+      is_mock: isMock,
+      env_pac_provider: process.env.PAC_PROVIDER || '(no configurado)',
+      env_sw_env: process.env.SW_SAPIEN_ENV || '(no configurado)',
+      env_sw_token_present: !!process.env.SW_SAPIEN_TOKEN,
+    },
   });
 }
 

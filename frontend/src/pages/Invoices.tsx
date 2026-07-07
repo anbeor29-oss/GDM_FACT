@@ -115,12 +115,18 @@ export function InvoicesPage() {
     setStampingId(invoice.id);
     try {
       const result = await api.stampInvoice(invoice.id);
+      const isMock = result.data?.is_mock !== false && result.data?.provider === 'MOCK';
       alert(
-        `✅ Factura timbrada (MODO SIMULACIÓN)\n\n` +
-        `UUID asignado: ${result.data.uuid}\n` +
-        `Sello del SAT generado a partir del CSD del emisor.\n\n` +
-        `⚠ Estamos usando un PAC MOCK. Cuando se conecte un PAC real, ` +
-        `este mismo CSD se usará para el sello digital real.`
+        isMock
+          ? (`✅ Factura timbrada (MODO SIMULACIÓN)\n\n` +
+             `UUID asignado: ${result.data.uuid}\n` +
+             `Sello del SAT generado a partir del CSD del emisor.\n\n` +
+             `⚠ Estamos usando un PAC MOCK. Cuando se conecte un PAC real, ` +
+             `este mismo CSD se usará para el sello digital real.`)
+          : (`✅ Factura timbrada con ${result.data.provider}\n\n` +
+             `UUID SAT: ${result.data.uuid}\n` +
+             `Fecha timbrado: ${result.data.fecha_timbrado || ''}\n\n` +
+             `El XML y PDF ya contienen el sello real del SAT.`)
       );
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
     } catch (e: any) {
