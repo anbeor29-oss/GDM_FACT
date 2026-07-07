@@ -129,6 +129,25 @@ export async function createCreditNote(companyId: string, data: CreditNoteInput)
     }
     const subtotal = Math.round((ncTotal - iva) * 100) / 100;
 
+    // Datos del emisor y receptor para el XML del NC (mismos que la factura padre).
+    // Necesarios para que el atributo NoCertificado + Emisor/Receptor queden en
+    // el XML y luego el PDF pueda leerlos con extractTimbreData.
+    const compR = await transactionQuery<{ rfc: string; business_name: string; fiscal_regime: string; postal_code: string; csd_no_certificado: string | null }>(
+      client,
+      `SELECT rfc, business_name, fiscal_regime, postal_code, csd_no_certificado
+         FROM companies WHERE id = $1`,
+      [companyId]
+    );
+    const emisor = compR.rows[0];
+    const custR = await transactionQuery<{ rfc: string; business_name: string; postal_code: string; fiscal_regime: string }>(
+      client,
+      `SELECT rfc, business_name, postal_code, fiscal_regime
+         FROM customers WHERE id = $1`,
+      [data.customerId]
+    );
+    const receptor = custR.rows[0];
+    const noCertEmisor = emisor?.csd_no_certificado || '00001000000506430009';
+
     // Construye XML CFDI 4.0 tipo E (Egreso) — válido estructuralmente para
     // descarga; mientras estemos en mock PAC, sirve como respaldo del comprobante.
     const motivoText = data.motivo
@@ -139,9 +158,15 @@ export async function createCreditNote(companyId: string, data: CreditNoteInput)
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
   Version="4.0" Serie="NC" Folio="${folio}"
   Fecha="${new Date().toISOString().slice(0, 19)}"
+  NoCertificado="${noCertEmisor}"
   TipoDeComprobante="E" Moneda="${moneda}"
   SubTotal="${subtotal.toFixed(2)}" Total="${ncTotal.toFixed(2)}"
-  Exportacion="01">
+  Exportacion="01" LugarExpedicion="${emisor?.postal_code || '00000'}">
+  <cfdi:Emisor Rfc="${esc(emisor?.rfc)}" Nombre="${esc(emisor?.business_name)}"
+    RegimenFiscal="${emisor?.fiscal_regime || '601'}"/>
+  <cfdi:Receptor Rfc="${esc(receptor?.rfc)}" Nombre="${esc(receptor?.business_name)}"
+    DomicilioFiscalReceptor="${receptor?.postal_code || '00000'}"
+    RegimenFiscalReceptor="${receptor?.fiscal_regime || '616'}" UsoCFDI="G02"/>
   <cfdi:CfdiRelacionados TipoRelacion="${tipoRel}">
     <cfdi:CfdiRelacionado UUID="${invoice.cfdi_uuid || ''}"/>
   </cfdi:CfdiRelacionados>
@@ -218,8 +243,11 @@ export async function getInvoiceBalance(companyId: string, invoiceId: string) {
   if (!invoice) throw new NotFoundError('Factura no encontrada');
 
   const paymentsR = await query<any>(
+    // Devolvemos uuid SIN alias para que el frontend (SendMailModal) pueda
+    // habilitar el checkbox XML del pago timbrado. Antes venía como
+    // payment_uuid y el modal siempre lo veía como null → XML deshabilitado.
     `SELECT id, folio, serie, payment_amount, payment_date, payment_form,
-            notes AS reference, uuid AS payment_uuid, pac_timestamp, document_status
+            notes AS reference, uuid, pac_timestamp, document_status
        FROM payments
       WHERE invoice_id = $1 AND deleted_at IS NULL
       ORDER BY payment_date ASC`,

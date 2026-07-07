@@ -107,6 +107,26 @@ export async function createPayment(companyId: string, data: PaymentInput) {
     }
 
     // 3) Insertar pago + simular timbrado (con XML CFDI 4.0 + Pagos 2.0)
+    //    Necesitamos datos del emisor y receptor para que el XML del
+    //    complemento de pago quede consistente con la representación
+    //    impresa (NoCertificado, RFCs, etc.). En sandbox SW usamos el
+    //    cert de prueba si el CSD del emisor aún no está cargado en BD.
+    const compEmisorR = await transactionQuery<{ rfc: string; business_name: string; fiscal_regime: string; postal_code: string; csd_no_certificado: string | null }>(
+      client,
+      `SELECT rfc, business_name, fiscal_regime, postal_code, csd_no_certificado
+         FROM companies WHERE id = $1`,
+      [companyId]
+    );
+    const emisor = compEmisorR.rows[0];
+    const custR = await transactionQuery<{ rfc: string; business_name: string; postal_code: string; fiscal_regime: string }>(
+      client,
+      `SELECT rfc, business_name, postal_code, fiscal_regime
+         FROM customers WHERE id = $1`,
+      [invoice.customer_id]
+    );
+    const receptor = custR.rows[0];
+    const noCertEmisor = emisor?.csd_no_certificado || '00001000000506430009';
+
     const folio = await getNextPaymentFolio(client, companyId);
     const fakeUUID = uuidv4().toUpperCase(); // simulación MOCK
     const fechaISO = data.paymentDate || new Date().toISOString();
@@ -116,7 +136,14 @@ export async function createPayment(companyId: string, data: PaymentInput) {
   xmlns:pago20="http://www.sat.gob.mx/Pagos20"
   Version="4.0" Serie="P" Folio="${folio}"
   Fecha="${fechaISO.slice(0, 19)}"
-  TipoDeComprobante="P" Moneda="XXX" SubTotal="0" Total="0" Exportacion="01">
+  NoCertificado="${noCertEmisor}"
+  TipoDeComprobante="P" Moneda="XXX" SubTotal="0" Total="0" Exportacion="01"
+  LugarExpedicion="${emisor?.postal_code || '00000'}">
+  <cfdi:Emisor Rfc="${emisor?.rfc || ''}" Nombre="${(emisor?.business_name || '').replace(/"/g, '&quot;')}"
+    RegimenFiscal="${emisor?.fiscal_regime || '601'}"/>
+  <cfdi:Receptor Rfc="${receptor?.rfc || ''}" Nombre="${(receptor?.business_name || '').replace(/"/g, '&quot;')}"
+    DomicilioFiscalReceptor="${receptor?.postal_code || '00000'}"
+    RegimenFiscalReceptor="${receptor?.fiscal_regime || '616'}" UsoCFDI="CP01"/>
   <cfdi:Conceptos>
     <cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT"
       Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/>
