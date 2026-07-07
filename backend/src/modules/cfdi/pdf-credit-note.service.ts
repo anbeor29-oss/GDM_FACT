@@ -34,6 +34,7 @@ import * as customersService from '../customers/customers.service';
 import {
   PDFDoc, PAGE_LEFT, PAGE_RIGHT, fmtMoney, montoEnLetra,
   drawCommonHeader, drawReceptor, drawFooter, drawTimbreFiscal, drawPageNumbers, loadRegimenDesc,
+  extractTimbreData, buildQrSatPng,
 } from './pdf-helpers';
 import { getCompanyLogo } from './logo-cache';
 import { MOTIVOS } from '../credit-notes/credit-notes.service';
@@ -164,11 +165,21 @@ export async function generateCreditNotePDF(companyId: string, creditNoteId: str
   const enLetraH = doc.heightOfString(enLetra, { width: PAGE_RIGHT - PAGE_LEFT - 90 });
   y += Math.max(16, enLetraH + 6);
 
-  // Bloque oficial SAT (simulado mientras no haya PAC real)
+  // Bloque oficial SAT — con QR real del portal si la NC está timbrada.
+  const tNc = extractTimbreData(note.xml_content);
+  const qrPngNc = await buildQrSatPng({
+    uuid: tNc.uuid || note.uuid,
+    rfcEmisor: tNc.rfcEmisor || (company as any).rfc,
+    rfcReceptor: tNc.rfcReceptor || (customer as any).rfc,
+    total: tNc.total || note.total,
+    selloCfd: tNc.selloCfd,
+  });
   drawTimbreFiscal(doc, y + 4, {
     uuid: note.uuid,
     fechaTimbrado: note.pac_timestamp || note.date_issued,
     color: '#be123c',
+    xml: note.xml_content,
+    qrPng: qrPngNc,
   });
 
   drawFooter(

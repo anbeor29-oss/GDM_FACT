@@ -748,7 +748,13 @@ function SendMailModal({
     setBusy(true);
     try {
       const r = await api.sendInvoiceMail(invoice.id, { to, cc, subject, message, attachments });
-      setOk(`Correo enviado a ${r.data.recipients.join(', ')} con ${attachments.length} adjunto(s).`);
+      const attached = r.data?.attached ?? attachments.length;
+      const skipped: Array<{ kind: string; message: string }> = r.data?.skipped || [];
+      let msg = `Correo enviado a ${r.data.recipients.join(', ')} con ${attached} adjunto(s).`;
+      if (skipped.length > 0) {
+        msg += ` Omitidos (${skipped.length}): ` + skipped.map((s) => `${s.kind} — ${s.message}`).join(' · ');
+      }
+      setOk(msg);
     } catch (e: any) {
       setError(e.response?.data?.message || e.message);
     } finally { setBusy(false); }

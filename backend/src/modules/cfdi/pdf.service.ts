@@ -32,7 +32,10 @@ import { query } from '../../config/database';
 import { NotFoundError } from '../../middleware/errorHandler';
 import logger from '../../middleware/logger';
 import { getCompanyLogo } from './logo-cache';
-import { drawTimbreFiscal, drawPageNumbers, extractNoCertificado } from './pdf-helpers';
+import {
+  drawTimbreFiscal, drawPageNumbers, extractNoCertificado,
+  extractTimbreData, buildQrSatPng,
+} from './pdf-helpers';
 
 type PDFDoc = InstanceType<typeof PDFDocument>;
 
@@ -207,6 +210,17 @@ export async function generateInvoicePDF(data: PDFGenerationData): Promise<Buffe
 
   const logoBuf = await getCompanyLogo((company as any).id);
 
+  // QR SAT — se pre-genera aquí porque el render del bloque timbre es sync.
+  // Si la factura no está timbrada aún, el helper devuelve null y no se dibuja.
+  const t = extractTimbreData(invoice.xml_content);
+  const qrPng = await buildQrSatPng({
+    uuid: t.uuid || invoice.cfdi_uuid,
+    rfcEmisor: t.rfcEmisor || (company as any).rfc,
+    rfcReceptor: t.rfcReceptor || (customer as any).rfc,
+    total: t.total || invoice.total,
+    selloCfd: t.selloCfd,
+  });
+
   const doc = new PDFDocument({ size: 'letter', margin: 40, bufferPages: true });
   const chunks: Buffer[] = [];
   doc.on('data', (b: Buffer) => chunks.push(b));
@@ -215,7 +229,7 @@ export async function generateInvoicePDF(data: PDFGenerationData): Promise<Buffe
   generateReceptor(doc, customer, invoice, cat.regR, cat.uso);
   generateItems(doc, invoice.items);
   generateTotals(doc, invoice);
-  generateStampedSection(doc, invoice);
+  generateStampedSection(doc, invoice, qrPng);
   generateFooter(doc, invoice);
   drawPageNumbers(doc);
 
@@ -590,17 +604,15 @@ function generateTotals(doc: PDFDoc, invoice: any) {
   doc.fillColor('#000000');
 }
 
-function generateStampedSection(doc: PDFDoc, invoice: any) {
+function generateStampedSection(doc: PDFDoc, invoice: any, qrPng: Buffer | null) {
   let y = (doc as any)._nextY || 600;
-  // Bloque oficial SAT — siempre mostrado (con sellos simulados si no hay
-  // PAC real todavía) para que la representación impresa contenga los
-  // campos exigidos por el Anexo 20: UUID, fecha timbrado, RFC PAC,
-  // No. Cert. SAT, Sello del CFDI, Sello del SAT, Cadena original.
   const yEnd = drawTimbreFiscal(doc, y, {
     uuid: invoice.cfdi_uuid,
     fechaTimbrado: invoice.pac_timestamp || invoice.date_issued,
     pacRfc: invoice.pac_id || 'SAT970701NN3',
     color: '#1e3a8a',
+    xml: invoice.xml_content,
+    qrPng,
   });
   (doc as any)._nextY = yEnd;
 }

@@ -29,7 +29,7 @@ import * as customersService from '../customers/customers.service';
 import {
   PDFDoc, PAGE_LEFT, PAGE_RIGHT, fmtMoney, fmtDate, montoEnLetra,
   FORMA_PAGO, drawCommonHeader, drawReceptor, drawFooter, drawTimbreFiscal,
-  drawPageNumbers, loadRegimenDesc,
+  drawPageNumbers, loadRegimenDesc, extractTimbreData, buildQrSatPng,
 } from './pdf-helpers';
 import { getCompanyLogo } from './logo-cache';
 
@@ -164,11 +164,21 @@ export async function generatePaymentPDF(companyId: string, paymentId: string): 
     .lineWidth(0.5).strokeColor('#cbd5e1').stroke();
   doc.fillColor('#000000').strokeColor('#000000');
 
-  // Bloque oficial SAT — Timbre Fiscal Digital simulado
+  // Bloque oficial SAT — datos y QR del portal desde el XML timbrado.
+  const tPay = extractTimbreData((payment as any).xml_content);
+  const qrPngPay = await buildQrSatPng({
+    uuid: tPay.uuid || payment.uuid,
+    rfcEmisor: tPay.rfcEmisor || (company as any).rfc,
+    rfcReceptor: tPay.rfcReceptor || (customer as any).rfc,
+    total: tPay.total || 0,
+    selloCfd: tPay.selloCfd,
+  });
   drawTimbreFiscal(doc, rowY + 30, {
     uuid: payment.uuid,
     fechaTimbrado: payment.pac_timestamp || payment.payment_date,
     color: '#15803d',
+    xml: (payment as any).xml_content,
+    qrPng: qrPngPay,
   });
 
   drawFooter(

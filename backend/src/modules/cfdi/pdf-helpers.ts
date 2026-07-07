@@ -5,6 +5,7 @@
  */
 
 import PDFDocument from 'pdfkit';
+import QRCode from 'qrcode';
 import { query } from '../../config/database';
 import logger from '../../middleware/logger';
 
@@ -40,6 +41,124 @@ export function extractNoCertificado(xml: string | null | undefined): string | n
   if (!xml || typeof xml !== 'string') return null;
   const m = xml.match(/NoCertificado\s*=\s*["']([^"']+)["']/);
   return m ? m[1] : null;
+}
+
+/**
+ * Extrae todos los datos del <tfd:TimbreFiscalDigital> + <cfdi:Comprobante>
+ * del XML timbrado. Se usa para representar el timbre en el PDF con los
+ * valores REALES devueltos por el PAC (no simulaciones).
+ */
+export interface TimbreExtractedData {
+  uuid: string | null;
+  fechaTimbrado: string | null;
+  rfcProvCertif: string | null;
+  noCertificadoSat: string | null;
+  selloCfd: string | null;
+  selloSat: string | null;
+  noCertificado: string | null;    // del emisor
+  rfcEmisor: string | null;
+  rfcReceptor: string | null;
+  total: string | null;
+}
+function attr(xml: string, name: string): string | null {
+  const m = xml.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`));
+  return m ? m[1] : null;
+}
+export function extractTimbreData(xml: string | null | undefined): TimbreExtractedData {
+  const empty: TimbreExtractedData = {
+    uuid: null, fechaTimbrado: null, rfcProvCertif: null, noCertificadoSat: null,
+    selloCfd: null, selloSat: null, noCertificado: null,
+    rfcEmisor: null, rfcReceptor: null, total: null,
+  };
+  if (!xml || typeof xml !== 'string') return empty;
+
+  // Fragmento del <tfd:TimbreFiscalDigital ...> — el resto de las funciones
+  // trabajan con substrings para no confundir atributos entre nodos.
+  const tfdMatch = xml.match(/<[^>]*TimbreFiscalDigital[^>]*\/?>/);
+  const tfd = tfdMatch ? tfdMatch[0] : '';
+  // Comprobante root (primeros 800 chars normalmente bastan)
+  const cmpMatch = xml.match(/<[^>]*Comprobante[^>]*>/);
+  const cmp = cmpMatch ? cmpMatch[0] : '';
+  // Emisor / Receptor
+  const emiMatch = xml.match(/<[^>]*Emisor[^>]*\/?>/);
+  const emi = emiMatch ? emiMatch[0] : '';
+  const recMatch = xml.match(/<[^>]*Receptor[^>]*\/?>/);
+  const rec = recMatch ? recMatch[0] : '';
+
+  return {
+    uuid:             attr(tfd, 'UUID'),
+    fechaTimbrado:    attr(tfd, 'FechaTimbrado'),
+    rfcProvCertif:    attr(tfd, 'RfcProvCertif'),
+    noCertificadoSat: attr(tfd, 'NoCertificadoSAT'),
+    selloCfd:         attr(tfd, 'SelloCFD'),
+    selloSat:         attr(tfd, 'SelloSAT'),
+    noCertificado:    attr(cmp, 'NoCertificado'),
+    rfcEmisor:        attr(emi, 'Rfc'),
+    rfcReceptor:      attr(rec, 'Rfc'),
+    total:            attr(cmp, 'Total'),
+  };
+}
+
+/**
+ * Construye el contenido del QR SAT según Anexo 20:
+ *   https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx
+ *   ?id={UUID}&re={RFC_EMISOR}&rr={RFC_RECEPTOR}&tt={TOTAL}&fe={ULTIMOS_8_DEL_SELLO}
+ *
+ * - TOTAL: 6 dígitos enteros + 6 decimales, cero-padded (formato NNNNNN.NNNNNN)
+ * - fe: últimos 8 chars del SelloCFD (si SelloCFD tiene menos, se usa completo)
+ */
+export function buildQrSatContent(t: {
+  uuid: string;
+  rfcEmisor: string;
+  rfcReceptor: string;
+  total: string | number;
+  selloCfd: string;
+}): string {
+  const totalNum = Number(t.total) || 0;
+  // TT del portal SAT: 10 chars enteros + '.' + 6 chars decimales
+  const tt = totalNum.toFixed(6).padStart(17, '0');
+  const fe = (t.selloCfd || '').slice(-8);
+  const url =
+    'https://verificacfdi.facturaelectronica.sat.gob.mx/default.aspx' +
+    `?id=${encodeURIComponent(t.uuid)}` +
+    `&re=${encodeURIComponent(t.rfcEmisor)}` +
+    `&rr=${encodeURIComponent(t.rfcReceptor)}` +
+    `&tt=${tt}` +
+    `&fe=${encodeURIComponent(fe)}`;
+  return url;
+}
+
+/**
+ * Genera el PNG del QR SAT como Buffer, listo para inyectar con doc.image().
+ * Devuelve null si algún dato indispensable falta (mejor mostrar el bloque
+ * timbre sin QR que un QR roto que no valide en el portal SAT).
+ */
+export async function buildQrSatPng(t: {
+  uuid?: string | null;
+  rfcEmisor?: string | null;
+  rfcReceptor?: string | null;
+  total?: string | number | null;
+  selloCfd?: string | null;
+}): Promise<Buffer | null> {
+  if (!t.uuid || !t.rfcEmisor || !t.rfcReceptor || t.total == null) return null;
+  const content = buildQrSatContent({
+    uuid: t.uuid,
+    rfcEmisor: t.rfcEmisor,
+    rfcReceptor: t.rfcReceptor,
+    total: t.total,
+    selloCfd: t.selloCfd || '',
+  });
+  try {
+    return await QRCode.toBuffer(content, {
+      errorCorrectionLevel: 'M',
+      type: 'png',
+      margin: 1,
+      width: 220,
+    });
+  } catch (e) {
+    logger.warn(`No se pudo generar QR SAT: ${(e as Error).message}`);
+    return null;
+  }
 }
 
 export function fmtDate(d: any): string {
@@ -466,45 +585,42 @@ export function drawTimbreFiscal(
     fechaTimbrado?: any;
     pacRfc?: string;
     color?: string;
+    /** XML timbrado; si viene, se leen los sellos/certs reales en vez de simular */
+    xml?: string | null;
+    /** PNG del QR SAT ya generado (usar buildQrSatPng antes del render) */
+    qrPng?: Buffer | null;
   }
 ): number {
   const accent = data.color || '#1e3a8a';
 
-  // Simulamos sellos base64 a partir del UUID — determinístico para
-  // que dos PDFs del mismo CFDI muestren el mismo sello (no cambia entre renders).
-  // Anexo 20 permite representar el sello de forma abreviada en la impresa
-  // — solo lo suficiente para que se vea el formato. El sello completo va en el XML.
-  const seed = (data.uuid || 'PENDIENTE-DE-TIMBRAR').replace(/-/g, '').toUpperCase();
-  const grow = (chars: number) => {
-    const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/';
-    let s = '';
-    let n = 0;
-    for (let i = 0; i < chars; i++) {
-      const c = (seed.charCodeAt(i % seed.length) + n++) % alpha.length;
-      s += alpha[c];
-    }
-    return s;
-  };
-  // Muestra los primeros 60 chars + "…" + últimos 20 → cabe en 1 sola línea.
-  const abbreviate = (chars: number) => {
-    const full = grow(chars);
-    return `${full.slice(0, 60)}…${full.slice(-20)}`;
-  };
-  const selloCfdi = abbreviate(344);
-  const selloSat  = abbreviate(344);
-  const fechaT    = data.fechaTimbrado
-    ? new Date(data.fechaTimbrado).toISOString().slice(0, 19)
-    : new Date().toISOString().slice(0, 19);
-  const pacRfc    = data.pacRfc || 'SAT970701NN3';
-  const noCertSat = '00001000000506430009';
-  const cadenaOrig = `||1.1|${data.uuid || '—'}|${fechaT}|${pacRfc}|${noCertSat}||`;
+  // Datos REALES del XML si viene — si no, fallback a los pocos que tenemos.
+  const t = extractTimbreData(data.xml);
+  const uuidStr = t.uuid || data.uuid || 'PENDIENTE DE TIMBRAR';
 
-  // Pre-cálculo: el bloque timbre necesita ~95pt con sellos abreviados a 1 línea:
-  //   6pt (separador) + 10pt (label) + 7 kv * 10pt = 86pt + 9pt margen = ~95pt.
-  // Si `startY` está muy abajo y no cabe el bloque, saltamos a página nueva
-  // ANTES de dibujar — así el timbre queda íntegro y no partido en 2 páginas.
-  // Reservamos 40pt para el footer + paginación al pie de página.
-  const BLOCK_H = 95;
+  const fechaT =
+    t.fechaTimbrado ||
+    (data.fechaTimbrado
+      ? new Date(data.fechaTimbrado).toISOString().slice(0, 19)
+      : new Date().toISOString().slice(0, 19));
+  const pacRfc    = t.rfcProvCertif || data.pacRfc || 'SAT970701NN3';
+  const noCertSat = t.noCertificadoSat || '00001000000506430009';
+
+  // Sello CFDI/SAT: si viene del XML lo mostramos abreviado; si no, marcamos
+  // "no disponible" en vez de fabricar uno fake que confunde al usuario.
+  const abbrev = (s: string | null) =>
+    s ? `${s.slice(0, 60)}…${s.slice(-20)}` : '— no disponible en XML —';
+  const selloCfdiTxt = abbrev(t.selloCfd);
+  const selloSatTxt  = abbrev(t.selloSat);
+
+  const cadenaOrig = `||1.1|${uuidStr}|${fechaT}|${pacRfc}|${noCertSat}||`;
+
+  // QR ocupa 90x90 pt a la derecha; el bloque de texto queda a la izquierda.
+  const QR_SIZE = 90;
+  const hasQr = !!data.qrPng;
+
+  // Pre-cálculo: bloque necesita ~100pt (6+10+7*10 + margen). Con QR mismo alto
+  // porque el QR se dibuja a la derecha del kv stack.
+  const BLOCK_H = 100;
   const FOOTER_RESERVED = 40;
   const pageH = doc.page.height;
   if (startY + BLOCK_H > pageH - FOOTER_RESERVED) {
@@ -523,11 +639,11 @@ export function drawTimbreFiscal(
       { lineBreak: false });
   y += 10;
 
-  const kvW = PAGE_RIGHT - PAGE_LEFT;
+  // Anchos: si hay QR reducimos el ancho del value para dejarle espacio.
+  const rightMargin = hasQr ? QR_SIZE + 8 : 0;
+  const kvW = PAGE_RIGHT - PAGE_LEFT - rightMargin;
   const labelW = 110;
 
-  // Fila key/value compacta — con lineBreak:false + ellipsis para que las
-  // líneas no wrappen a otra página si el sello viene largo.
   function kv(label: string, value: string, opts?: { mono?: boolean; size?: number }) {
     const size = opts?.size ?? 6.5;
     const font = opts?.mono ? 'Courier' : 'Helvetica';
@@ -540,13 +656,29 @@ export function drawTimbreFiscal(
     y += 10;
   }
 
-  kv('UUID (Folio fiscal)',   data.uuid || 'PENDIENTE DE TIMBRAR', { mono: true });
+  const kvStartY = y;
+  kv('UUID (Folio fiscal)',   uuidStr, { mono: true });
   kv('Fecha timbrado',         fechaT);
   kv('RFC del PAC',            pacRfc);
   kv('No. Cert. SAT',          noCertSat, { mono: true });
-  kv('Sello digital del CFDI', selloCfdi, { mono: true, size: 6 });
-  kv('Sello del SAT',          selloSat,  { mono: true, size: 6 });
+  kv('Sello digital del CFDI', selloCfdiTxt, { mono: true, size: 6 });
+  kv('Sello del SAT',          selloSatTxt,  { mono: true, size: 6 });
   kv('Cadena original del complemento', cadenaOrig, { mono: true, size: 6 });
+
+  // QR alineado al bloque kv, con leyenda "Verificar en SAT" debajo.
+  if (hasQr) {
+    const qrX = PAGE_RIGHT - QR_SIZE;
+    const qrY = kvStartY;
+    try {
+      doc.image(data.qrPng!, qrX, qrY, { width: QR_SIZE, height: QR_SIZE });
+      doc.font('Helvetica').fontSize(5.5).fillColor('#64748b')
+        .text('Verificar en portal SAT', qrX, qrY + QR_SIZE + 1, {
+          width: QR_SIZE, align: 'center', lineBreak: false,
+        });
+    } catch (e) {
+      // Si por algún motivo el buffer no es un PNG válido no rompemos el PDF.
+    }
+  }
 
   doc.fillColor('#000000');
   return y + 4;

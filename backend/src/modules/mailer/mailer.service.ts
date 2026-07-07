@@ -66,14 +66,24 @@ function getTransporter(): Transporter {
 /**
  * Construye la lista de adjuntos (Buffer + filename) para una lista de specs.
  * XML se lee de la BD; PDF se regenera al vuelo con los servicios existentes.
+ *
+ * Si un adjunto individual falla (ej. XML aún no timbrado, PDF con error),
+ * no se aborta el resto — se recolecta el error y el caller decide qué hacer.
+ * Antes cualquier falla parcial cancelaba TODO el correo y el usuario recibía
+ * cero adjuntos, sin poder distinguir cuál era el problemático.
  */
 async function buildAttachments(
   companyId: string,
   specs: MailAttachmentSpec[]
-): Promise<Array<{ filename: string; content: Buffer; contentType: string }>> {
+): Promise<{
+  ok: Array<{ filename: string; content: Buffer; contentType: string }>;
+  errors: Array<{ kind: MailAttachmentKind; id: string; message: string }>;
+}> {
   const out: Array<{ filename: string; content: Buffer; contentType: string }> = [];
+  const errors: Array<{ kind: MailAttachmentKind; id: string; message: string }> = [];
 
   for (const spec of specs) {
+    try {
     switch (spec.kind) {
       case 'invoice_pdf': {
         const r = await query<{ serie: string; folio: number }>(
@@ -145,9 +155,14 @@ async function buildAttachments(
         break;
       }
     }
+    } catch (e) {
+      const msg = (e as Error).message || 'Error desconocido al armar el adjunto';
+      logger.warn(`Adjunto ${spec.kind}:${spec.id} omitido — ${msg}`);
+      errors.push({ kind: spec.kind, id: spec.id, message: msg });
+    }
   }
 
-  return out;
+  return { ok: out, errors };
 }
 
 /**
@@ -165,7 +180,12 @@ export async function sendInvoiceMail(input: {
   message: string;
   attachments: MailAttachmentSpec[];
   actingUserEmail?: string;
-}): Promise<{ messageId: string; recipients: string[] }> {
+}): Promise<{
+  messageId: string;
+  recipients: string[];
+  attached: number;
+  skipped: Array<{ kind: MailAttachmentKind; id: string; message: string }>;
+}> {
   if (!input.to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.to.trim())) {
     throw new ValidationError('El correo destino no es válido');
   }
@@ -186,7 +206,17 @@ export async function sendInvoiceMail(input: {
       ? company.contact_email
       : process.env.MAIL_FROM || process.env.MAIL_USER!;
 
-  const attachments = await buildAttachments(input.companyId, input.attachments);
+  const { ok: attachments, errors: skipped } =
+    await buildAttachments(input.companyId, input.attachments);
+
+  if (attachments.length === 0) {
+    // Ningún adjunto pudo generarse — abortamos y regresamos el diagnóstico
+    // para que el usuario entienda por qué (XML no timbrado, PDF corrupto, etc.).
+    const detail = skipped.map((s) => `• ${s.kind}: ${s.message}`).join('\n');
+    throw new ValidationError(
+      `No se pudo generar ninguno de los adjuntos seleccionados.\n${detail}`
+    );
+  }
 
   const tx = getTransporter();
   const info = await tx.sendMail({
@@ -201,13 +231,18 @@ export async function sendInvoiceMail(input: {
   });
 
   logger.info(
-    `Correo enviado: to=${input.to} adjuntos=${attachments.length} ` +
+    `Correo enviado: to=${input.to} adjuntos=${attachments.length}/${input.attachments.length} ` +
     `messageId=${info.messageId} por ${input.actingUserEmail || 'sistema'}`
   );
+  if (skipped.length > 0) {
+    logger.warn(`Adjuntos omitidos (${skipped.length}): ${skipped.map((s) => s.kind).join(', ')}`);
+  }
 
   return {
     messageId: info.messageId,
     recipients: [input.to, ...(input.cc ? [input.cc] : [])],
+    attached: attachments.length,
+    skipped,
   };
 }
 
