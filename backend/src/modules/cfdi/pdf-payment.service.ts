@@ -51,16 +51,25 @@ export async function generatePaymentPDF(companyId: string, paymentId: string): 
   const company = await companiesService.getCompanyById(companyId);
   const customer = await customersService.getCustomerById(companyId, payment.customer_id);
 
-  // 3) Pagos previos para calcular saldo anterior y saldo insoluto
+  // 3) Pagos previos + NC vigentes para calcular saldo anterior y saldo insoluto.
+  //    Sin descontar NC el PDF mostraba insoluto = NC (ej. FAC-000003 con NC $450
+  //    aparecía con $450 pendiente aunque el saldo real ya fuera 0).
   const prev = await query<{ paid: number }>(
     `SELECT COALESCE(SUM(payment_amount), 0) AS paid
        FROM payments
       WHERE invoice_id = $1 AND deleted_at IS NULL AND payment_date < $2`,
     [payment.invoice_id, payment.payment_date]
   );
+  const nc = await query<{ credited: number }>(
+    `SELECT COALESCE(SUM(total), 0) AS credited
+       FROM credit_notes
+      WHERE invoice_id = $1 AND deleted_at IS NULL AND status != 'CANCELLED'`,
+    [payment.invoice_id]
+  );
   const pagadoAntes = Number(prev.rows[0]?.paid) || 0;
+  const acreditado = Number(nc.rows[0]?.credited) || 0;
   const totalFactura = Number(payment.inv_total);
-  const saldoAnterior = totalFactura - pagadoAntes;
+  const saldoAnterior = Math.max(0, totalFactura - pagadoAntes - acreditado);
   const saldoInsoluto = Math.max(0, saldoAnterior - Number(payment.payment_amount));
   const numParcialidad = Math.max(1, Math.floor(pagadoAntes / Number(payment.payment_amount)) + 1);
 

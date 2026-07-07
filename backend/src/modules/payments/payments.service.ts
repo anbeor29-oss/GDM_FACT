@@ -155,9 +155,9 @@ export async function createPayment(companyId: string, data: PaymentInput) {
         Monto="${Number(data.paymentAmount).toFixed(2)}">
         <pago20:DoctoRelacionado IdDocumento="${invoice.cfdi_uuid || ''}"
           MonedaDR="${moneda}" NumParcialidad="1"
-          ImpSaldoAnt="${Number(total - alreadyPaid).toFixed(2)}"
+          ImpSaldoAnt="${Number(total - alreadyPaid - alreadyCredited).toFixed(2)}"
           ImpPagado="${Number(data.paymentAmount).toFixed(2)}"
-          ImpSaldoInsoluto="${Math.max(0, total - alreadyPaid - data.paymentAmount).toFixed(2)}"
+          ImpSaldoInsoluto="${Math.max(0, total - alreadyPaid - alreadyCredited - data.paymentAmount).toFixed(2)}"
           ObjetoImpDR="01"/>
       </pago20:Pago>
     </pago20:Pagos>
