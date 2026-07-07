@@ -313,7 +313,8 @@ export async function getReceivablesReport(
        i.total::numeric AS total,
        c.id AS customer_id, c.rfc, c.business_name,
        COALESCE((SELECT SUM(payment_amount) FROM payments p
-                  WHERE p.invoice_id = i.id AND p.deleted_at IS NULL), 0)::numeric AS paid,
+                  WHERE p.invoice_id = i.id AND p.deleted_at IS NULL
+                    AND p.document_status != 'CANCELLED'), 0)::numeric AS paid,
        COALESCE((SELECT SUM(total) FROM credit_notes cn
                   WHERE cn.invoice_id = i.id AND cn.deleted_at IS NULL
                     AND cn.status != 'CANCELLED'), 0)::numeric AS credited

@@ -56,7 +56,8 @@ router.get(
       `WITH inv AS (
          SELECT i.id, i.total, i.status, i.date_issued, i.cfdi_type,
            COALESCE((SELECT SUM(payment_amount) FROM payments
-                      WHERE invoice_id = i.id AND deleted_at IS NULL), 0) AS paid,
+                      WHERE invoice_id = i.id AND deleted_at IS NULL
+                        AND document_status != 'CANCELLED'), 0) AS paid,
            COALESCE((SELECT SUM(total) FROM credit_notes
                       WHERE invoice_id = i.id AND deleted_at IS NULL AND status != 'CANCELLED'), 0) AS credited
          FROM invoices i

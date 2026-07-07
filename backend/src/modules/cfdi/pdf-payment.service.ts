@@ -57,7 +57,8 @@ export async function generatePaymentPDF(companyId: string, paymentId: string): 
   const prev = await query<{ paid: number }>(
     `SELECT COALESCE(SUM(payment_amount), 0) AS paid
        FROM payments
-      WHERE invoice_id = $1 AND deleted_at IS NULL AND payment_date < $2`,
+      WHERE invoice_id = $1 AND deleted_at IS NULL AND payment_date < $2
+        AND document_status != 'CANCELLED'`,
     [payment.invoice_id, payment.payment_date]
   );
   const nc = await query<{ credited: number }>(

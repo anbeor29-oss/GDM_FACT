@@ -260,7 +260,29 @@ export async function cancelInvoice(
     throw new ValidationError('La empresa emisora no tiene RFC configurado');
   }
 
+  // Si la factura fue timbrada con MOCK (pac_id='MOCK'), SW no la conoce
+  // en su vault y responderia 404. Marcamos cancelada localmente sin
+  // llamar al PAC real — el CFDI original nunca llegó al SAT.
   const provider = getProvider();
+  if (invoice.pac_id === 'MOCK' && provider.name !== 'MOCK') {
+    await query(
+      `UPDATE invoices SET status = 'CANCELLED', updated_at = NOW()
+        WHERE id = $1 AND company_id = $2`,
+      [invoiceId, companyId]
+    );
+    logger.info(
+      `Factura ${invoice.serie}-${invoice.folio} (timbrada con MOCK) cancelada localmente. ` +
+      `SW no la conoce en su vault.`
+    );
+    return {
+      success: true,
+      uuid: invoice.cfdi_uuid,
+      status: 'CANCELLED' as const,
+      fecha_cancelacion: new Date().toISOString(),
+      errors: [],
+    };
+  }
+
   const credentials = getCredentials(companyId);
   const result = await provider.cancel(invoice.cfdi_uuid, rfcEmisor, motivo, credentials);
 

@@ -318,16 +318,21 @@ export async function listInvoices(
   }
 
   const invoicesResult = await query(
+    // OJO: los subqueries de payments deben excluir document_status='CANCELLED'
+    // — cuando se cancela un complemento, se marca (no se borra), así que
+    // sin el filtro el saldo seguía descontando el monto del pago cancelado.
     `SELECT i.*,
             c.business_name as customer_name,
             c.rfc as customer_rfc,
             COALESCE((SELECT SUM(payment_amount) FROM payments
-                       WHERE invoice_id = i.id AND deleted_at IS NULL), 0)::numeric AS paid_total,
+                       WHERE invoice_id = i.id AND deleted_at IS NULL
+                         AND document_status != 'CANCELLED'), 0)::numeric AS paid_total,
             COALESCE((SELECT SUM(total) FROM credit_notes
                        WHERE invoice_id = i.id AND deleted_at IS NULL AND status != 'CANCELLED'), 0)::numeric AS credited_total,
             GREATEST(0, i.total
                       - COALESCE((SELECT SUM(payment_amount) FROM payments
-                                   WHERE invoice_id = i.id AND deleted_at IS NULL), 0)
+                                   WHERE invoice_id = i.id AND deleted_at IS NULL
+                                     AND document_status != 'CANCELLED'), 0)
                       - COALESCE((SELECT SUM(total) FROM credit_notes
                                    WHERE invoice_id = i.id AND deleted_at IS NULL AND status != 'CANCELLED'), 0)
                     )::numeric AS balance

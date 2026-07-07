@@ -43,7 +43,8 @@ async function sumPaidForInvoice(client: any, invoiceId: string): Promise<number
     client,
     `SELECT COALESCE(SUM(payment_amount), 0) AS paid
        FROM payments
-      WHERE invoice_id = $1 AND deleted_at IS NULL`,
+      WHERE invoice_id = $1 AND deleted_at IS NULL
+        AND document_status != 'CANCELLED'`,
     [invoiceId]
   );
   return Number(r.rows[0]?.paid) || 0;
@@ -199,7 +200,9 @@ export async function createPayment(companyId: string, data: PaymentInput) {
       `UPDATE customers SET balance = COALESCE((
           SELECT SUM(i.total) - COALESCE(SUM(p.payment_amount), 0)
             FROM invoices i
-            LEFT JOIN payments p ON p.invoice_id = i.id AND p.deleted_at IS NULL
+            LEFT JOIN payments p ON p.invoice_id = i.id
+              AND p.deleted_at IS NULL
+              AND p.document_status != 'CANCELLED'
            WHERE i.customer_id = customers.id
              AND i.status IN ('SENT','STAMPED','PARTIAL_PAYMENT')
              AND i.deleted_at IS NULL

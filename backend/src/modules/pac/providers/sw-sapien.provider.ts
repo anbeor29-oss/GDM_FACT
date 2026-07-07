@@ -253,6 +253,19 @@ export class SWSapienProvider implements IPACProvider {
     if (data?.message)       return { success: false, errors: [data.message] };
     if (status === 401)      return { success: false, errors: ['Token SW inválido o expirado — genera uno nuevo en swpanel.mx'] };
     if (status === 402)      return { success: false, errors: ['Sin timbres disponibles en el plan SW Sapien'] };
+    if (status === 404) {
+      // 404 tipico al cancelar/consultar: SW no encuentra el UUID en su vault.
+      // Suele pasar cuando la factura se timbro con MOCK (sin registro real en
+      // SW) o cuando el UUID esta mal formado.
+      return {
+        success: false,
+        errors: [
+          `SW no encuentra el CFDI en su vault (404). Suele pasar cuando la ` +
+          `factura fue timbrada con MOCK antes de conectar SW real. Marca la ` +
+          `factura como CANCELADA localmente y emite una nueva.`,
+        ],
+      };
+    }
     return { success: false, errors: [`Error ${op} SW Sapien: ${ax.message}`] };
   }
 }

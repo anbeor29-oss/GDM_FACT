@@ -91,7 +91,8 @@ export async function createCreditNote(companyId: string, data: CreditNoteInput)
       client,
       `SELECT
          (SELECT COALESCE(SUM(payment_amount), 0) FROM payments
-            WHERE invoice_id = $1 AND deleted_at IS NULL) AS paid,
+            WHERE invoice_id = $1 AND deleted_at IS NULL
+              AND document_status != 'CANCELLED') AS paid,
          (SELECT COALESCE(SUM(total), 0) FROM credit_notes
             WHERE invoice_id = $1 AND deleted_at IS NULL AND status != 'CANCELLED') AS nc`,
       [invoice.id]
@@ -262,7 +263,14 @@ export async function getInvoiceBalance(companyId: string, invoiceId: string) {
     [invoiceId]
   );
 
-  const paid     = paymentsR.rows.reduce((s, p) => s + Number(p.payment_amount), 0);
+  // paymentsR trae TODOS los pagos (incluidos cancelados) para que el modal
+  // Historia pueda mostrarlos con badge 'CANCELADO'. Pero al sumar 'paid'
+  // hay que excluir los cancelados o el saldo queda descontando pagos
+  // que ya no aplican.
+  const paid = paymentsR.rows.reduce(
+    (s: number, p: any) => (p.document_status === 'CANCELLED' ? s : s + Number(p.payment_amount)),
+    0
+  );
   const credited = ncR.rows.reduce((s, n) => s + Number(n.total), 0);
   const total    = Number(invoice.total);
   const remaining = Math.max(0, Math.round((total - paid - credited) * 100) / 100);
