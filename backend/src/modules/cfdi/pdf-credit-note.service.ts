@@ -72,6 +72,7 @@ export async function generateCreditNotePDF(companyId: string, creditNoteId: str
     regimenDesc: regE,
     color: '#be123c',  // rojo/rosa — distintivo de Egreso
     logoBuf,
+    xml: (note as any).xml_content,
   });
 
   y = drawReceptor(doc, y, customer, regR);

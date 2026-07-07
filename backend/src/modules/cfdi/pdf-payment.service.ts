@@ -88,6 +88,7 @@ export async function generatePaymentPDF(companyId: string, paymentId: string): 
     regimenDesc: regE,
     color: '#15803d',  // verde — distintivo del CFDI de pago
     logoBuf,
+    xml: (payment as any).xml_content,
   });
 
   y = drawReceptor(doc, y, customer, regR);

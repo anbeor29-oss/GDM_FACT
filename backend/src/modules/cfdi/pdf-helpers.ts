@@ -30,6 +30,18 @@ export function fmtQty(n: any): string {
   return v.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/**
+ * Extrae el NoCertificado del XML timbrado (atributo del root
+ * <cfdi:Comprobante>). Cuando el CSD vive en el vault del PAC (SW Sapien
+ * sandbox) no lo tenemos en la BD, pero SW lo devuelve dentro del XML.
+ * Regex tolerante a comillas simples/dobles y a namespaces alternos.
+ */
+export function extractNoCertificado(xml: string | null | undefined): string | null {
+  if (!xml || typeof xml !== 'string') return null;
+  const m = xml.match(/NoCertificado\s*=\s*["']([^"']+)["']/);
+  return m ? m[1] : null;
+}
+
 export function fmtDate(d: any): string {
   try {
     return new Date(d).toLocaleString('es-MX', {
@@ -151,6 +163,8 @@ export function drawCommonHeader(
     regimenDesc?: string;
     color?: string;                  // color del título (azul, rojo…)
     logoBuf?: Buffer | null;         // logo pre-optimizado (ver logo-cache.ts)
+    xml?: string | null;             // XML timbrado, se usa para extraer NoCertificado si el CSD vive en el vault del PAC
+    noCertificado?: string | null;   // override explícito si ya se pre-extrajo
   }
 ): number {
   const titleColor = opts.color || '#1e40af';
@@ -223,7 +237,11 @@ export function drawCommonHeader(
   const stackedLabelH = 9;
 
   const uuidStr = opts.uuid !== undefined ? (opts.uuid || 'PENDIENTE DE TIMBRAR') : null;
-  const noCert = (company as any).csd_no_certificado || '— pendiente —';
+  const noCert =
+    opts.noCertificado ||
+    extractNoCertificado(opts.xml) ||
+    (company as any).csd_no_certificado ||
+    '— pendiente —';
 
   doc.font('Courier').fontSize(8);
   const uuidH = uuidStr ? doc.heightOfString(uuidStr, { width: innerW }) : 0;

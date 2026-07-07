@@ -32,7 +32,7 @@ import { query } from '../../config/database';
 import { NotFoundError } from '../../middleware/errorHandler';
 import logger from '../../middleware/logger';
 import { getCompanyLogo } from './logo-cache';
-import { drawTimbreFiscal, drawPageNumbers } from './pdf-helpers';
+import { drawTimbreFiscal, drawPageNumbers, extractNoCertificado } from './pdf-helpers';
 
 type PDFDoc = InstanceType<typeof PDFDocument>;
 
@@ -306,7 +306,11 @@ function generateHeader(doc: PDFDoc, company: any, invoice: any, regimenDesc: st
   const stackedLabelH = 9; // alto del label pequeño en las filas apiladas
 
   const uuidStr = invoice.cfdi_uuid ? String(invoice.cfdi_uuid) : 'PENDIENTE DE TIMBRAR';
-  const noCert = invoice.cer_serial || company.csd_no_certificado || '— pendiente —';
+  const noCert =
+    invoice.cer_serial ||
+    extractNoCertificado(invoice.xml_content) ||
+    company.csd_no_certificado ||
+    '— pendiente —';
 
   doc.font('Courier').fontSize(8);
   const uuidH = doc.heightOfString(uuidStr, { width: innerW });

@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { ArrowLeft, Trash2, Search, Save, Building2, User, X } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
@@ -135,6 +135,10 @@ const emptyLine = (): InvoiceLine => ({
 export function NewInvoicePage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
+  // Cuando la ruta es /invoices/:id/edit venimos a editar una DRAFT existente
+  // (misma UI, misma validación). El :id ausente = alta nueva.
+  const { id: editingInvoiceId } = useParams<{ id: string }>();
+  const isEditing = !!editingInvoiceId;
 
   // Máximo de líneas por factura (regla del sistema).
   const MAX_LINES = 10;
@@ -169,6 +173,49 @@ export function NewInvoicePage() {
     queryFn: () => api.getCatalog('usoCfdi'),
     staleTime: Infinity,
   });
+
+  // Precarga en modo edición: trae la factura y llena cliente, líneas y campos
+  // fiscales. Solo se dispara una vez cuando ya cargaron productos + catálogos
+  // (así los presets y unidades quedan resueltos).
+  const { data: editingInvoiceResp } = useQuery({
+    queryKey: ['invoice', editingInvoiceId],
+    queryFn: () => api.getInvoice(editingInvoiceId!),
+    enabled: isEditing,
+  });
+  const [hydratedEditing, setHydratedEditing] = useState(false);
+  useEffect(() => {
+    if (!isEditing || hydratedEditing) return;
+    const inv = (editingInvoiceResp as any)?.data;
+    if (!inv) return;
+    if (inv.status !== 'DRAFT' || inv.is_stamped) {
+      alert('Esta factura ya fue timbrada, no se puede editar.');
+      navigate('/invoices', { replace: true });
+      return;
+    }
+    setCustomerId(inv.customer_id || '');
+    setPaymentForm(inv.payment_form || '99');
+    setPaymentMethod(inv.payment_method || 'PPD');
+    setCfdiUse(inv.cfdi_use || 'G03');
+    setNotes(inv.notes || '');
+    const items = Array.isArray(inv.items) ? inv.items : [];
+    if (items.length > 0) {
+      setLines(
+        items.map((it: any) => ({
+          uid: Math.random(),
+          productId: it.product_id,
+          sku: it.sku || '',
+          claveSat: it.clave_sat || '',
+          unitCode: it.unit_code || '',
+          unitLabel: it.unit_code || '',
+          description: it.description || '',
+          cantidad: Number(it.quantity) || 0,
+          precioUnit: Number(it.unit_price) || 0,
+          taxPresetId: it.tax_preset_id || 'iva16',
+        }))
+      );
+    }
+    setHydratedEditing(true);
+  }, [isEditing, editingInvoiceResp, hydratedEditing, navigate]);
 
   // Aplicar uso CFDI por defecto del cliente cuando se selecciona
   useEffect(() => {
@@ -248,10 +295,10 @@ export function NewInvoicePage() {
   const reachedMax = lines.length >= MAX_LINES && lines.every(isComplete);
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      api.createInvoice({
+    mutationFn: () => {
+      const payload = {
         customerId,
-        cfdiType: 'I',
+        cfdiType: 'I' as const,
         paymentForm,
         paymentMethod,
         cfdiUse,
@@ -268,9 +315,17 @@ export function NewInvoicePage() {
             // descripción específica por factura). El backend la usa en el XML.
             description: (l.description || '').trim() || undefined,
           })),
-      }),
+      };
+      return isEditing
+        ? api.updateInvoice(editingInvoiceId!, payload)
+        : api.createInvoice(payload);
+    },
     onSuccess: (res: any) => {
-      alert(`Factura creada: ${res.data?.serie || 'FAC'}-${res.data?.folio}`);
+      alert(
+        isEditing
+          ? `Factura actualizada: ${res.data?.serie || 'FAC'}-${res.data?.folio}`
+          : `Factura creada: ${res.data?.serie || 'FAC'}-${res.data?.folio}`
+      );
       navigate('/invoices');
     },
     onError: (e: any) => setError(e.response?.data?.message || e.message),
@@ -294,8 +349,12 @@ export function NewInvoicePage() {
           <ArrowLeft size={20} />
         </button>
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Nueva Factura</h1>
-          <p className="text-sm text-gray-600">Comprobante de Ingreso</p>
+          <h1 className="text-3xl font-bold text-gray-900">
+            {isEditing ? 'Editar Factura' : 'Nueva Factura'}
+          </h1>
+          <p className="text-sm text-gray-600">
+            {isEditing ? 'Comprobante en DRAFT — se puede modificar antes de timbrar' : 'Comprobante de Ingreso'}
+          </p>
         </div>
       </div>
 
@@ -468,7 +527,9 @@ export function NewInvoicePage() {
           <button type="submit" disabled={saveMutation.isPending}
             className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg shadow">
             <Save size={18} />
-            {saveMutation.isPending ? 'Guardando…' : 'Crear factura (borrador)'}
+            {saveMutation.isPending
+              ? 'Guardando…'
+              : isEditing ? 'Guardar cambios' : 'Crear factura (borrador)'}
           </button>
           <p className="text-xs text-gray-500">
             Se guardará en estado <b>DRAFT</b>. Después puedes timbrarla (modo simulación con PAC MOCK).

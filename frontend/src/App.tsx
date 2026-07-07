@@ -100,7 +100,8 @@ export function App() {
             {/* Operación diaria — ADMIN / MANAGER / USER (SUPER_ADMIN redirigido) */}
             <Route path="dashboard"    element={<CompanyOnlyRoute><DashboardPage /></CompanyOnlyRoute>} />
             <Route path="invoices"     element={<CompanyOnlyRoute><InvoicesPage /></CompanyOnlyRoute>} />
-            <Route path="invoices/new" element={<CompanyOnlyRoute><NewInvoicePage /></CompanyOnlyRoute>} />
+            <Route path="invoices/new"       element={<CompanyOnlyRoute><NewInvoicePage /></CompanyOnlyRoute>} />
+            <Route path="invoices/:id/edit"  element={<CompanyOnlyRoute><NewInvoicePage /></CompanyOnlyRoute>} />
             <Route path="customers"    element={<CompanyOnlyRoute><CustomersPage /></CompanyOnlyRoute>} />
             <Route path="products"     element={<CompanyOnlyRoute><ProductsPage /></CompanyOnlyRoute>} />
             <Route path="reports"      element={<CompanyOnlyRoute><ReportsPage /></CompanyOnlyRoute>} />

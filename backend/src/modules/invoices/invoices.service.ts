@@ -353,51 +353,223 @@ export async function listInvoices(
 }
 
 /**
- * Update invoice (only DRAFT status)
+ * Update invoice (only DRAFT — timbradas y canceladas son inmutables).
+ * Acepta el mismo payload que createInvoice: reemplaza customer, items,
+ * totales y campos fiscales. Preserva folio, serie y fecha original.
  */
 export async function updateInvoice(
   companyId: string,
   invoiceId: string,
-  data: Partial<Invoice>
+  data: {
+    customerId?: string;
+    cfdiType?: 'I' | 'E' | 'T';
+    paymentForm?: string;
+    paymentMethod?: string;
+    cfdiUse?: string;
+    items?: InvoiceLineItem[];
+    currency?: string;
+    exchangeRate?: number;
+    discount?: number;
+    paymentTerms?: string;
+    notes?: string;
+  } & Partial<Invoice>
 ): Promise<any> {
-  const invoice = await getInvoiceById(companyId, invoiceId);
+  const existing = await getInvoiceById(companyId, invoiceId);
 
-  if (invoice.status !== 'DRAFT') {
-    throw new ValidationError('Can only update invoices in DRAFT status');
+  if (existing.status !== 'DRAFT' || existing.is_stamped) {
+    throw new ValidationError(
+      'Solo se pueden editar facturas en estado DRAFT (no timbradas)'
+    );
   }
 
-  const fields: string[] = [];
-  const values: any[] = [];
-  let paramCount = 1;
+  // Modo simple: solo tocar payment_form/payment_method/notes sin reemplazar
+  // items. Se detecta cuando no vienen items en el payload — mantiene la
+  // compatibilidad con clientes viejos del endpoint.
+  const hasItems = Array.isArray(data.items) && data.items.length > 0;
 
-  if (data.payment_form) {
-    fields.push(`payment_form = $${paramCount++}`);
-    values.push(data.payment_form);
+  if (!hasItems) {
+    const fields: string[] = [];
+    const values: any[] = [];
+    let p = 1;
+    if (data.paymentForm || (data as any).payment_form) {
+      fields.push(`payment_form = $${p++}`);
+      values.push(data.paymentForm || (data as any).payment_form);
+    }
+    if (data.paymentMethod || (data as any).payment_method) {
+      fields.push(`payment_method = $${p++}`);
+      values.push(data.paymentMethod || (data as any).payment_method);
+    }
+    if (data.notes !== undefined) {
+      fields.push(`notes = $${p++}`);
+      values.push(data.notes);
+    }
+    if (fields.length === 0) return existing;
+    fields.push(`updated_at = NOW()`);
+    values.push(invoiceId);
+    const r = await query(
+      `UPDATE invoices SET ${fields.join(', ')} WHERE id = $${p} RETURNING *`,
+      values
+    );
+    logger.info(`Invoice updated (light): ${invoiceId}`);
+    return r.rows[0];
   }
-  if (data.payment_method) {
-    fields.push(`payment_method = $${paramCount++}`);
-    values.push(data.payment_method);
-  }
-  if (data.notes !== undefined) {
-    fields.push(`notes = $${paramCount++}`);
-    values.push(data.notes);
-  }
 
-  if (fields.length === 0) {
-    return invoice;
-  }
+  // Modo pleno: reemplazar customer, items y recalcular totales en TX.
+  return transaction(async (client) => {
+    const targetCustomerId = data.customerId || existing.customer_id;
+    const customer = await customersService.getCustomerById(companyId, targetCustomerId);
 
-  fields.push(`updated_at = NOW()`);
-  values.push(invoiceId);
+    let subtotal = 0;
+    let totIvaTraslado = 0;
+    let totIvaRetenido = 0;
+    let totIsrRetenido = 0;
+    let totIeps = 0;
+    const invoiceItems: any[] = [];
 
-  const result = await query(
-    `UPDATE invoices SET ${fields.join(', ')} WHERE id = $${paramCount} RETURNING *`,
-    values
-  );
+    for (const item of data.items!) {
+      const product = await productsService.getProductById(companyId, item.productId);
+      const preset  = resolveTaxPreset(item.taxPresetId, product);
+      const unitPrice    = item.unitPrice || product.base_price || 0;
+      const lineSubtotal = r2(item.quantity * unitPrice);
+      const lineIvaTrasl = r2(lineSubtotal * preset.rateIva);
+      const lineRetIva   = r2(lineSubtotal * preset.retIva);
+      const lineRetIsr   = r2(lineSubtotal * preset.retIsr);
+      const lineIeps     = r2(lineSubtotal * preset.iepsRate);
+      const lineTotal    = r2(lineSubtotal + lineIvaTrasl + lineIeps - lineRetIva - lineRetIsr);
 
-  logger.info(`Invoice updated: ${invoiceId}`);
+      invoiceItems.push({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice,
+        subtotal: lineSubtotal,
+        taxAmount: lineIvaTrasl,
+        total: lineTotal,
+        claveSat: product.clave_sat,
+        unitCode: product.unit_code,
+        taxRate: preset.rateIva,
+        description: ((item as any).description || product.name || '').toString().trim(),
+        taxPresetId: preset.id,
+        retIvaRate: preset.retIva,
+        retIsrRate: preset.retIsr,
+        iepsRate: preset.iepsRate,
+        retIvaAmount: lineRetIva,
+        retIsrAmount: lineRetIsr,
+        iepsAmount: lineIeps,
+        isExempt: preset.isExempt,
+      });
+      subtotal       += lineSubtotal;
+      totIvaTraslado += lineIvaTrasl;
+      totIvaRetenido += lineRetIva;
+      totIsrRetenido += lineRetIsr;
+      totIeps        += lineIeps;
+    }
 
-  return result.rows[0];
+    if (invoiceItems.length === 0) {
+      throw new ValidationError('La factura debe tener al menos un concepto');
+    }
+
+    const discount = data.discount ?? (Number(existing.discount) || 0);
+    const totRetenido = r2(totIvaRetenido + totIsrRetenido);
+    const total = r2(subtotal + totIvaTraslado + totIeps - totRetenido - discount);
+    const totalTax = r2(totIvaTraslado);
+
+    // Reemplazar la cabecera (sin tocar folio/serie/date_issued/status)
+    await transactionQuery(
+      client,
+      `UPDATE invoices SET
+         customer_id = $1,
+         cfdi_type = $2,
+         currency = $3,
+         exchange_rate = $4,
+         subtotal = $5,
+         tax_transferred = $6,
+         tax_retained = $7,
+         tax_retained_iva = $8,
+         tax_retained_isr = $9,
+         tax_ieps = $10,
+         total = $11,
+         discount = $12,
+         payment_form = $13,
+         payment_method = $14,
+         cfdi_use = $15,
+         payment_terms = $16,
+         notes = $17,
+         updated_at = NOW()
+       WHERE id = $18 AND company_id = $19`,
+      [
+        targetCustomerId,
+        data.cfdiType || existing.cfdi_type || 'I',
+        data.currency || existing.currency || 'MXN',
+        data.exchangeRate ?? (Number(existing.exchange_rate) || 1),
+        subtotal,
+        totalTax,
+        totRetenido,
+        totIvaRetenido,
+        totIsrRetenido,
+        totIeps,
+        total,
+        discount,
+        data.paymentForm || existing.payment_form,
+        data.paymentMethod || existing.payment_method,
+        data.cfdiUse || existing.cfdi_use,
+        data.paymentTerms ?? existing.payment_terms,
+        data.notes ?? existing.notes,
+        invoiceId,
+        companyId,
+      ]
+    );
+
+    // Reemplazar items (delete + insert es simple y correcto para DRAFT)
+    await transactionQuery(client, `DELETE FROM invoice_items WHERE invoice_id = $1`, [invoiceId]);
+
+    for (let idx = 0; idx < invoiceItems.length; idx++) {
+      const it = invoiceItems[idx];
+      await transactionQuery(
+        client,
+        `INSERT INTO invoice_items
+         (invoice_id, product_id, line_number, quantity, unit_price,
+          subtotal, tax_amount, total, description,
+          clave_sat, unit_code, tax_rate,
+          tax_preset_id, ret_iva_rate, ret_isr_rate, ieps_rate,
+          ret_iva_amount, ret_isr_amount, ieps_amount, is_exempt)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                 $13, $14, $15, $16, $17, $18, $19, $20)`,
+        [
+          invoiceId,
+          it.productId,
+          idx + 1,
+          it.quantity,
+          it.unitPrice,
+          it.subtotal,
+          it.taxAmount,
+          it.total,
+          it.description,
+          it.claveSat,
+          it.unitCode,
+          it.taxRate,
+          it.taxPresetId,
+          it.retIvaRate,
+          it.retIsrRate,
+          it.iepsRate,
+          it.retIvaAmount,
+          it.retIsrAmount,
+          it.iepsAmount,
+          it.isExempt,
+        ]
+      );
+    }
+
+    await customersService.updateCustomerBalance(targetCustomerId);
+
+    logger.info(`Invoice updated (full): ${existing.serie}-${existing.folio}`);
+
+    const updated = await transactionQuery(
+      client,
+      `SELECT * FROM invoices WHERE id = $1`,
+      [invoiceId]
+    );
+    return { ...updated.rows[0], items: invoiceItems };
+  });
 }
 
 /**

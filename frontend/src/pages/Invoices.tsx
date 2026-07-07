@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Download, FileDown, CheckCircle, Eye, Stamp, X, Ban, Loader2, Wallet, Coins, History,
-  Mail, Send, FileText, FileMinus2,
+  Mail, Send, FileText, FileMinus2, Pencil,
 } from 'lucide-react';
 import api from '@/services/api';
 import { Invoice } from '@/types';
@@ -185,6 +185,9 @@ export function InvoicesPage() {
               invoicesData?.data?.invoices?.map((invoice: Invoice) => {
                 const canStamp  = !invoice.is_stamped && invoice.status !== 'CANCELLED' && invoice.status !== 'STAMPED';
                 const canCancel = invoice.status !== 'CANCELLED';
+                // Editar: solo antes de timbrar. Una vez timbrada la factura es
+                // inmutable (regla SAT). El backend rechaza el PUT en no-DRAFT.
+                const canEdit = !invoice.is_stamped && invoice.status === 'DRAFT';
                 // Saldo real (total − pagos − NC). Si llega como 0 la factura ya está liquidada.
                 const saldoReal = Number((invoice as any).balance ?? invoice.total);
                 const liquidada = saldoReal <= 0.01;
@@ -236,6 +239,12 @@ export function InvoicesPage() {
                         <IconBtn color="red"    title="Descargar PDF"     onClick={() => handleDownloadPDF(invoice)}><FileDown size={18} /></IconBtn>
                         <IconBtn color="green"  title="Descargar XML"     onClick={() => handleDownloadXML(invoice)}><Download size={18} /></IconBtn>
                         <IconBtn color="blue"   title="Vista previa"      onClick={() => handlePreviewPDF(invoice)}><Eye size={18} /></IconBtn>
+                        {canEdit && (
+                          <IconBtn color="sky" title="Editar factura (solo DRAFT)"
+                            onClick={() => navigate(`/invoices/${invoice.id}/edit`)}>
+                            <Pencil size={18} />
+                          </IconBtn>
+                        )}
                         {canStamp && (
                           <IconBtn color="purple" title="Timbrar con CSD del emisor"
                             disabled={stampingId === invoice.id}
@@ -522,7 +531,7 @@ function StatusBadge({ status }: { status: string }) {
 function IconBtn({
   color, title, onClick, disabled, children,
 }: {
-  color: 'red' | 'green' | 'blue' | 'purple' | 'orange' | 'amber' | 'indigo';
+  color: 'red' | 'green' | 'blue' | 'purple' | 'orange' | 'amber' | 'indigo' | 'sky';
   title: string;
   onClick: () => void;
   disabled?: boolean;
@@ -536,6 +545,7 @@ function IconBtn({
     orange: 'text-orange-600 hover:bg-orange-50',
     amber: 'text-amber-600 hover:bg-amber-50',
     indigo: 'text-indigo-600 hover:bg-indigo-50',
+    sky: 'text-sky-600 hover:bg-sky-50',
   };
   return (
     <button
