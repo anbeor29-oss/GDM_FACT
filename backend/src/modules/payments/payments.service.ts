@@ -49,6 +49,26 @@ async function sumPaidForInvoice(client: any, invoiceId: string): Promise<number
   return Number(r.rows[0]?.paid) || 0;
 }
 
+/**
+ * Suma el total de NCs vigentes (no canceladas) contra la factura.
+ * Necesario para calcular el saldo REAL: total - pagos - NC. Sin esto una
+ * factura como FAC-000006 (total 5,204.16) con una NC de 260.21 y un pago
+ * de 4,943.95 quedaba en PARTIAL_PAYMENT porque solo se comparaba el pago
+ * con el total, ignorando la NC ya aplicada.
+ */
+async function sumCreditedForInvoice(client: any, invoiceId: string): Promise<number> {
+  const r = await transactionQuery<{ credited: number }>(
+    client,
+    `SELECT COALESCE(SUM(total), 0) AS credited
+       FROM credit_notes
+      WHERE invoice_id = $1
+        AND deleted_at IS NULL
+        AND status != 'CANCELLED'`,
+    [invoiceId]
+  );
+  return Number(r.rows[0]?.credited) || 0;
+}
+
 /* ─────────────── crear complemento de pago ─────────────── */
 
 export async function createPayment(companyId: string, data: PaymentInput) {
@@ -73,10 +93,13 @@ export async function createPayment(companyId: string, data: PaymentInput) {
     if (invoice.status === 'PAID')
       throw new ValidationError('Esta factura ya está pagada');
 
-    // 2) Validar que no excedamos el total
+    // 2) Validar que no excedamos el saldo REAL (total − pagos − NC).
+    //    Sin considerar NC podríamos aceptar un pago que dejara la factura
+    //    "sobre-cobrada" en el sentido fiscal.
     const alreadyPaid = await sumPaidForInvoice(client, invoice.id);
+    const alreadyCredited = await sumCreditedForInvoice(client, invoice.id);
     const total = Number(invoice.total);
-    const restante = total - alreadyPaid;
+    const restante = total - alreadyPaid - alreadyCredited;
     if (data.paymentAmount > restante + 0.01) {
       throw new ValidationError(
         `El pago ($${data.paymentAmount.toFixed(2)}) excede el saldo restante ($${restante.toFixed(2)}).`
@@ -131,9 +154,12 @@ export async function createPayment(companyId: string, data: PaymentInput) {
     );
     const payment = insR.rows[0];
 
-    // 4) Actualizar estatus de la factura
+    // 4) Actualizar estatus de la factura. Cubierto = pagos acumulados + NC.
+    //    Si cubierto ≥ total (con tolerancia de 1 centavo por redondeos)
+    //    la factura queda PAID; si no, PARTIAL_PAYMENT.
     const nuevoPagado = alreadyPaid + data.paymentAmount;
-    const nuevoStatus = nuevoPagado >= total - 0.01 ? 'PAID' : 'PARTIAL_PAYMENT';
+    const cubierto = nuevoPagado + alreadyCredited;
+    const nuevoStatus = cubierto >= total - 0.01 ? 'PAID' : 'PARTIAL_PAYMENT';
     await transactionQuery(
       client,
       `UPDATE invoices SET status = $1, updated_at = NOW() WHERE id = $2`,
@@ -162,7 +188,13 @@ export async function createPayment(companyId: string, data: PaymentInput) {
 
     return {
       payment,
-      invoice: { id: invoice.id, new_status: nuevoStatus, paid_total: nuevoPagado, remaining: total - nuevoPagado },
+      invoice: {
+        id: invoice.id,
+        new_status: nuevoStatus,
+        paid_total: nuevoPagado,
+        credited_total: alreadyCredited,
+        remaining: Math.max(0, total - cubierto),
+      },
     };
   });
 }
