@@ -30,6 +30,7 @@ import {
   PDFDoc, PAGE_LEFT, PAGE_RIGHT, fmtMoney, fmtDate, montoEnLetra,
   FORMA_PAGO, drawCommonHeader, drawReceptor, drawFooter, drawTimbreFiscal,
   drawPageNumbers, loadRegimenDesc, extractTimbreData, buildQrSatPng,
+  drawCancelledWatermark,
 } from './pdf-helpers';
 import { getCompanyLogo } from './logo-cache';
 
@@ -198,6 +199,9 @@ export async function generatePaymentPDF(companyId: string, paymentId: string): 
       : 'Representación borrador. Sin sello del SAT no tiene validez fiscal.'
   );
   drawPageNumbers(doc);
+  if ((payment as any).document_status === 'CANCELLED') {
+    drawCancelledWatermark(doc);
+  }
 
   doc.end();
   return new Promise((resolve, reject) => {

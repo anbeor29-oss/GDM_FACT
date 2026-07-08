@@ -533,6 +533,40 @@ export function drawFooter(doc: PDFDoc, leyenda: string) {
  *  · Usamos `_pageBufferStart` implícito ignorando `range.start`: siempre
  *    iteramos desde 0..count-1 mediante el índice absoluto (range.start + i).
  */
+/**
+ * Marca de agua diagonal para documentos CANCELADOS.
+ * Texto grande translúcido de abajo-izquierda hacia arriba-derecha
+ * (rotación antihoraria de 45°), centrado, en todas las páginas.
+ *
+ * Llamar DESPUÉS de dibujar todo el contenido (y de drawPageNumbers) para
+ * que quede encima; la opacidad baja (0.16) no estorba la lectura.
+ */
+export function drawCancelledWatermark(doc: PDFDoc, label = 'CANCELADO') {
+  const range = doc.bufferedPageRange();
+  for (let i = 0; i < range.count; i++) {
+    doc.switchToPage(range.start + i);
+    const w = doc.page.width;
+    const h = doc.page.height;
+    // Mismo workaround que drawPageNumbers: anular márgenes para que
+    // PDFKit no auto-pagine al escribir en una página ya "llena".
+    const origMargins = { ...doc.page.margins };
+    doc.page.margins = { top: 0, bottom: 0, left: 0, right: 0 };
+
+    doc.save();
+    // Ángulo negativo = antihorario → el texto sube de izquierda a derecha.
+    doc.rotate(-45, { origin: [w / 2, h / 2] });
+    doc.font('Helvetica-Bold').fontSize(85)
+      .fillColor('#dc2626')
+      .fillOpacity(0.16);
+    doc.text(label, w / 2 - 400, h / 2 - 46, {
+      width: 800, align: 'center', lineBreak: false,
+    });
+    doc.restore(); // restaura opacidad, color y transformación
+
+    doc.page.margins = origMargins;
+  }
+}
+
 export function drawPageNumbers(doc: PDFDoc) {
   const range = doc.bufferedPageRange();
   const total = range.count;

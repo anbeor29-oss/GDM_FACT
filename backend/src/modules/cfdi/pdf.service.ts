@@ -34,7 +34,7 @@ import logger from '../../middleware/logger';
 import { getCompanyLogo } from './logo-cache';
 import {
   drawTimbreFiscal, drawPageNumbers, extractNoCertificado,
-  extractTimbreData, buildQrSatPng,
+  extractTimbreData, buildQrSatPng, drawCancelledWatermark,
 } from './pdf-helpers';
 
 type PDFDoc = InstanceType<typeof PDFDocument>;
@@ -232,6 +232,9 @@ export async function generateInvoicePDF(data: PDFGenerationData): Promise<Buffe
   generateStampedSection(doc, invoice, qrPng);
   generateFooter(doc, invoice);
   drawPageNumbers(doc);
+  if (invoice.status === 'CANCELLED') {
+    drawCancelledWatermark(doc);
+  }
 
   return new Promise((resolve, reject) => {
     doc.on('end', () => {

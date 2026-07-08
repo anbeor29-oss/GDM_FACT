@@ -34,7 +34,7 @@ import * as customersService from '../customers/customers.service';
 import {
   PDFDoc, PAGE_LEFT, PAGE_RIGHT, fmtMoney, montoEnLetra,
   drawCommonHeader, drawReceptor, drawFooter, drawTimbreFiscal, drawPageNumbers, loadRegimenDesc,
-  extractTimbreData, buildQrSatPng,
+  extractTimbreData, buildQrSatPng, drawCancelledWatermark,
 } from './pdf-helpers';
 import { getCompanyLogo } from './logo-cache';
 import { MOTIVOS } from '../credit-notes/credit-notes.service';
@@ -189,6 +189,9 @@ export async function generateCreditNotePDF(companyId: string, creditNoteId: str
       : 'Representación borrador. Sin sello del SAT no tiene validez fiscal.'
   );
   drawPageNumbers(doc);
+  if (note.status === 'CANCELLED') {
+    drawCancelledWatermark(doc);
+  }
 
   doc.end();
   return new Promise((resolve, reject) => {
