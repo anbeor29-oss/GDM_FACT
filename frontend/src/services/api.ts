@@ -702,6 +702,31 @@ class APIClient {
     const r = await this.client.patch(`/admin/billing/${invoicingId}/mark-paid`);
     return r.data;
   }
+
+  /* ────── Prepago FLEX (SUPER_ADMIN) ────── */
+
+  async adminPrepaidBalances() {
+    const r = await this.client.get('/admin/prepaid/balances');
+    return r.data;
+  }
+  async adminPrepaidPurchases(companyId: string) {
+    const r = await this.client.get(`/admin/prepaid/${companyId}/purchases`);
+    return r.data;
+  }
+  async adminPrepaidRecharge(companyId: string, body: {
+    stampsBought: number;
+    unitPriceMxn?: number;
+    paymentMethod?: string;
+    paymentReference?: string;
+    notes?: string;
+  }) {
+    const r = await this.client.post(`/admin/prepaid/${companyId}/recharge`, body);
+    return r.data;
+  }
+  async adminPrepaidSetThreshold(companyId: string, threshold: number) {
+    const r = await this.client.patch(`/admin/prepaid/${companyId}/threshold`, { threshold });
+    return r.data;
+  }
   async adminCompanyUsage(id: string) {
     const r = await this.client.get(`/admin/companies/${id}/usage`);
     return r.data;
