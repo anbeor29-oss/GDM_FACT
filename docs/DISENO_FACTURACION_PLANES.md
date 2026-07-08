@@ -343,15 +343,71 @@ bloquear producción — cada fase entrega valor por sí sola.
 
 ---
 
-## 9. Preguntas de decisión (para el usuario)
+## 9. Decisiones de negocio confirmadas
 
-Antes de arrancar la implementación, definir:
+### ✅ 9.1 Ciclo de cierre
 
-1. **Rollover al cambiar de plan** — ¿se cancela o se conserva el saldo acumulado?
-2. **Facturación al cliente** — ¿la CFDI de cobro la emite HCGM automáticamente desde el ERP, o se registra manualmente el folio en `monthly_invoicing.invoice_folio`?
-3. **Precio prepago** — ¿$4.99 fijo o variable por empresa?
-4. **Umbral de alerta prepago** — ¿5 timbres por default o configurable por empresa?
-5. **Bloqueo con saldo 0** — ¿bloqueo total o "gracia" de 3 timbres cortesía antes de bloqueo real?
-6. **Job de cierre mensual** — ¿día 1 a las 03:00 o esperar hasta el día 5 (por si hay ajustes de fin de mes)?
+- **Corte del consumo**: último día natural del mes (30 o 31 según el mes; febrero: 28/29).
+- **Emisión de CFDI de cobro**: día **1 del mes siguiente**, con la información ya consolidada.
+- El job `monthly-close.job.ts` corre a las **00:15 del día 1** para calcular todo antes de que los usuarios abran el ERP en la mañana.
 
-Cuando definas estas 6, puedo empezar la Fase 1.
+### ✅ 9.2 Cambio de plan a mitad de mes — prorrateo por días
+
+Cuando una empresa cambia de plan durante el mes, el ciclo se parte en dos y cada tramo se factura proporcional a los días vividos en cada plan.
+
+**Ejemplo — cambio del 15 de junio (mes de 30 días):**
+
+```
+Del 1 al 14 en PKG_100 ($399, 100 timbres):
+  Días vividos:  14 / 30
+  Renta prorrateada:  $399 × 14/30 = $186.20
+  Cap prorrateado:    100 × 14/30 = 46.67 timbres (redondeo hacia arriba = 47)
+
+Del 15 al 30 en PKG_200 ($699, 200 timbres):
+  Días vividos:  16 / 30
+  Renta prorrateada:  $699 × 16/30 = $372.80
+  Cap prorrateado:    200 × 16/30 = 106.67 timbres (redondeo hacia arriba = 107)
+
+Total mes de junio:
+  Renta total:  $186.20 + $372.80 = $559.00
+  Cap efectivo: 47 + 107 = 154 timbres (más rollover previo si lo había)
+```
+
+**Extras**: si el consumo excede el cap efectivo del tramo respectivo, cada
+timbre extra se cobra al `extra_stamp_mxn` del **plan vigente al momento del
+timbrado** (se lee de `stamp_usage.package_code_at_stamp` que ya guardamos).
+
+**Regla de redondeo**: al calcular el cap prorrateado, siempre redondeamos
+**hacia arriba** (favorece al cliente). La renta no se redondea (usa 2 decimales).
+
+**Rollover previo del plan viejo**: se **conserva íntegro** al cambiar de plan
+— no se prorratea. El sobrante acumulado sigue disponible para el nuevo cap.
+(Alternativa que descartamos: convertir a crédito monetario — muy complejo
+contablemente.)
+
+### ✅ 9.3 Job de cierre y emisión
+
+- Nombre: `monthly-close.job.ts`
+- Cron: `15 0 1 * *` (00:15 del día 1 de cada mes)
+- Idempotente: si ya existe `monthly_invoicing` para `(company_id, billing_period=YYYY-MM-01 anterior)`, no hace nada.
+- Detecta automáticamente si hubo cambio de plan mid-month leyendo el historial de `stamp_usage.package_code_at_stamp` — si hay más de un código en el mes, aplica prorrateo por días.
+
+---
+
+## 10. Decisiones aún pendientes (4)
+
+1. **Emisión del CFDI de cobro al cliente**
+   ¿HCGM emite la factura automáticamente desde este mismo ERP (usa la empresa HCGM como emisora del CFDI que se envía al cliente), o el CFDI se hace fuera del sistema y solo registramos el folio en `monthly_invoicing.invoice_folio`?
+
+2. **Prepago FLEX — precio del bloque**
+   ¿$4.99 por timbre fijo para todos, o el super-admin puede configurar precio por empresa (p.ej. cliente frecuente $4.50, casual $4.99)?
+
+3. **Prepago FLEX — umbral de aviso**
+   Por default se avisa cuando queden ≤ 5 timbres. ¿Se deja así fijo, o el super-admin puede subirlo/bajarlo por empresa desde la UI?
+
+4. **Prepago FLEX — comportamiento al llegar a 0**
+   - **Opción A**: bloqueo total. El botón "Timbrar" da error "Sin saldo prepago — contacta al administrador".
+   - **Opción B**: 3 timbres de gracia cortesía antes del bloqueo (con correo urgente).
+   - **Opción C**: sin bloqueo, se acumula deuda que se paga al recargar (ojo: riesgo de que no paguen).
+
+Con estas 4 respuestas puedo arrancar Fase 1.
