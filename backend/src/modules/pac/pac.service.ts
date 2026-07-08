@@ -23,6 +23,7 @@ import { SWSapienProvider } from './providers/sw-sapien.provider';
 import * as invoicesService from '../invoices/invoices.service';
 import * as cfdiService from '../cfdi/cfdi.service';
 import { buildCFDIJson } from '../cfdi/build-cfdi-json.service';
+import * as billingService from '../billing/billing.service';
 
 /**
  * REGISTRY de proveedores PAC disponibles.
@@ -106,6 +107,11 @@ export async function stampInvoice(companyId: string, invoiceId: string): Promis
       'archivo .cer, archivo .key y la contraseña. Hazlo desde Sidebar → Emisor.'
     );
   }
+
+  // Guardrail de facturación: para plan PKG_FLEX bloquea si el prepago está
+  // en 0 (Decisión #9 — bloqueo total). Otros planes no bloquean; los
+  // extras se cobran al cierre del mes.
+  await billingService.assertCanStamp(companyId);
 
   // Elegir provider y ruta.
   //   · Si el provider soporta stampFromJson (SW Sapien), preferimos JSON:
@@ -191,6 +197,15 @@ export async function stampInvoice(companyId: string, invoiceId: string): Promis
         result.qr_code,
       ]
     );
+
+    // Registrar consumo en stamp_usage + decrementar prepago si es FLEX.
+    // Va DENTRO de la TX para que un fallo aquí revierta el UPDATE de invoices
+    // (evita quedar con el CFDI marcado STAMPED pero sin contabilizar el timbre).
+    await billingService.recordStampUsed(client, {
+      companyId,
+      invoiceId,
+      stampUuid: result.uuid,
+    });
   });
 
   logger.info(`Factura ${invoice.serie}-${invoice.folio} timbrada. UUID: ${result.uuid}`);
