@@ -661,6 +661,24 @@ class APIClient {
     const r = await this.client.delete(`/admin/companies/${id}/csd`);
     return r.data;
   }
+  /**
+   * Preview server-side de lo que se borraría (no ejecuta). Requiere el RFC
+   * exacto — el backend valida y devuelve un 400 si no coincide.
+   */
+  async adminFullDeleteCompanyDryRun(id: string, confirmRfc: string) {
+    const r = await this.client.delete(`/admin/companies/${id}/full-delete`, {
+      data: { confirmRfc, dryRun: true },
+    });
+    return r.data;
+  }
+  /**
+   * Borrado TOTAL — requiere confirmRfc + confirmText="ELIMINAR" en el body.
+   * Doble validación server-side. No hay rollback.
+   */
+  async adminFullDeleteCompany(id: string, body: { confirmRfc: string; confirmText: string }) {
+    const r = await this.client.delete(`/admin/companies/${id}/full-delete`, { data: body });
+    return r.data;
+  }
   async adminCompanyUsage(id: string) {
     const r = await this.client.get(`/admin/companies/${id}/usage`);
     return r.data;

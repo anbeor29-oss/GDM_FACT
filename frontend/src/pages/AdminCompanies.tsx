@@ -4,9 +4,12 @@
  *   · Subir CSD (.cer + .key + password) — cifrado en BD
  *   · Ver consumo del mes + facturación estimada
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Building2, Plus, FileKey, Trash2, X, ShieldCheck, ScanText, Upload } from 'lucide-react';
+import {
+  Building2, Plus, FileKey, Trash2, X, ShieldCheck, ScanText, Upload,
+  AlertTriangle, Loader2,
+} from 'lucide-react';
 import api from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 
@@ -15,6 +18,7 @@ export function AdminCompaniesPage() {
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [csdTarget, setCsdTarget] = useState<any>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
 
   if (user?.role !== 'SUPER_ADMIN') {
     return (
@@ -91,6 +95,13 @@ export function AdminCompaniesPage() {
                       <button title="Revocar CSD" onClick={() => { if (confirm(`Revocar el CSD de ${c.rfc}?`)) delCsd.mutate(c.id); }}
                         className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 size={16}/></button>
                     )}
+                    <button
+                      title="Eliminar empresa completa (2 pasos)"
+                      onClick={() => setDeleteTarget(c)}
+                      className="p-1.5 text-rose-700 hover:bg-rose-100 rounded border border-transparent hover:border-rose-300"
+                    >
+                      <AlertTriangle size={16}/>
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -110,6 +121,234 @@ export function AdminCompaniesPage() {
         <CSDUploadModal company={csdTarget} onClose={()=>setCsdTarget(null)}
           onDone={()=>{ setCsdTarget(null); qc.invalidateQueries({ queryKey: ['admin-companies'] }); }}/>
       )}
+      {deleteTarget && (
+        <DangerDeleteModal
+          company={deleteTarget}
+          onClose={()=>setDeleteTarget(null)}
+          onDone={()=>{ setDeleteTarget(null); qc.invalidateQueries({ queryKey: ['admin-companies'] }); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─────────────── Modal: eliminar empresa completa (2 pasos) ─────────────── */
+
+function DangerDeleteModal({
+  company, onClose, onDone,
+}: {
+  company: any;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  // Paso 1: preview + escribir RFC. Paso 2: escribir "ELIMINAR".
+  const [step, setStep] = useState<1 | 2>(1);
+  const [rfcInput, setRfcInput] = useState('');
+  const [confirmText, setConfirmText] = useState('');
+  const [preview, setPreview] = useState<Record<string, number> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const rfcOk = rfcInput.trim().toUpperCase() === String(company.rfc).toUpperCase();
+  const eliminarOk = confirmText.trim().toUpperCase() === 'ELIMINAR';
+
+  // Al abrir el modal, dispara un dryRun para mostrar qué se va a borrar.
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await api.adminFullDeleteCompanyDryRun(company.id, company.rfc);
+        setPreview(r.data?.would_delete || null);
+      } catch (e: any) {
+        // Si el dryRun falla es porque el confirmRfc que le mandé es incorrecto;
+        // dejamos el preview vacío pero el usuario aún puede continuar (el
+        // borrado real vuelve a validar server-side).
+        setError(e.response?.data?.message || e.message);
+      }
+    })();
+  }, [company.id, company.rfc]);
+
+  const goToStep2 = () => {
+    setError('');
+    if (!rfcOk) {
+      setError(`El RFC no coincide. Debe ser exactamente "${company.rfc}".`);
+      return;
+    }
+    setStep(2);
+  };
+
+  const executeDelete = async () => {
+    setError('');
+    if (!eliminarOk) {
+      setError('Escribe la palabra "ELIMINAR" (en mayúsculas) para confirmar.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.adminFullDeleteCompany(company.id, {
+        confirmRfc: company.rfc,
+        confirmText: 'ELIMINAR',
+      });
+      alert(
+        `Empresa ${company.rfc} eliminada por completo.\n\n` +
+        `Los usuarios, CSD, facturas, pagos, NC, clientes y productos ` +
+        `fueron borrados. El RFC queda libre para re-registrarse.`
+      );
+      onDone();
+    } catch (e: any) {
+      setError(e.response?.data?.message || e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg">
+        <div className="flex items-center justify-between p-5 border-b border-gray-200 bg-rose-50">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-rose-200 rounded-lg flex items-center justify-center">
+              <AlertTriangle className="text-rose-700" size={20}/>
+            </div>
+            <div>
+              <h2 className="font-bold text-rose-900">Eliminar empresa completa</h2>
+              <p className="text-xs text-rose-700">
+                {company.business_name} — {company.rfc}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-rose-100 rounded"><X size={20}/></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Indicador de paso */}
+          <div className="flex items-center justify-center gap-3 text-xs">
+            <span className={`px-3 py-1 rounded-full font-semibold ${step === 1 ? 'bg-rose-600 text-white' : 'bg-emerald-100 text-emerald-800 border border-emerald-300'}`}>
+              {step === 1 ? '1' : '✓'} Identificar
+            </span>
+            <span className="w-8 h-px bg-gray-300"></span>
+            <span className={`px-3 py-1 rounded-full font-semibold ${step === 2 ? 'bg-rose-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+              2 Confirmar
+            </span>
+          </div>
+
+          {/* Preview de lo que se borrará */}
+          {preview && (
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+              <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide mb-2">
+                Se eliminarán
+              </p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                <span className="text-slate-600">Facturas</span>            <span className="text-right font-mono font-semibold">{preview.invoices}</span>
+                <span className="text-slate-600">Items de factura</span>    <span className="text-right font-mono font-semibold">{preview.invoice_items}</span>
+                <span className="text-slate-600">Pagos</span>               <span className="text-right font-mono font-semibold">{preview.payments}</span>
+                <span className="text-slate-600">Notas de crédito</span>    <span className="text-right font-mono font-semibold">{preview.credit_notes}</span>
+                <span className="text-slate-600">Clientes</span>            <span className="text-right font-mono font-semibold">{preview.customers}</span>
+                <span className="text-slate-600">Productos</span>           <span className="text-right font-mono font-semibold">{preview.products}</span>
+                <span className="text-slate-600">Usuarios</span>            <span className="text-right font-mono font-semibold">{preview.users}</span>
+                <span className="text-slate-900 font-semibold pt-1 border-t border-slate-200">Empresa (registro)</span>
+                <span className="text-right font-mono font-bold pt-1 border-t border-slate-200">1</span>
+              </div>
+              <p className="text-[11px] text-slate-500 italic mt-3">
+                Incluye CSD (.cer + .key cifrados), logo, config de plan y bitácora asociada.
+              </p>
+            </div>
+          )}
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">
+              {error}
+            </div>
+          )}
+
+          {step === 1 && (
+            <>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                <p className="text-xs text-amber-900">
+                  <b>Esta operación es irreversible.</b> Escribe el RFC exacto de la empresa
+                  para pasar al segundo paso de confirmación.
+                </p>
+              </div>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700 block mb-1">
+                  RFC de la empresa
+                </span>
+                <input
+                  value={rfcInput}
+                  onChange={(e) => setRfcInput(e.target.value.toUpperCase())}
+                  placeholder={company.rfc}
+                  className="w-full border border-slate-300 rounded px-3 py-2 font-mono text-sm uppercase focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+                />
+                <p className={`text-xs mt-1 ${rfcOk ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  {rfcOk ? '✓ RFC correcto' : `Debe ser exactamente ${company.rfc}`}
+                </p>
+              </label>
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              <div className="bg-rose-50 border-2 border-rose-300 rounded-lg p-4">
+                <p className="text-sm text-rose-900 font-semibold mb-1">
+                  Último paso — confirmación final
+                </p>
+                <p className="text-xs text-rose-800">
+                  Escribe la palabra <b className="font-mono">ELIMINAR</b> (en mayúsculas)
+                  para ejecutar el borrado definitivo. No hay Papelera; los datos NO se
+                  pueden recuperar después.
+                </p>
+              </div>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700 block mb-1">
+                  Escribe: ELIMINAR
+                </span>
+                <input
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value.toUpperCase())}
+                  placeholder="ELIMINAR"
+                  className="w-full border border-slate-300 rounded px-3 py-2 font-mono text-sm uppercase focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+                />
+              </label>
+            </>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 p-5 border-t border-gray-200 bg-slate-50">
+          {step === 2 && (
+            <button
+              onClick={() => setStep(1)}
+              disabled={busy}
+              className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white disabled:opacity-50"
+            >
+              ← Atrás
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          {step === 1 ? (
+            <button
+              onClick={goToStep2}
+              disabled={!rfcOk}
+              className="px-5 py-2 rounded-lg text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+            >
+              Continuar →
+            </button>
+          ) : (
+            <button
+              onClick={executeDelete}
+              disabled={busy || !eliminarOk}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg text-white bg-rose-700 hover:bg-rose-800 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+            >
+              {busy ? <Loader2 size={16} className="animate-spin"/> : <AlertTriangle size={16}/>}
+              {busy ? 'Eliminando…' : 'Eliminar definitivamente'}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

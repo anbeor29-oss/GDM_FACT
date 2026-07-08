@@ -346,4 +346,131 @@ router.post('/:id/reset-operations', asyncHandler(async (req: Request, res: Resp
   });
 }));
 
+/**
+ * DELETE /admin/companies/:id/full-delete
+ * Borrado TOTAL de la empresa: elimina todo lo que reset-operations elimina
+ * MÁS los usuarios, el CSD, el logo, config de facturación y el registro de
+ * la empresa misma. Diseñado para dar de baja definitiva a un cliente y
+ * liberar espacio.
+ *
+ * Doble confirmación server-side:
+ *   confirmRfc  — debe coincidir con companies.rfc
+ *   confirmText — debe ser exactamente "ELIMINAR"
+ *
+ * Body:
+ *   { confirmRfc: "EKU9003173C9", confirmText: "ELIMINAR", dryRun?: true }
+ *
+ * dryRun=true devuelve la lista de lo que se borraría sin ejecutar.
+ * Solo SUPER_ADMIN (guard global del router).
+ */
+router.delete('/:id/full-delete', asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const confirmRfc = String(req.body?.confirmRfc || '').toUpperCase().trim();
+  const confirmText = String(req.body?.confirmText || '').trim().toUpperCase();
+  const dryRun = req.body?.dryRun === true;
+
+  const compR = await query<{ rfc: string; business_name: string }>(
+    `SELECT rfc, business_name FROM companies WHERE id = $1`,
+    [id]
+  );
+  if (compR.rows.length === 0) throw new NotFoundError('Empresa no encontrada');
+  const company = compR.rows[0];
+
+  if (confirmRfc !== company.rfc.toUpperCase()) {
+    throw new ValidationError(
+      `Paso 1 pendiente: envía confirmRfc="${company.rfc}" para identificar la empresa a eliminar.`
+    );
+  }
+  if (!dryRun && confirmText !== 'ELIMINAR') {
+    throw new ValidationError(
+      'Paso 2 pendiente: envía confirmText="ELIMINAR" para confirmar el borrado definitivo.'
+    );
+  }
+
+  // Evitar que el SUPER_ADMIN se auto-elimine si su usuario pertenece a esta empresa.
+  const selfR = await query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n FROM users WHERE id = $1 AND company_id = $2`,
+    [req.user?.userId, id]
+  );
+  if (selfR.rows[0].n > 0) {
+    throw new ValidationError(
+      'No puedes eliminar la empresa que contiene tu propio usuario. ' +
+      'Muévete a otra empresa (o SUPER_ADMIN sin company_id) antes.'
+    );
+  }
+
+  // Inventario (para preview de dryRun y para la respuesta de auditoría)
+  const stats = await query<any>(
+    `SELECT
+       (SELECT COUNT(*)::int FROM invoices WHERE company_id = $1)     AS invoices,
+       (SELECT COUNT(*)::int FROM invoice_items ii
+          JOIN invoices i ON i.id = ii.invoice_id
+         WHERE i.company_id = $1)                                      AS invoice_items,
+       (SELECT COUNT(*)::int FROM payments WHERE company_id = $1)     AS payments,
+       (SELECT COUNT(*)::int FROM credit_notes WHERE company_id = $1) AS credit_notes,
+       (SELECT COUNT(*)::int FROM customers WHERE company_id = $1)    AS customers,
+       (SELECT COUNT(*)::int FROM products WHERE company_id = $1)     AS products,
+       (SELECT COUNT(*)::int FROM users WHERE company_id = $1)        AS users`,
+    [id]
+  );
+
+  if (dryRun) {
+    res.status(200).json({
+      success: true,
+      dryRun: true,
+      company: { id, rfc: company.rfc, business_name: company.business_name },
+      would_delete: {
+        ...stats.rows[0],
+        company: 1,
+      },
+    });
+    return;
+  }
+
+  // Borrado en cascada respetando FKs.
+  // 1) Datos operativos (mismo orden que reset-operations)
+  await query(`DELETE FROM pac_stamps  WHERE company_id = $1`, [id]).catch(() => {});
+  await query(`DELETE FROM xml_imports WHERE company_id = $1`, [id]).catch(() => {});
+  await query(`DELETE FROM payments    WHERE company_id = $1`, [id]);
+  await query(`DELETE FROM credit_notes WHERE company_id = $1`, [id]);
+  await query(
+    `DELETE FROM invoice_items WHERE invoice_id IN (SELECT id FROM invoices WHERE company_id = $1)`,
+    [id]
+  );
+  await query(`DELETE FROM invoices  WHERE company_id = $1`, [id]);
+  await query(`DELETE FROM suppliers WHERE company_id = $1`, [id]).catch(() => {});
+  await query(`DELETE FROM customers WHERE company_id = $1`, [id]);
+  await query(`DELETE FROM products  WHERE company_id = $1`, [id]);
+
+  // 2) Tablas específicas de SUPER_ADMIN / plataforma que apuntan a la empresa
+  await query(`DELETE FROM company_stamp_usage WHERE company_id = $1`, [id]).catch(() => {});
+  await query(`DELETE FROM stamp_transactions  WHERE company_id = $1`, [id]).catch(() => {});
+  await query(`DELETE FROM audit_log WHERE target_type = 'company' AND target_id = $1`, [id]).catch(() => {});
+
+  // 3) Usuarios de la empresa (dejan de poder loguearse)
+  await query(`DELETE FROM refresh_tokens WHERE user_id IN (SELECT id FROM users WHERE company_id = $1)`, [id]).catch(() => {});
+  await query(`DELETE FROM users WHERE company_id = $1`, [id]);
+
+  // 4) La empresa misma — libera RFC para que pueda re-registrarse si aplica.
+  //    El CSD (BYTEA), logo (BYTEA), config de plan, etc. se borran con la
+  //    fila; no requieren limpieza separada porque están en columnas de
+  //    `companies`, no en tablas hijas.
+  await query(`DELETE FROM companies WHERE id = $1`, [id]);
+
+  await audit(req, {
+    action: 'company.full_delete',
+    targetId: id,
+    payload: { deleted: stats.rows[0], rfc: company.rfc },
+  } as any).catch(() => {});
+
+  res.status(200).json({
+    success: true,
+    company: { id, rfc: company.rfc, business_name: company.business_name },
+    deleted: {
+      ...stats.rows[0],
+      company: 1,
+    },
+  });
+}));
+
 export default router;
