@@ -86,7 +86,7 @@ function SuperAdminRoute({ children }: { children: React.ReactNode }) {
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router>
+      <Router basename={import.meta.env.BASE_URL}>
         <Routes>
           {/* Rutas públicas */}
           <Route path="/login" element={<LoginPage />} />

@@ -3,6 +3,12 @@ import react from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
+  // Base path del deploy:
+  //   · Render (raíz):            sin env → '/'
+  //   · Hosting México (/erp):    VITE_BASE_PATH=/erp/ (script build:hosting)
+  // App.tsx pasa import.meta.env.BASE_URL como basename del Router para que
+  // las rutas SPA funcionen igual en ambos.
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [react()],
   resolve: {
     alias: {

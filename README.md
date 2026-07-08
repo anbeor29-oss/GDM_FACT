@@ -288,6 +288,7 @@ Con 10 clientes activos mix Esencial/Pyme/Empresarial (~$7,200 MXN ingresos):
 - [docs/BUGS_RESUELTOS.md](docs/BUGS_RESUELTOS.md) — Bugs de las pruebas pre-producción con síntoma/causa/fix/commit
 - [docs/GUIA_ICONOS_FACTURAS.pdf](docs/GUIA_ICONOS_FACTURAS.pdf) — Guía visual de cada ícono de la lista de facturas (regenerable con `npm run docs:icons`)
 - [docs/DEPLOY_HCGM_DOMAIN.md](docs/DEPLOY_HCGM_DOMAIN.md) — Guía paso a paso para colgar el ERP de `erp.hcgm.com.mx` (custom domain + SSL + variables)
+- [docs/DEPLOY_HOSTING_ZIP.md](docs/DEPLOY_HOSTING_ZIP.md) — Servir el frontend desde `hcgm.com.mx/erp` vía ZIP en cPanel (`npm run build:hosting`) + checklist de PAC producción
 - [docs/DISENO_FACTURACION_PLANES.md](docs/DISENO_FACTURACION_PLANES.md) — Diseño del módulo de Facturación y Consumo (rollover iguala, prepago FLEX, jobs y correos)
 - [DEPLOY_RENDER.md](DEPLOY_RENDER.md) — Guía paso a paso del deploy inicial
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Arquitectura interna del backend
