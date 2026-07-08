@@ -15,98 +15,108 @@ import fs from 'fs';
 import path from 'path';
 
 interface IconRow {
-  simbolo: string;         // representación textual del icono
+  formaIcono: string;      // descripción de la forma visual (Lucide icon name)
   nombre: string;
-  color: string;
+  colorNombre: string;     // nombre legible
+  colorHex: string;        // barra de color al lado
   funcion: string;
   cuandoAparece: string;
 }
 
 const ROWS: IconRow[] = [
   {
-    simbolo: '⬇  PDF',
+    formaIcono: 'Icono FileDown (documento con flecha hacia abajo)',
     nombre: 'Descargar PDF',
-    color: 'rojo',
+    colorNombre: 'rojo',
+    colorHex: '#dc2626',
     funcion:
-      'Descarga la representación impresa del CFDI (PDF Anexo 20). Incluye QR SAT, sellos, ' +
+      'Descarga la representacion impresa del CFDI (PDF Anexo 20). Incluye QR SAT, sellos, ' +
       'cadena original, No. Certificado y desglose de impuestos.',
-    cuandoAparece: 'Siempre. Si aún no timbra, genera el borrador con leyenda "sin sello del SAT".',
+    cuandoAparece: 'Siempre. Si aun no timbra, genera el borrador con leyenda "sin sello del SAT".',
   },
   {
-    simbolo: '⬇  XML',
+    formaIcono: 'Icono Download (flecha hacia abajo)',
     nombre: 'Descargar XML',
-    color: 'verde',
+    colorNombre: 'verde',
+    colorHex: '#16a34a',
     funcion:
       'Descarga el XML CFDI 4.0 timbrado (o reconstruido a partir de campos persistidos si viene ' +
-      'de importación antigua). Es el documento fiscal oficial.',
+      'de importacion antigua). Es el documento fiscal oficial.',
     cuandoAparece: 'Siempre. Sin timbre el XML no lleva TimbreFiscalDigital pero conserva el resto.',
   },
   {
-    simbolo: '👁  Vista previa',
+    formaIcono: 'Icono Eye (ojo)',
     nombre: 'Vista previa PDF',
-    color: 'azul',
+    colorNombre: 'azul',
+    colorHex: '#2563eb',
     funcion:
-      'Abre el PDF en el navegador (inline) sin descargarlo. Útil para verificar antes de enviar ' +
+      'Abre el PDF en el navegador (inline) sin descargarlo. Util para verificar antes de enviar ' +
       'por correo o de timbrar.',
     cuandoAparece: 'Siempre.',
   },
   {
-    simbolo: '✏  Editar',
+    formaIcono: 'Icono Pencil (lapiz)',
     nombre: 'Editar factura',
-    color: 'cielo',
+    colorNombre: 'cielo',
+    colorHex: '#0284c7',
     funcion:
-      'Abre la factura en modo edición: se pueden cambiar cliente, conceptos, cantidades, precios, ' +
-      'forma y método de pago. Al guardar, los totales se recalculan (Anexo 20).',
+      'Abre la factura en modo edicion: se pueden cambiar cliente, conceptos, cantidades, precios, ' +
+      'forma y metodo de pago. Al guardar, los totales se recalculan (Anexo 20).',
     cuandoAparece: 'Solo cuando status = DRAFT y is_stamped = false. Una vez timbrada la factura es inmutable.',
   },
   {
-    simbolo: '🔖  Timbrar',
+    formaIcono: 'Icono Stamp (sello)',
     nombre: 'Timbrar factura',
-    color: 'morado',
+    colorNombre: 'morado',
+    colorHex: '#9333ea',
     funcion:
-      'Envía la factura al PAC (SW Sapien). El PAC arma el XML, lo sella con el CSD del vault y ' +
-      'la timbra ante el SAT. Al éxito, la factura pasa a STAMPED con UUID real.',
-    cuandoAparece: 'Cuando no está timbrada, no cancelada, no ya en STAMPED. Rechaza si falta CSD o falla el PAC.',
+      'Envia la factura al PAC (SW Sapien). El PAC arma el XML, lo sella con el CSD del vault y ' +
+      'la timbra ante el SAT. Al exito, la factura pasa a STAMPED con UUID real.',
+    cuandoAparece: 'Cuando no esta timbrada, no cancelada, no ya en STAMPED. Rechaza si falta CSD o falla el PAC.',
   },
   {
-    simbolo: '💳  Pago',
+    formaIcono: 'Icono Wallet (cartera)',
     nombre: 'Complemento de Pago',
-    color: 'verde intenso',
+    colorNombre: 'verde intenso',
+    colorHex: '#15803d',
     funcion:
       'Abre el modal para timbrar un Complemento de Pago (CFDI tipo P). Precarga el saldo real ' +
-      '(total − pagos − NC). Al timbrar, la factura pasa a PARTIAL_PAYMENT o PAID según cubierto.',
+      '(total - pagos - NC). Al timbrar, la factura pasa a PARTIAL_PAYMENT o PAID segun cubierto.',
     cuandoAparece:
-      'Solo si la factura está timbrada, no cancelada, no DRAFT, y tiene saldo pendiente > $0.01.',
+      'Solo si la factura esta timbrada, no cancelada, no DRAFT, y tiene saldo pendiente > $0.01.',
   },
   {
-    simbolo: '🪙  Saldo',
+    formaIcono: 'Icono Coins (monedas)',
     nombre: 'Ver saldo y aplicaciones',
-    color: 'ámbar',
+    colorNombre: 'ambar',
+    colorHex: '#d97706',
     funcion:
       'Modal con desglose: total facturado, pagado, NC aplicadas y saldo. Lista todos los abonos y ' +
-      'NC vigentes. Botón "Enviar por correo" desde ahí.',
+      'NC vigentes. Boton "Enviar por correo" desde ahi.',
     cuandoAparece: 'Solo si status = PARTIAL_PAYMENT o PAID (ya tiene actividad de cobro/abono).',
   },
   {
-    simbolo: '⏱  Historia',
+    formaIcono: 'Icono History (reloj con flecha antihoraria)',
     nombre: 'Historia de timbres',
-    color: 'índigo',
+    colorNombre: 'indigo',
+    colorHex: '#4f46e5',
     funcion:
-      'Vista cronológica de los CFDIs relacionados: la factura padre, cada NC y cada Complemento de ' +
-      'Pago. Descarga PDF/XML por renglón. Botón "Cancelar" en cada dependiente para permitir ' +
-      'la cancelación en cascada.',
-    cuandoAparece: 'Solo si la factura está timbrada (is_stamped = true).',
+      'Vista cronologica de los CFDIs relacionados: la factura padre, cada NC y cada Complemento de ' +
+      'Pago. Descarga PDF/XML por renglon. Boton "Cancelar" en cada dependiente para permitir ' +
+      'la cancelacion en cascada.',
+    cuandoAparece: 'Solo si la factura esta timbrada (is_stamped = true).',
   },
   {
-    simbolo: '🚫  Cancelar',
+    formaIcono: 'Icono Ban (circulo con diagonal)',
     nombre: 'Cancelar factura',
-    color: 'naranja',
+    colorNombre: 'naranja',
+    colorHex: '#ea580c',
     funcion:
-      'Modal con motivos SAT (01–04). Envía la cancelación al PAC. Si SW rebota con 404 (bug de ' +
-      'vault en sandbox), ofrece bypass local para marcar solo en la BD. Si la factura ya está ' +
-      'CANCELADA con pac_id = SW_SAPIEN, el mismo botón sirve para "Reintentar en el PAC".',
+      'Modal con motivos SAT (01-04). Envia la cancelacion al PAC. Si SW rebota con 404 (bug de ' +
+      'vault en sandbox), ofrece bypass local para marcar solo en la BD. Si la factura ya esta ' +
+      'CANCELADA con pac_id = SW_SAPIEN, el mismo boton sirve para "Reintentar en el PAC".',
     cuandoAparece:
-      'Cuando la factura no está cancelada, o cuando está cancelada localmente pero aún vigente en SW.',
+      'Cuando la factura no esta cancelada, o cuando esta cancelada localmente pero aun vigente en SW.',
   },
 ];
 
@@ -142,7 +152,17 @@ const REGLAS: Array<{ titulo: string; texto: string }> = [
 async function main() {
   const outDir = path.resolve(__dirname, '..', '..', 'docs');
   fs.mkdirSync(outDir, { recursive: true });
-  const outFile = path.join(outDir, 'GUIA_ICONOS_FACTURAS.pdf');
+  let outFile = path.join(outDir, 'GUIA_ICONOS_FACTURAS.pdf');
+
+  // Si el archivo actual está bloqueado (visor PDF abierto), caemos a un
+  // nombre alternativo para no romper el flujo.
+  try {
+    const fd = fs.openSync(outFile, 'w');
+    fs.closeSync(fd);
+  } catch {
+    outFile = path.join(outDir, `GUIA_ICONOS_FACTURAS-${new Date().toISOString().slice(0, 10)}.pdf`);
+    console.warn(`⚠  Archivo original bloqueado por otro proceso — usando ${path.basename(outFile)}`);
+  }
 
   const doc = new PDFDocument({ size: 'letter', margin: 50, bufferPages: true });
   const stream = fs.createWriteStream(outFile);
@@ -175,26 +195,36 @@ async function main() {
   doc.moveDown(0.5);
 
   for (const row of ROWS) {
+    // Nueva página si el bloque no cabe (≈75pt)
+    if (doc.y > 680) doc.addPage();
+
     // separador
     const y0 = doc.y;
     doc.moveTo(50, y0).lineTo(562, y0).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
     doc.moveDown(0.3);
 
-    // fila
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0f172a')
-      .text(`${row.simbolo}  ·  ${row.nombre}`, { continued: false });
-    doc.font('Helvetica-Oblique').fontSize(9).fillColor('#64748b')
-      .text(`Color: ${row.color}`);
-    doc.moveDown(0.2);
+    // Barra de color a la izquierda + título
+    const rowY = doc.y;
+    doc.rect(50, rowY + 1, 8, 14).fill(row.colorHex);
+    doc.fillColor('#0f172a').font('Helvetica-Bold').fontSize(12)
+      .text(row.nombre, 65, rowY);
+    doc.moveDown(0.3);
 
+    // Descripción visual del icono (para que sepan qué buscar en pantalla)
+    doc.font('Helvetica-Oblique').fontSize(9).fillColor('#64748b')
+      .text(`${row.formaIcono}. Color: ${row.colorNombre}.`, 50);
+    doc.moveDown(0.3);
+
+    // Función
     doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#334155')
-      .text('Función:', { continued: true })
+      .text('Funcion:', { continued: true })
       .font('Helvetica').fillColor('#0f172a')
       .text(' ' + row.funcion, { align: 'justify' });
     doc.moveDown(0.2);
 
+    // Cuándo aparece
     doc.font('Helvetica-Bold').fontSize(9.5).fillColor('#334155')
-      .text('Cuándo aparece:', { continued: true })
+      .text('Cuando aparece:', { continued: true })
       .font('Helvetica').fillColor('#0f172a')
       .text(' ' + row.cuandoAparece, { align: 'justify' });
     doc.moveDown(0.8);
