@@ -1,5 +1,12 @@
 # Módulo Facturación y Consumo — diseño
 
+> **ESTADO: ✅ IMPLEMENTADO (las 5 fases)** — commits `e5a6e47` (F1),
+> `56730cb` (F2), `7f4cec4` (F3), `7473c6e` (F4), F5 en el commit que
+> acompaña esta edición.
+>
+> Para activar en producción, configurar en Render → Backend → Environment:
+> `PLATFORM_COMPANY_RFC=<RFC de HCGM>` y `ENABLE_BILLING_CRON=true`.
+
 Propuesta del nuevo módulo SUPER_ADMIN que se agrega después de
 **Paquetes fiscales**. Cubre 3 escenarios:
 

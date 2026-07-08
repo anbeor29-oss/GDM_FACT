@@ -208,6 +208,13 @@ export async function stampInvoice(companyId: string, invoiceId: string): Promis
     });
   });
 
+  // Alertas de prepago (low/zero) — fire-and-forget FUERA de la TX: el
+  // timbrado no debe fallar ni retrasarse por un problema de SMTP. El cron
+  // horario actúa como red de seguridad si este trigger no llega a enviar.
+  import('../billing/billing-alerts.service')
+    .then((m) => m.checkPrepaidAlerts(companyId))
+    .catch((e) => logger.warn(`Alerta prepago post-timbrado falló: ${e.message}`));
+
   logger.info(`Factura ${invoice.serie}-${invoice.folio} timbrada. UUID: ${result.uuid}`);
 
   return result;

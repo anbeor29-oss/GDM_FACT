@@ -20,6 +20,7 @@ import cron from 'node-cron';
 import logger from '../middleware/logger';
 import { closeMonth, prevMonthStart } from '../modules/billing/close-month.service';
 import { issueAllForPeriod } from '../modules/billing/issue-invoice.service';
+import { checkPrepaidAlerts, sendPaymentReminders } from '../modules/billing/billing-alerts.service';
 
 function isoDate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -61,5 +62,25 @@ export function registerBillingCron(): void {
     );
   });
 
-  logger.info('[billing-cron] Registrado: cierre mensual el día 1 a las 00:15 (hora servidor)');
+  // Cada hora en punto: alertas de prepago (low/zero) para todas las FLEX.
+  // Safety net del trigger post-timbrado — cubre recargas manuales en BD,
+  // fallos de SMTP previos (el flag no se marcó) y decrementos concurrentes.
+  cron.schedule('0 * * * *', () => {
+    checkPrepaidAlerts().catch((e) =>
+      logger.error(`[billing-cron] prepaid alerts: ${e.message}`)
+    );
+  });
+
+  // Día 10 a las 09:00 (hora servidor): recordatorio de pago a cargos
+  // INVOICED sin pagar. Un correo por empresa con la lista de sus cargos.
+  cron.schedule('0 9 10 * *', () => {
+    sendPaymentReminders().catch((e) =>
+      logger.error(`[billing-cron] payment reminders: ${e.message}`)
+    );
+  });
+
+  logger.info(
+    '[billing-cron] Registrado: cierre mensual (día 1 00:15) · ' +
+    'alertas prepago (cada hora) · recordatorio de pago (día 10 09:00)'
+  );
 }

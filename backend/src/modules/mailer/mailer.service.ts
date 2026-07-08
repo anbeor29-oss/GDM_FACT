@@ -267,6 +267,53 @@ function buildHtml(userMsg: string, companyName: string): string {
 }
 
 /**
+ * Correo simple sin adjuntos — para notificaciones automáticas del sistema
+ * (alertas de prepago, recordatorios de pago). Usa el mismo transporter y
+ * los mismos templates HTML/texto que sendInvoiceMail.
+ *
+ * `companyId` es la empresa REMITENTE (la plataforma): su contact_email se
+ * usa como From/Reply-To si existe; si no, cae a MAIL_FROM.
+ */
+export async function sendPlainMail(input: {
+  companyId?: string;
+  to: string;
+  subject: string;
+  message: string;
+}): Promise<{ messageId: string }> {
+  if (!input.to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.to.trim())) {
+    throw new ValidationError('El correo destino no es válido');
+  }
+
+  let fromName = 'Sistema de Facturación';
+  let fromAddress = process.env.MAIL_FROM || process.env.MAIL_USER!;
+  if (input.companyId) {
+    const r = await query<{ business_name: string; contact_email: string | null }>(
+      `SELECT business_name, contact_email FROM companies WHERE id = $1`,
+      [input.companyId]
+    );
+    if (r.rows[0]) {
+      fromName = r.rows[0].business_name;
+      if (r.rows[0].contact_email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.rows[0].contact_email)) {
+        fromAddress = r.rows[0].contact_email;
+      }
+    }
+  }
+
+  const tx = getTransporter();
+  const info = await tx.sendMail({
+    from: `"${fromName}" <${fromAddress}>`,
+    replyTo: fromAddress,
+    to: input.to.trim(),
+    subject: input.subject,
+    text: buildPlainText(input.message, fromName),
+    html: buildHtml(input.message, fromName),
+  });
+
+  logger.info(`Correo automático enviado: to=${input.to} subject="${input.subject}"`);
+  return { messageId: info.messageId };
+}
+
+/**
  * Test rápido: envía un correo con el asunto "Prueba SMTP".
  * Útil para validar la configuración desde el SUPER_ADMIN.
  */
