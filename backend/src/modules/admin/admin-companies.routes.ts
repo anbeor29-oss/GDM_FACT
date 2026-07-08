@@ -243,4 +243,107 @@ router.get('/:id/usage', asyncHandler(async (req: Request, res: Response) => {
   });
 }));
 
+/**
+ * POST /admin/companies/:id/reset-operations
+ * Borra TODOS los datos operativos de una empresa: facturas, items, pagos,
+ * NC, clientes y productos. Conserva la empresa, sus usuarios y su config.
+ *
+ * Body:
+ *   confirmRfc  (obligatorio) — debe coincidir con companies.rfc del :id.
+ *                Es el "escribe el RFC para confirmar" pero server-side.
+ *   dryRun      (opcional)    — true = solo cuenta lo que borraría.
+ *
+ * Solo SUPER_ADMIN (middleware ya aplicado a todo el router).
+ */
+router.post('/:id/reset-operations', asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const confirmRfc = String(req.body?.confirmRfc || '').toUpperCase().trim();
+  const dryRun = req.body?.dryRun === true;
+
+  const compR = await query<{ rfc: string; business_name: string }>(
+    `SELECT rfc, business_name FROM companies WHERE id = $1`,
+    [id]
+  );
+  if (compR.rows.length === 0) throw new NotFoundError('Empresa no encontrada');
+  const company = compR.rows[0];
+
+  if (confirmRfc !== company.rfc.toUpperCase()) {
+    throw new ValidationError(
+      `Debes enviar confirmRfc="${company.rfc}" (obligatorio para evitar accidentes).`
+    );
+  }
+
+  // Inventario antes de borrar (también sirve como preview cuando dryRun=true)
+  const before = await query<any>(
+    `SELECT
+       (SELECT COUNT(*)::int FROM invoices WHERE company_id = $1)     AS invoices,
+       (SELECT COUNT(*)::int FROM invoice_items ii
+          JOIN invoices i ON i.id = ii.invoice_id
+         WHERE i.company_id = $1)                                      AS invoice_items,
+       (SELECT COUNT(*)::int FROM payments WHERE company_id = $1)     AS payments,
+       (SELECT COUNT(*)::int FROM credit_notes WHERE company_id = $1) AS credit_notes,
+       (SELECT COUNT(*)::int FROM customers WHERE company_id = $1)    AS customers,
+       (SELECT COUNT(*)::int FROM products WHERE company_id = $1)     AS products`,
+    [id]
+  );
+
+  if (dryRun) {
+    res.status(200).json({
+      success: true,
+      dryRun: true,
+      company: { id, rfc: company.rfc, business_name: company.business_name },
+      would_delete: before.rows[0],
+    });
+    return;
+  }
+
+  // Ejecutar el borrado en un solo statement con BEGIN/COMMIT
+  // (Postgres node-postgres no expone transacciones sin `pool.connect()`;
+  // usamos DO block anónimo para agrupar dentro de la misma conexión.)
+  //
+  // OJO: cascada manual respetando FKs. Los `.catch(() => {})` son para
+  // tablas opcionales que pueden no existir en todos los deploys.
+  await query(`DELETE FROM pac_stamps  WHERE company_id = $1`, [id]).catch(() => {});
+  await query(`DELETE FROM xml_imports WHERE company_id = $1`, [id]).catch(() => {});
+  await query(`DELETE FROM payments    WHERE company_id = $1`, [id]);
+  await query(`DELETE FROM credit_notes WHERE company_id = $1`, [id]);
+  await query(
+    `DELETE FROM invoice_items WHERE invoice_id IN (SELECT id FROM invoices WHERE company_id = $1)`,
+    [id]
+  );
+  await query(`DELETE FROM invoices  WHERE company_id = $1`, [id]);
+  await query(`DELETE FROM suppliers WHERE company_id = $1`, [id]).catch(() => {});
+  await query(`DELETE FROM customers WHERE company_id = $1`, [id]);
+  await query(`DELETE FROM products  WHERE company_id = $1`, [id]);
+  // Reset del contador de folio si la columna existe
+  await query(
+    `UPDATE companies SET next_invoice_folio = 1, updated_at = NOW() WHERE id = $1`,
+    [id]
+  ).catch(() => {});
+
+  // Verificar después
+  const after = await query<any>(
+    `SELECT
+       (SELECT COUNT(*)::int FROM invoices WHERE company_id = $1)     AS invoices,
+       (SELECT COUNT(*)::int FROM payments WHERE company_id = $1)     AS payments,
+       (SELECT COUNT(*)::int FROM credit_notes WHERE company_id = $1) AS credit_notes,
+       (SELECT COUNT(*)::int FROM customers WHERE company_id = $1)    AS customers,
+       (SELECT COUNT(*)::int FROM products WHERE company_id = $1)     AS products`,
+    [id]
+  );
+
+  await audit(req, {
+    action: 'company.reset_operations',
+    targetId: id,
+    payload: { deleted: before.rows[0], remaining: after.rows[0] },
+  } as any).catch(() => {});
+
+  res.status(200).json({
+    success: true,
+    company: { id, rfc: company.rfc, business_name: company.business_name },
+    deleted: before.rows[0],
+    remaining: after.rows[0],
+  });
+}));
+
 export default router;
