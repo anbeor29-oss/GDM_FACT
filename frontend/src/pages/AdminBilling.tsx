@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   DollarSign, Calendar, X, History, CheckCircle,
-  AlertTriangle, Loader2, PackageCheck, TrendingUp,
+  AlertTriangle, Loader2, PackageCheck, TrendingUp, Stamp,
 } from 'lucide-react';
 import api from '@/services/api';
 import { useAuthStore } from '@/store/auth';
@@ -59,12 +59,29 @@ export function AdminBillingPage() {
     },
   });
 
+  const issueInvoice = useMutation({
+    mutationFn: (id: string) => api.adminBillingIssueInvoice(id),
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ['admin-billing-history'] });
+      if (r.success) {
+        alert(`✅ ${r.message}`);
+      } else {
+        alert(`⚠ Emisión falló:\n\n${r.message}\n\nEl error quedó registrado; puedes reintentar.`);
+      }
+    },
+    onError: (e: any) => {
+      alert('Error al emitir: ' + (e.response?.data?.message || e.message));
+    },
+  });
+
   const closeMonth = async () => {
     if (!confirm(
       'Cerrar el mes ANTERIOR:\n\n' +
       '· Calcula rollover para cada empresa.\n' +
       '· Crea las filas de cargo (PENDING) en el histórico.\n' +
-      '· Actualiza el rollover del ciclo siguiente.\n\n' +
+      '· Actualiza el rollover del ciclo siguiente.\n' +
+      '· EMITE y TIMBRA el CFDI de cobro de cada cargo (dogfooding)\n' +
+      '  y lo envía por correo al cliente.\n\n' +
       'Es idempotente. ¿Continuar?'
     )) return;
     setClosingBusy(true);
@@ -151,6 +168,14 @@ export function AdminBillingPage() {
             {closeResult.created} cargos creados ·
             {' '}{closeResult.skipped_flex} empresas FLEX (informativo) ·
             {' '}{closeResult.total_processed} empresas procesadas
+            {closeResult.cfdis_issued != null && (
+              <>
+                {' '}· <b>{closeResult.cfdis_issued} CFDIs emitidos</b>
+                {Number(closeResult.cfdis_error) > 0 && (
+                  <span className="text-red-700"> · {closeResult.cfdis_error} con error (reintenta por fila)</span>
+                )}
+              </>
+            )}
           </p>
         </div>
       )}
@@ -289,18 +314,45 @@ export function AdminBillingPage() {
                   <td className="px-4 py-2 text-right font-semibold">$ {fmtMoney(h.total_mxn)}</td>
                   <td className="px-4 py-2 text-center">
                     <StatusBadge status={h.status} />
+                    {h.invoice_folio && (
+                      <span className="block text-[10px] font-mono text-indigo-700 mt-0.5">
+                        {h.invoice_folio}
+                      </span>
+                    )}
+                    {h.status === 'ERROR' && h.last_error && (
+                      <span
+                        className="block text-[10px] text-red-500 mt-0.5 max-w-[160px] truncate mx-auto"
+                        title={h.last_error}
+                      >
+                        {h.last_error}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-center">
-                    {(h.status === 'PENDING' || h.status === 'INVOICED') && (
-                      <button
-                        title="Marcar como pagado"
-                        onClick={() => markPaid.mutate(h.id)}
-                        disabled={markPaid.isPending}
-                        className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded disabled:opacity-50"
-                      >
-                        <CheckCircle size={16}/>
-                      </button>
-                    )}
+                    <div className="flex items-center justify-center gap-1">
+                      {(h.status === 'PENDING' || h.status === 'ERROR') && Number(h.total_mxn) > 0 && (
+                        <button
+                          title={h.status === 'ERROR' ? 'Reintentar emisión del CFDI' : 'Emitir y timbrar CFDI de cobro'}
+                          onClick={() => issueInvoice.mutate(h.id)}
+                          disabled={issueInvoice.isPending}
+                          className="p-1.5 text-violet-600 hover:bg-violet-50 rounded disabled:opacity-50"
+                        >
+                          {issueInvoice.isPending
+                            ? <Loader2 size={16} className="animate-spin"/>
+                            : <Stamp size={16}/>}
+                        </button>
+                      )}
+                      {(h.status === 'PENDING' || h.status === 'INVOICED') && (
+                        <button
+                          title="Marcar como pagado"
+                          onClick={() => markPaid.mutate(h.id)}
+                          disabled={markPaid.isPending}
+                          className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded disabled:opacity-50"
+                        >
+                          <CheckCircle size={16}/>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

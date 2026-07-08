@@ -44,6 +44,14 @@ async function bootstrap() {
       logger.info(`🏥 Health Check: http://localhost:${config.appPort}/health`);
     });
 
+    // Cron de cierre mensual (solo si ENABLE_BILLING_CRON=true)
+    try {
+      const { registerBillingCron } = await import('./jobs/billing-cron');
+      registerBillingCron();
+    } catch (e: any) {
+      logger.warn(`No se pudo registrar billing-cron: ${e.message}`);
+    }
+
     // Graceful shutdown
     const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}, shutting down gracefully...`);

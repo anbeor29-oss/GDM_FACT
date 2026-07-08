@@ -702,6 +702,10 @@ class APIClient {
     const r = await this.client.patch(`/admin/billing/${invoicingId}/mark-paid`);
     return r.data;
   }
+  async adminBillingIssueInvoice(invoicingId: string) {
+    const r = await this.client.post(`/admin/billing/${invoicingId}/issue-invoice`);
+    return r.data;
+  }
 
   /* ────── Prepago FLEX (SUPER_ADMIN) ────── */
 

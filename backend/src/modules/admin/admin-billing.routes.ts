@@ -15,6 +15,7 @@ import { asyncHandler, ValidationError, NotFoundError } from '../../middleware/e
 import { query } from '../../config/database';
 import { requireSuperAdmin, audit } from './admin.middleware';
 import * as closeMonthService from '../billing/close-month.service';
+import * as issueInvoiceService from '../billing/issue-invoice.service';
 
 const router = Router();
 router.use(authenticateToken);
@@ -126,25 +127,64 @@ router.post('/close-month', asyncHandler(async (req: Request, res: Response) => 
     triggeredBy: req.user?.userId,
   });
 
+  // Emitir CFDIs de cobro para los cargos recién creados (dogfooding).
+  // body.skipInvoicing=true permite cerrar sin emitir (para revisión previa).
+  const periodStr = periodDate.toISOString().slice(0, 10);
+  let issued: issueInvoiceService.IssueResult[] = [];
+  if (req.body?.skipInvoicing !== true) {
+    issued = await issueInvoiceService.issueAllForPeriod(periodStr);
+  }
+
   await audit(req, {
     action: 'billing.close_month',
     payload: {
-      period: periodDate.toISOString().slice(0, 10),
+      period: periodStr,
       created: results.filter(r => r.action === 'created').length,
       total_companies: results.length,
+      cfdis_issued: issued.filter(r => r.status === 'INVOICED').length,
+      cfdis_error: issued.filter(r => r.status === 'ERROR').length,
     },
   } as any).catch(() => {});
 
   res.status(200).json({
     success: true,
     data: {
-      period: periodDate.toISOString().slice(0, 10),
+      period: periodStr,
       total_processed: results.length,
       created: results.filter(r => r.action === 'created').length,
       skipped_exists: results.filter(r => r.action === 'skipped_exists').length,
       skipped_flex: results.filter(r => r.action === 'skipped_flex').length,
+      cfdis_issued: issued.filter(r => r.status === 'INVOICED').length,
+      cfdis_error: issued.filter(r => r.status === 'ERROR').length,
       results,
+      issued,
     },
+  });
+}));
+
+/* ─────────────── Emitir/reintentar CFDI de cobro por cargo ─────────────── */
+
+router.post('/:invoicingId/issue-invoice', asyncHandler(async (req: Request, res: Response) => {
+  const { invoicingId } = req.params;
+  const result = await issueInvoiceService.issuePlatformInvoice(invoicingId);
+
+  await audit(req, {
+    action: 'billing.issue_invoice',
+    targetId: invoicingId,
+    payload: result,
+  } as any).catch(() => {});
+
+  if (result.status === 'ERROR') {
+    // Devolvemos 200 con el detalle — el error ya quedó persistido en
+    // monthly_invoicing.last_error; el frontend lo muestra sin romper la UI.
+    res.status(200).json({ success: false, message: result.detail, data: result });
+    return;
+  }
+
+  res.status(200).json({
+    success: true,
+    message: result.detail,
+    data: result,
   });
 }));
 
