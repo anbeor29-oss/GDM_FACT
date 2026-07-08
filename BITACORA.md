@@ -5,6 +5,63 @@ Formato: cada entrada tiene fecha, contexto, decisión y consecuencia.
 
 ---
 
+## 2026-07-02 (tarde) — Stabilización post-deploy y correcciones de UI
+
+### Contexto
+Después del deploy exitoso a Render, aparecieron múltiples bugs derivados de:
+1. Cambios manuales en la BD local que nunca se migraron a git
+2. Recursos que Render no maneja igual que un servidor tradicional (sin disco persistente, sin devDeps en runtime, CORS estricto)
+3. Bugs de UI que en dev no eran visibles por el proxy Vite
+
+### Bugs enfrentados y soluciones
+
+| # | Bug | Causa raíz | Solución |
+|---|-----|------------|----------|
+| 1 | CORS bloqueaba login desde frontend Render | `CORS_ORIGIN=gdmfac-frontend.onrender.com` (sin protocolo); Express CORS compara literal con Origin del navegador (`https://...`) | Hardcodear `value: "https://gdmfac-frontend.onrender.com"` en render.yaml |
+| 2 | Login falla para admin.demo/usuario.demo | Hash bcrypt del seed no correspondía a "Cap4citAcion!" | Regenerar hash de "Demo123!" y UPDATE en Render Shell |
+| 3 | Menús Importar XML, Proveedores, Paquetes visibles para todos | Sin guard de rol | Restringir a SUPER_ADMIN en Layout + `SuperAdminRoute` en App.tsx |
+| 4 | Modal AdminPackages decía "requiere ADMIN" con SUPER_ADMIN | Guard hardcoded `role === 'ADMIN'` | Cambiar a SUPER_ADMIN + rehacer página con 4 cards de planes |
+| 5 | Dropdown Régimen fiscal y Estado vacíos en Emisor | Catálogos SAT (c_RegimenFiscal, c_Estado, c_Moneda...) no seedeados | Migración `2026-06-16_sat_catalogs_seed.sql` con 200+ entries idempotentes |
+| 6 | Producto no se guarda: `column "tax_preset_id" does not exist` | Columna creada manualmente en dev, nunca migrada | Migración `2026-06-17_products_tax_preset.sql` con IF NOT EXISTS + backfill |
+| 7 | Logo no se sube en Render | Render Starter sin disco persistente — `fs.writeFileSync` funciona pero se pierde | Guardado dual: BYTEA en BD + FS como fallback dev; migración `2026-06-18_company_logo_bytea.sql` |
+| 8 | Botón borrar producto no funciona | `fetch('/api/products/...')` con path relativo iba al static site del frontend en prod | Usar `api.deleteProduct(id)` con axios |
+| 9 | Buscador SAT ClaveProdServ solo devolvía 7 claves | `src/data/c_ClaveProdServ.json.gz` (52,513 claves) no se copiaba a `dist/` con `tsc` | Script `scripts/copy-assets.js` que copia binarios post-tsc |
+| 10 | Editar producto pierde el preset | Frontend siempre infería `taxPresetId` desde tax_rate, ignorando `p.tax_preset_id` guardado | Priorizar `p.tax_preset_id`; solo fallback si viene NULL |
+| 11 | Solo 10 unidades en c_ClaveUnidad | Seed subset chico | Migración `2026-06-19_clave_unidad_full.sql` con ~115 claves (peso, longitud, tiempo, digital, energía) |
+| 12 | Columna Impuesto en lista de productos inconsistente | Etiquetas variaban por preset ("Autotransporte", "Honorarios PF→PM", "IVA 16%") | Nomenclatura homogénea "IVA X%" o "IVA X% +Ret" con detalle en tooltip |
+| 13 | Logo relativa `/api/public/companies/...` fallaba en prod | Path sin protocolo iba al static site; también faltaba `/v1` | Usar `client.defaults.baseURL` para construir la URL con protocol |
+
+### Nuevas features en la misma sesión
+
+- **Página Paquetes fiscales** rehecha con 4 cards visuales (PKG_100/200/500/FLEX) + sección descarga ZIP SAT.
+- **Modal Nueva empresa** con:
+  - Botón "Leer CIF" (SDK PDF SAT) — autollena RFC + razón + régimen + CP
+  - Dropdown de plan de timbres (reemplaza 4 campos manuales)
+  - Timbre extra default $2.00 editable
+- **Migración catálogos SAT** completa (moneda, régimen, estado, uso CFDI, forma de pago, método de pago, tipo relación, motivos cancelación).
+- **Migración c_ClaveUnidad** con 115 unidades (piezas, kg, m, m², m³, litros, tiempo, digital, energía, textiles).
+- **Migración credit_notes** que faltaba en schema base (idempotente).
+- **Migración products tax_preset_id + currency + no_identificacion** con backfill inteligente.
+- **Migración logo BYTEA** para persistencia en Render sin disco.
+- **Script copy-assets** para binarios que `tsc` ignora.
+
+### Aprendizajes clave
+
+1. **Render Starter NO tiene disco persistente** — cualquier archivo escrito a filesystem se pierde en cada deploy. Persistencia = BD (BYTEA) o storage externo (S3, B2).
+2. **CORS con `fromService` de Render inyecta host sin protocolo** — para APIs autenticadas mejor hardcodear la URL completa.
+3. **`tsc` solo copia .ts** — cualquier asset (JSON, .gz, .cer, .xls) necesita script propio.
+4. **Cambios manuales en BD local sin migración = deploy roto** — regla estricta: cualquier `ALTER TABLE` o `CREATE TABLE` debe existir como archivo `.sql` en `migrations/` antes de merge.
+5. **Frontend con fetch relativo funciona por accidente en dev** por el proxy Vite, pero rompe en prod cuando front y back están en dominios distintos.
+
+### Consecuencia
+- 🟢 Sistema 100% funcional en producción
+- 🟢 Los 3 usuarios de capacitación validados con curl
+- 🟢 SW Sapien Sandbox conectado con 501 timbres disponibles
+- 🟢 Módulos SUPER_ADMIN operativos: crear empresa (con CIF), asignar plan, crear usuarios, gestionar CSDs
+- 🟡 **Pendiente**: primer timbrado real con CSD de prueba SW Sapien + RFC EKU9003173C9
+
+---
+
 ## 2026-07-02 — Deploy productivo en Render
 
 ### Contexto
@@ -210,10 +267,93 @@ Modelo comercial SaaS: cobrar renta mensual + cap de timbres. Necesidad de 3 pla
 
 ## Próximos pasos identificados
 
-- 🟡 **Timbrado real** contra SW sandbox con RFC de prueba `EKU9003173C9`
-- 🟡 **Cargar CSD de prueba de SW** en la empresa demo
-- 🟡 Evaluar SDK Node.js oficial de SW vs implementación actual con axios
 - 🟡 Migrar `CSD_MASTER_KEY` de env efímero a AWS KMS / Vault
 - 🟡 Cerrar contrato PAC producción con SW Sapien (mayorista)
-- 🟡 Ejecutar `reset_to_training.sql` en Render prod
 - 🟡 Cambiar dominio de `.onrender.com` a `.gdmfac.mx` custom
+- 🟡 Job diario de reconciliación ERP ↔ SW (detectar desincronizaciones tras bypass local)
+- 🟡 Timbrar NC y complementos de pago contra SW real (hoy XML se genera localmente y solo la factura pasa por PAC)
+- 🟡 Envío automático por correo tras timbrar (checkbox "enviar al cliente")
+
+---
+
+## 2026-07-07 — Timbrado real, cancelación, correo y cierre pre-producción
+
+### Contexto
+Ronda intensiva para dejar el sistema listo para producción con dos empresas reales.
+Cubrió el ciclo completo: emitir → NC → pago → cancelar → enviar por correo.
+
+### Bloques principales
+
+**Timbrado real con SW Sapien**
+- Nuevo serializer `buildCFDIJson()` que arma el JSON CFDI 4.0 desde BD.
+- `SWSapienProvider.stampFromJson()` sobre `/v3/cfdi33/issue/json/v4` (`application/jsontoxml`) — el CSD/`.key` vive en el vault SW, nuestro backend no maneja privadas.
+- Guardrail: en sandbox solo se acepta RFC `EKU9003173C9`.
+- Migración de fecha a `America/Mexico_City` (SAT valida contra hora local, no UTC).
+- Provider real (MOCK vs SW_SAPIEN) expuesto al cliente para que los mensajes reflejen realidad.
+
+**PDFs con datos y QR reales**
+- `extractTimbreData(xml)` lee UUID, sellos, No. Certificado, RFCs y total del XML timbrado.
+- `buildQrSatContent()` + `buildQrSatPng()` generan el QR de verificación SAT (Anexo 20).
+- `drawTimbreFiscal` renderiza QR 90×90pt a la derecha del bloque timbre y usa sellos reales (no fabricados por regex).
+- Aplicado a los 3 PDFs (factura, NC, complemento de pago).
+- XML de NC y pago (generación local) ahora incluyen `NoCertificado`, `Emisor` y `Receptor` completos.
+
+**Cálculos de saldo y status**
+- Migración `2026-07-07_payments_missing_columns.sql` para columnas que el código esperaba.
+- Migración one-shot `2026-07-08_recompute_invoice_paid_status.sql` corrige facturas con saldo real 0 atoradas en PARTIAL_PAYMENT.
+- Regla `cubierto = pagos + NC` para status PAID.
+- `ImpSaldoAnt`/`ImpSaldoInsoluto` del complemento de pago descuentan NC.
+- Filtro `document_status != 'CANCELLED'` en 8 subqueries que sumaban pagos (lista, dashboard, reports, PDF, etc.).
+
+**Envío por correo (SMTP)**
+- Módulo mailer con nodemailer + variables env (`MAIL_HOST/PORT/USER/PASS/FROM`).
+- `SendMailModal` con selección PDF+XML por factura, cada NC y cada pago.
+- Backend tolerante: fallo de un adjunto no aborta el correo entero; se devuelve `{attached, skipped}`.
+- Recomendación producción: SMTP del dominio propio (`facturas@hcgm.com.mx`).
+
+**Cancelación**
+- Fix RFC emisor real (antes hardcoded `ABC010101ABC` → 404).
+- Endpoint correcto `/v4/cfdi/cancel/{rfc}` (no la mezcla `/v4/cfdi33/`).
+- Parseo `data.uuid = { "<UUID>": "201"/"202"/"205"/... }` para leer códigos SAT.
+- Cancelación en cascada desde el modal Historia (botones cancelar por NC y por pago con recálculo del padre).
+- Validación anti-huérfanos: no se permite cancelar factura con dependientes vigentes.
+- Bypass local para MOCK antiguo (pac_id='MOCK' salta el PAC).
+- `forceLocal=true` desde UI cuando SW rebota (bug de vault sandbox) — panel amarillo con "Cancelar solo localmente".
+- Resend a PAC de facturas ya canceladas localmente (mismo ícono, tooltip diferente).
+
+**Editar factura DRAFT**
+- Ruta `/invoices/:id/edit` reusando `NewInvoicePage`.
+- Backend `updateInvoice` amplió a reemplazar cliente + items + totales en transacción.
+- Botón sky ✏ en la lista, solo visible en DRAFT + no timbrada.
+
+### Bugs enfrentados y soluciones
+
+Detalle completo con síntoma/causa/fix/commit en [docs/BUGS_RESUELTOS.md](docs/BUGS_RESUELTOS.md).
+Resumen: 22 bugs corregidos, 7 features nuevas. Todos los commits `ab3bd70…1a40cf3`.
+
+### Archivos afectados (destacados)
+- `backend/src/modules/cfdi/build-cfdi-json.service.ts` (nuevo)
+- `backend/src/modules/cfdi/pdf-helpers.ts` (extractTimbreData, buildQrSatPng, drawTimbreFiscal con QR)
+- `backend/src/modules/pac/providers/sw-sapien.provider.ts` (stampFromJson + endpoint v4 cancel)
+- `backend/src/modules/pac/pac.service.ts` (cancelInvoice con bypass local + resend)
+- `backend/src/modules/mailer/mailer.service.ts` (nuevo — SMTP con tolerancia)
+- `backend/src/modules/invoices/invoices.service.ts` (updateInvoice completo + filtros cancelados)
+- `backend/src/modules/payments/payments.service.ts` (cancelPayment + status con NC)
+- `backend/src/modules/credit-notes/credit-notes.service.ts` (cancelCreditNote + XML completo)
+- `backend/src/database/migrations/2026-07-07_payments_missing_columns.sql` (nuevo)
+- `backend/src/database/migrations/2026-07-08_recompute_invoice_paid_status.sql` (nuevo)
+- `backend/scripts/reset-company.ts` (nuevo — `npm run reset:company -- <RFC>`)
+- `backend/scripts/generate-icons-guide.ts` (nuevo — `npm run docs:icons`)
+- `docs/BUGS_RESUELTOS.md` (nuevo)
+- `docs/GUIA_ICONOS_FACTURAS.pdf` (nuevo — generado)
+- `frontend/src/pages/NewInvoice.tsx` (modo edición)
+- `frontend/src/pages/Invoices.tsx` (SendMailModal, TimbresModal con cancelar, CancelModal con bypass)
+- `frontend/src/pages/PublicHome.tsx` (nuevo — landing pública)
+- `frontend/src/App.tsx` (guardas + ruta edición)
+
+### Aprendizajes clave
+1. **Placeholder es enemigo público**: dejar `'ABC010101ABC'` en el código costó dos horas de diagnóstico. Todo placeholder debe ser removido o tener test que lo detecte.
+2. **Zonas horarias en fechas fiscales**: SAT valida contra hora local México (UTC-6/-5 con DST). Nunca usar `getHours()` en servidor UTC.
+3. **Un mismo cálculo en 8 lugares**: al agregar `document_status != 'CANCELLED'` había que replicarlo en cada subquery. Vale la pena centralizar en una función helper.
+4. **Sandbox del PAC no es fiel al prod**: 404 falsos, timbres que "desaparecen" del vault, etc. En prod hay que tener botón "reintentar" y logging fino.
+5. **XML localmente generado ≠ XML del PAC**: hasta que NC y pago se timbren realmente, hay que mantener los atributos Anexo 20 (`NoCertificado`, `Emisor`, `Receptor`) coherentes en el XML de generación local, o el PDF los verá "pendientes".

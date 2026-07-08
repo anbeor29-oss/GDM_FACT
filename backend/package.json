@@ -21,7 +21,9 @@
     "seed:products": "ts-node -r dotenv/config scripts/seed-products.ts",
     "seed:invoices": "ts-node -r dotenv/config scripts/seed-invoices.ts",
     "seed:cfdi": "ts-node -r dotenv/config scripts/seed-cfdi.ts",
-    "create:admin": "ts-node -r dotenv/config scripts/create-admin.ts"
+    "create:admin": "ts-node -r dotenv/config scripts/create-admin.ts",
+    "reset:company": "ts-node -r dotenv/config scripts/reset-company.ts",
+    "docs:icons": "ts-node -r dotenv/config scripts/generate-icons-guide.ts"
   },
   "keywords": [
     "cfdi",
