@@ -20,6 +20,7 @@ import {
   Wallet,
   FileInput,
   Truck,
+  DollarSign,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '@/store/auth';
@@ -103,6 +104,7 @@ export function Layout() {
               <NavItem to="/admin/companies" icon={<Building2 size={20} />}  accent="sky"     label="Empresas"          open={sidebarOpen} />
               <NavItem to="/admin/users"     icon={<ShieldCheck size={20} />} accent="emerald" label="Usuarios"          open={sidebarOpen} />
               <NavItem to="/admin/packages"  icon={<Wallet size={20} />}     accent="violet"  label="Paquetes fiscales" open={sidebarOpen} />
+              <NavItem to="/admin/billing"   icon={<DollarSign size={20} />} accent="emerald" label="Facturación y consumo" open={sidebarOpen} />
               <NavItem to="/import-xml"      icon={<FileInput size={20} />}  accent="amber"   label="Importar XML"      open={sidebarOpen} />
               <NavItem to="/suppliers"       icon={<Truck size={20} />}      accent="rose"    label="Proveedores"       open={sidebarOpen} />
             </>

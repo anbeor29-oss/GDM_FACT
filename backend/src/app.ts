@@ -35,6 +35,7 @@ import archiveRoutes from './modules/archive/archive.routes';
 import adminUsersRoutes     from './modules/admin/admin-users.routes';
 import adminCompaniesRoutes from './modules/admin/admin-companies.routes';
 import adminAuditRoutes     from './modules/admin/admin-audit.routes';
+import adminBillingRoutes   from './modules/admin/admin-billing.routes';
 import cfdiImportRoutes     from './modules/cfdi-import/cfdi-import.routes';
 import suppliersRoutes      from './modules/suppliers/suppliers.routes';
 
@@ -136,6 +137,7 @@ export function createApp(): Express {
   app.use(`/api/${config.apiVersion}/admin/users`,     adminUsersRoutes);
   app.use(`/api/${config.apiVersion}/admin/companies`, adminCompaniesRoutes);
   app.use(`/api/${config.apiVersion}/admin/audit`,     adminAuditRoutes);
+  app.use(`/api/${config.apiVersion}/admin/billing`,   adminBillingRoutes);
   app.use(`/api/${config.apiVersion}/cfdi-import`,     cfdiImportRoutes);
   app.use(`/api/${config.apiVersion}/suppliers`,       suppliersRoutes);
   // app.use(`/api/${config.apiVersion}/payments`, paymentRoutes);

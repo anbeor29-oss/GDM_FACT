@@ -18,6 +18,7 @@ import { CreditNotesPage } from '@/pages/CreditNotes';
 import { AdminPackagesPage } from '@/pages/AdminPackages';
 import { AdminUsersPage }    from '@/pages/AdminUsers';
 import { AdminCompaniesPage } from '@/pages/AdminCompanies';
+import { AdminBillingPage }   from '@/pages/AdminBilling';
 import { ImportXMLWizardPage } from '@/pages/ImportXMLWizard';
 import { SuppliersPage }      from '@/pages/Suppliers';
 import { useAuthStore } from '@/store/auth';
@@ -109,6 +110,7 @@ export function App() {
 
             {/* Módulos de plataforma — SOLO SUPER_ADMIN (guard por URL directa) */}
             <Route path="admin/packages"  element={<SuperAdminRoute><AdminPackagesPage /></SuperAdminRoute>} />
+            <Route path="admin/billing"   element={<SuperAdminRoute><AdminBillingPage /></SuperAdminRoute>} />
             <Route path="admin/users"     element={<SuperAdminRoute><AdminUsersPage /></SuperAdminRoute>} />
             <Route path="admin/companies" element={<SuperAdminRoute><AdminCompaniesPage /></SuperAdminRoute>} />
             <Route path="import-xml"      element={<SuperAdminRoute><ImportXMLWizardPage /></SuperAdminRoute>} />

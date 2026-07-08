@@ -679,6 +679,29 @@ class APIClient {
     const r = await this.client.delete(`/admin/companies/${id}/full-delete`, { data: body });
     return r.data;
   }
+
+  /* ────── Facturación y consumo (SUPER_ADMIN) ────── */
+
+  async adminBillingCurrentMonth() {
+    const r = await this.client.get('/admin/billing/current-month');
+    return r.data;
+  }
+  async adminBillingHistory(year: number) {
+    const r = await this.client.get('/admin/billing/history', { params: { year } });
+    return r.data;
+  }
+  async adminBillingCompanyHistory(companyId: string) {
+    const r = await this.client.get(`/admin/billing/company/${companyId}/history`);
+    return r.data;
+  }
+  async adminBillingCloseMonth(period?: string) {
+    const r = await this.client.post('/admin/billing/close-month', period ? { period } : {});
+    return r.data;
+  }
+  async adminBillingMarkPaid(invoicingId: string) {
+    const r = await this.client.patch(`/admin/billing/${invoicingId}/mark-paid`);
+    return r.data;
+  }
   async adminCompanyUsage(id: string) {
     const r = await this.client.get(`/admin/companies/${id}/usage`);
     return r.data;
