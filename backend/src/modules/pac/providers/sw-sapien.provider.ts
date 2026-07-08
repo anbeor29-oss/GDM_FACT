@@ -169,16 +169,25 @@ export class SWSapienProvider implements IPACProvider {
   ): Promise<CancelResult> {
     try {
       const http = this.http();
-      // Endpoint v4 con vault CSD. El legacy /cfdi33/cancel/{rfc} sigue vivo
-      // pero a veces da 404 en sandbox aunque el UUID existe — el v4 es el
-      // recomendado por SW hoy.
-      const r = await http.post(`/v4/cfdi33/cancel/${rfcEmisor}`, {
+      // Endpoint v4 real: /v4/cfdi/cancel/{rfc} — SIN el "33" en el path.
+      // (El legacy /cfdi33/cancel/{rfc} sigue funcionando pero SW recomienda
+      // v4 y devuelve mensajes de error más útiles.)
+      // Body JSON: { uuid, motivo, folioSustitucion }.
+      // El CSD/PFX vive en el vault de SW asociado al RFC del emisor;
+      // aquí solo mandamos el UUID a cancelar.
+      const path = `/v4/cfdi/cancel/${rfcEmisor}`;
+      logger.info(`SW cancel → POST ${path} uuid=${uuid} motivo=${motivo}`);
+      const r = await http.post(path, {
         uuid,
         motivo,
         folioSustitucion: '',
       }, {
         headers: { 'Content-Type': 'application/json' },
       });
+      logger.info(
+        `SW cancel ← status=${r.data?.status || 'unknown'} ` +
+        `msg=${r.data?.message || ''} detail=${r.data?.messageDetail || ''}`
+      );
       const d = r.data?.data;
       if (r.data?.status !== 'success') {
         return {
@@ -186,6 +195,24 @@ export class SWSapienProvider implements IPACProvider {
           uuid,
           status: 'REJECTED',
           errors: [r.data?.messageDetail || r.data?.message || 'Cancelación rechazada'],
+        };
+      }
+      // v4 devuelve { data: { uuid: { "<UUID>": "201"|"202"|"205"|... }, acuse } }
+      // Códigos SAT relevantes:
+      //   201 → Cancelación aceptada
+      //   202 → Ya estaba cancelado
+      //   205 → No existe / rechazado
+      // Si SW responde success pero el UUID interno da 205, fue rechazo real.
+      const uuidStatuses = d?.uuid && typeof d.uuid === 'object' ? d.uuid : null;
+      const uuidCode = uuidStatuses
+        ? String(uuidStatuses[uuid] || uuidStatuses[uuid.toLowerCase()] || uuidStatuses[uuid.toUpperCase()] || '')
+        : '';
+      if (uuidCode && !['201', '202'].includes(uuidCode)) {
+        return {
+          success: false,
+          uuid,
+          status: 'REJECTED',
+          errors: [`SAT rechazó cancelación (código ${uuidCode}). Revisa el UUID en swpanel.mx.`],
         };
       }
       return {

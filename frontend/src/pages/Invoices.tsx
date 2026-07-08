@@ -184,7 +184,14 @@ export function InvoicesPage() {
             ) : (
               invoicesData?.data?.invoices?.map((invoice: Invoice) => {
                 const canStamp  = !invoice.is_stamped && invoice.status !== 'CANCELLED' && invoice.status !== 'STAMPED';
-                const canCancel = invoice.status !== 'CANCELLED';
+                // canCancel abarca 2 escenarios:
+                //   1. Factura viva → cancelar por primera vez (envía al PAC).
+                //   2. Factura CANCELLED localmente pero pac_id=SW_SAPIEN → resend al PAC
+                //      (para sincronizar cuando el bypass local se usó antes).
+                const isResendable =
+                  invoice.status === 'CANCELLED' &&
+                  (invoice as any).pac_id === 'SW_SAPIEN';
+                const canCancel = invoice.status !== 'CANCELLED' || isResendable;
                 // Editar: solo antes de timbrar. Una vez timbrada la factura es
                 // inmutable (regla SAT). El backend rechaza el PUT en no-DRAFT.
                 const canEdit = !invoice.is_stamped && invoice.status === 'DRAFT';
@@ -271,7 +278,11 @@ export function InvoicesPage() {
                           </IconBtn>
                         )}
                         {canCancel && (
-                          <IconBtn color="orange" title="Cancelar factura"
+                          <IconBtn
+                            color="orange"
+                            title={isResendable
+                              ? 'Reintentar cancelación en el PAC (aún vigente en SW)'
+                              : 'Cancelar factura'}
                             onClick={() => setCancelTarget(invoice)}>
                             <Ban size={18} />
                           </IconBtn>

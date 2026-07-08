@@ -220,13 +220,20 @@ export async function cancelInvoice(
   if (!invoice.is_stamped || !invoice.cfdi_uuid) {
     throw new ValidationError('Solo se pueden cancelar facturas timbradas');
   }
-  if (invoice.status === 'CANCELLED') {
+  // Si ya está cancelada localmente pero el CFDI sigue vivo en el PAC
+  // (por bypass forceLocal), permitimos re-enviar la cancelación al PAC
+  // sin volver a validar dependientes (ya se validaron la primera vez).
+  const isResendToPAC =
+    invoice.status === 'CANCELLED' && invoice.pac_id === 'SW_SAPIEN' && !forceLocal;
+  if (invoice.status === 'CANCELLED' && !isResendToPAC) {
     throw new ValidationError('La factura ya está cancelada');
   }
 
   // Regla SAT: no se puede cancelar una factura padre si tiene CFDIs
   // dependientes vigentes (NC o complementos de pago). Primero se cancelan
   // los dependientes desde el modal de Historia, luego la factura.
+  // (Skip en resend: los dependientes ya se procesaron.)
+  if (!isResendToPAC) {
   const depsR = await query<{ ncs: number; pays: number }>(
     `SELECT
        (SELECT COUNT(*)::int FROM credit_notes
@@ -245,6 +252,7 @@ export async function cancelInvoice(
       `Cancela primero esos comprobantes desde el ícono de Historia.`
     );
   }
+  } // fin if (!isResendToPAC) — bloque de validación de dependientes
 
   if (!MOTIVOS_CANCELACION[motivo]) {
     throw new ValidationError(
@@ -300,13 +308,19 @@ export async function cancelInvoice(
     throw new ValidationError(`Cancelación fallida: ${result.errors.join('; ')}`);
   }
 
-  // Actualizar status
-  await query(
-    `UPDATE invoices SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1 AND company_id = $2`,
-    [invoiceId, companyId]
-  );
+  // Solo actualizamos la BD si aún no está cancelada. En modo resend
+  // ya está CANCELLED y solo queríamos notificar al PAC.
+  if (!isResendToPAC) {
+    await query(
+      `UPDATE invoices SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1 AND company_id = $2`,
+      [invoiceId, companyId]
+    );
+  }
 
-  logger.info(`Factura ${invoice.serie}-${invoice.folio} cancelada. Motivo: ${motivo}`);
+  logger.info(
+    `Factura ${invoice.serie}-${invoice.folio} cancelada${isResendToPAC ? ' (resend al PAC)' : ''}. ` +
+    `Motivo: ${motivo}`
+  );
 
   return result;
 }
