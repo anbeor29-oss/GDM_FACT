@@ -394,20 +394,134 @@ contablemente.)
 
 ---
 
-## 10. Decisiones aún pendientes (4)
+## 10. Decisiones pendientes → CERRADAS
 
-1. **Emisión del CFDI de cobro al cliente**
-   ¿HCGM emite la factura automáticamente desde este mismo ERP (usa la empresa HCGM como emisora del CFDI que se envía al cliente), o el CFDI se hace fuera del sistema y solo registramos el folio en `monthly_invoicing.invoice_folio`?
+### ✅ 10.1 CFDI de cobro — HCGM lo emite desde el mismo ERP (dogfooding)
 
-2. **Prepago FLEX — precio del bloque**
-   ¿$4.99 por timbre fijo para todos, o el super-admin puede configurar precio por empresa (p.ej. cliente frecuente $4.50, casual $4.99)?
+Aprovechamos toda la infraestructura del ERP para el negocio de HCGM: al cerrar
+el mes, el sistema emite y timbra las facturas contra cada cliente
+automáticamente.
 
-3. **Prepago FLEX — umbral de aviso**
-   Por default se avisa cuando queden ≤ 5 timbres. ¿Se deja así fijo, o el super-admin puede subirlo/bajarlo por empresa desde la UI?
+**Requisitos previos**:
+- HCGM debe estar registrada como empresa en el ERP (con su propio RFC).
+- HCGM debe tener su CSD subido al vault de SW.
+- Cada empresa cliente debe existir como `customer` en la lista de clientes de HCGM (se crea automáticamente la primera vez).
 
-4. **Prepago FLEX — comportamiento al llegar a 0**
-   - **Opción A**: bloqueo total. El botón "Timbrar" da error "Sin saldo prepago — contacta al administrador".
-   - **Opción B**: 3 timbres de gracia cortesía antes del bloqueo (con correo urgente).
-   - **Opción C**: sin bloqueo, se acumula deuda que se paga al recargar (ojo: riesgo de que no paguen).
+**Flujo automático del job `monthly-close`**:
+```
+Para cada empresa cliente C:
+  1. Calcula monthly_invoicing (renta + extras + prorrateo si aplica)
+  2. Si total > 0:
+       a. Asegura que exista customer en HCGM con el RFC de C
+          (upsert con datos fiscales — CIF SAT si es la primera vez)
+       b. Crea invoice tipo I en HCGM contra ese customer con:
+             concepto: "Servicio de facturación electrónica — <YYYY-MM>"
+             ClaveProdServ: 81112000 (Servicios de facturación)
+             Cantidad: total_mxn como valor unitario (no timbres)
+             IVA 16% trasladado
+       c. Timbra con SW (misma ruta /v3/cfdi33/issue/json/v4)
+       d. Guarda UUID en monthly_invoicing.invoice_folio + invoice_id
+       e. Envía correo automático al contact_email del cliente con PDF + XML
+```
 
-Con estas 4 respuestas puedo arrancar Fase 1.
+**Fallback**: si el timbrado falla (PAC caído, sin timbres, cliente sin
+correo), se registra en `monthly_invoicing.status = 'PENDING'` con el mensaje
+de error y el super-admin puede reintentar desde la UI (botón "Timbrar CFDI de
+cobro" por fila).
+
+**Ventajas**:
+- Consistencia total entre el negocio y el producto (dogfooding).
+- El cliente recibe un CFDI válido que puede deducir.
+- HCGM tiene reporte de ingresos automático (sus propios reportes de cobranza).
+
+### ✅ 10.2 Precio prepago FLEX — $4.99 fijo
+
+Precio uniforme para simplificar. Si en el futuro se quieren precios
+especiales por cliente, se puede agregar una columna
+`companies.override_flex_price NUMERIC(6,2)` que sobreescriba al default.
+Por ahora hardcoded `4.99` en `stamp_packages` (ya está así).
+
+### ✅ 10.3 Umbral de aviso — 5 timbres fijo
+
+Constante en el código: `PREPAID_LOW_THRESHOLD = 5`.
+Cuando `prepaid_stamp_balance.balance <= 5` y aún no se ha notificado en este
+ciclo, se dispara el correo `prepaid_low`.
+
+Se limpia el flag de "notificado" cuando el saldo vuelva a subir por encima
+de `threshold + 5` (evita spam si el cliente sigue timbrando alrededor de 5).
+
+### ✅ 10.4 Comportamiento al saldo 0 — Bloqueo total
+
+Simple, sin ambigüedades. En `pac.service.stampInvoice`, antes de invocar al
+PAC:
+
+```typescript
+if (company.stamp_package_code === 'PKG_FLEX') {
+  const bal = await getPrepaidBalance(company.id);
+  if (bal < 1) {
+    throw new ValidationError(
+      'Sin saldo prepago. Contacta al administrador para recargar tu plan.'
+    );
+  }
+}
+```
+
+Correo `prepaid_zero` se envía una sola vez cuando el saldo llega a 0.
+Se limpia el flag al recargar.
+
+---
+
+## 11. Todas las decisiones — resumen ejecutivo
+
+| # | Decisión | Valor |
+|---|---|---|
+| 1 | Corte de consumo | Día 30/31 (último del mes) |
+| 2 | Emisión CFDI | Día 1 del mes siguiente (job 00:15) |
+| 3 | Cambio de plan mid-month | Prorrateo por días, cap redondeado ↑ |
+| 4 | Rollover al cambiar de plan | Se conserva íntegro |
+| 5 | Extras al cambiar de plan | Al precio del plan vigente al timbrar |
+| 6 | CFDI a cliente | HCGM emite y timbra desde el ERP (dogfooding) |
+| 7 | Precio prepago | $4.99 fijo para todos |
+| 8 | Umbral aviso prepago | 5 timbres fijo |
+| 9 | Comportamiento saldo 0 | Bloqueo total con mensaje |
+| 10 | Cancelar CFDI devuelve timbre | No (SAT ya lo cobró) |
+
+---
+
+## 12. Plan de trabajo — ready para arrancar
+
+Con estas 10 decisiones, la implementación queda bien definida. Sugerencia
+de orden:
+
+**Antes de arrancar** (10 min):
+- Registrar HCGM como empresa en el ERP con su RFC real.
+- Subir CSD de HCGM al vault SW.
+- Verificar que HCGM tenga `contact_email` cargado para el reply-to.
+
+**Fase 1** (foundational, ~1 día):
+- Migración `2026-07-09_billing_module.sql` con:
+  - Columna `carried_over_stamps` en `companies`
+  - Tabla `monthly_invoicing`
+  - Tabla `prepaid_stamp_balance`
+  - Tabla `prepaid_stamp_purchases`
+  - Vista `v_stamp_usage_current` ampliada con cap efectivo
+- Helper `getCompanyEffectiveCap(companyId)` y `getPrepaidBalance(companyId)`.
+- Validación pre-timbrado en `pac.service.stampInvoice` (bloqueo FLEX).
+
+**Fase 2** (~½ día): UI SUPER_ADMIN read-only (ver estado del mes).
+
+**Fase 3** (~1 día): Prepago — modal de recarga + validación + UI compras.
+
+**Fase 4** (~1 día): Job `monthly-close.job.ts` con:
+- Cálculo de prorrateo por días (helper reutilizable).
+- Emisión automática del CFDI HCGM → cliente.
+- Envío automático por correo con PDF + XML.
+- Endpoint `POST /admin/billing/close-month` para dispararlo manual.
+
+**Fase 5** (~½ día): Jobs de correos automáticos (prepago low/zero,
+recordatorio pago).
+
+**Total ~4 días de trabajo**. Se puede hacer por fases sin bloquear
+producción — cada fase entrega valor.
+
+Cuando quieras arrancar, dime "adelante Fase 1" y comenzamos.
