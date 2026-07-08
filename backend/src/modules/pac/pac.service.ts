@@ -205,7 +205,15 @@ export async function cancelInvoice(
   companyId: string,
   invoiceId: string,
   motivo: MotivoCancelacion,
-  folioSustitucion?: string
+  folioSustitucion?: string,
+  /**
+   * Si viene true, se salta el PAC y solo se marca CANCELLED en la BD.
+   * Útil cuando SW rebota con 404 en sandbox (bug de vault) pero el CFDI
+   * existe y el usuario necesita destrabar el flujo. En producción esto
+   * dejaria el CFDI vivo en el SAT pero cancelado en el ERP — usar solo
+   * para pruebas o casos que requieran intervencion manual con el PAC.
+   */
+  forceLocal: boolean = false
 ): Promise<CancelResult> {
   const invoice = await invoicesService.getInvoiceById(companyId, invoiceId);
 
@@ -260,19 +268,21 @@ export async function cancelInvoice(
     throw new ValidationError('La empresa emisora no tiene RFC configurado');
   }
 
-  // Si la factura fue timbrada con MOCK (pac_id='MOCK'), SW no la conoce
-  // en su vault y responderia 404. Marcamos cancelada localmente sin
-  // llamar al PAC real — el CFDI original nunca llegó al SAT.
+  // Si la factura fue timbrada con MOCK (pac_id='MOCK'), o el usuario
+  // fuerza cancelación local (forceLocal=true después de 404 de sandbox),
+  // solo marcamos en BD sin llamar al PAC.
   const provider = getProvider();
-  if (invoice.pac_id === 'MOCK' && provider.name !== 'MOCK') {
+  const skipPac =
+    forceLocal || (invoice.pac_id === 'MOCK' && provider.name !== 'MOCK');
+  if (skipPac) {
     await query(
       `UPDATE invoices SET status = 'CANCELLED', updated_at = NOW()
         WHERE id = $1 AND company_id = $2`,
       [invoiceId, companyId]
     );
     logger.info(
-      `Factura ${invoice.serie}-${invoice.folio} (timbrada con MOCK) cancelada localmente. ` +
-      `SW no la conoce en su vault.`
+      `Factura ${invoice.serie}-${invoice.folio} cancelada localmente ` +
+      `(${forceLocal ? 'force=true' : 'pac_id=MOCK'}). PAC no invocado.`
     );
     return {
       success: true,

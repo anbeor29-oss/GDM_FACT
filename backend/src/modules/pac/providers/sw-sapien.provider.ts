@@ -169,10 +169,13 @@ export class SWSapienProvider implements IPACProvider {
   ): Promise<CancelResult> {
     try {
       const http = this.http();
-      // POST /cfdi33/cancel/{rfc}
-      const r = await http.post(`/cfdi33/cancel/${rfcEmisor}`, {
+      // Endpoint v4 con vault CSD. El legacy /cfdi33/cancel/{rfc} sigue vivo
+      // pero a veces da 404 en sandbox aunque el UUID existe — el v4 es el
+      // recomendado por SW hoy.
+      const r = await http.post(`/v4/cfdi33/cancel/${rfcEmisor}`, {
         uuid,
         motivo,
+        folioSustitucion: '',
       }, {
         headers: { 'Content-Type': 'application/json' },
       });

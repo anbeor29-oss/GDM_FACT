@@ -1216,32 +1216,55 @@ function CancelModal({
   const [folioSustitucion, setFolioSustitucion] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Cuando SW responde 404 (bug de vault en sandbox), ofrecemos "cancelar solo
+  // local" para destrabar al usuario sin que tenga que volver a abrir el modal.
+  const [showForceLocal, setShowForceLocal] = useState(false);
 
   const selected = CANCEL_REASONS.find((r) => r.key === motivo);
   const needsUUID = !!selected?.needsUUID;
 
-  const submit = async () => {
+  const doCancel = async (forceLocal: boolean) => {
     setError('');
+    setShowForceLocal(false);
     if (needsUUID && !/^[A-Z0-9]{8}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{12}$/i.test(folioSustitucion.trim())) {
       setError('El motivo 01 requiere el UUID del CFDI que sustituye (formato 8-4-4-4-12).');
       return;
     }
     setBusy(true);
     try {
-      await api.cancelInvoice(invoice.id, motivo, needsUUID ? folioSustitucion.trim().toUpperCase() : undefined);
+      const r = await api.cancelInvoice(
+        invoice.id,
+        motivo,
+        needsUUID ? folioSustitucion.trim().toUpperCase() : undefined,
+        forceLocal || undefined
+      );
       alert(
-        `✅ Solicitud de cancelación enviada (MODO SIMULACIÓN)\n\n` +
-        `Motivo: ${selected?.label}\n` +
-        (needsUUID ? `Sustitución de UUID: ${folioSustitucion.toUpperCase()}\n\n` : '\n') +
-        `⚠ El estatus real lo entrega el SAT al PAC en producción.`
+        forceLocal
+          ? (`✅ Factura cancelada solo localmente\n\n` +
+             `Motivo: ${selected?.label}\n` +
+             `⚠ El PAC/SAT NO fue notificado. Si el CFDI llegó al SAT, ` +
+             `debes cancelarlo por otro medio (panel del PAC).`)
+          : (`✅ Cancelación procesada\n\n` +
+             `Motivo: ${selected?.label}\n` +
+             (needsUUID ? `Sustitución de UUID: ${folioSustitucion.toUpperCase()}\n\n` : '\n') +
+             (r.message || 'Estatus actualizado.'))
       );
       onDone();
     } catch (e: any) {
-      setError(e.response?.data?.message || e.message);
+      const msg = e.response?.data?.message || e.message;
+      setError(msg);
+      // Si el error viene del PAC (404, "vault", "no encuentra"), ofrecemos
+      // el bypass local — común en sandbox de SW.
+      if (/404|vault|no encuentra|SW/i.test(msg)) {
+        setShowForceLocal(true);
+      }
     } finally {
       setBusy(false);
     }
   };
+
+  const submit = () => doCancel(false);
+  const submitForceLocal = () => doCancel(true);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -1309,16 +1332,39 @@ function CancelModal({
           </p>
         </div>
 
-        <div className="flex gap-3 p-5 border-t border-gray-200">
-          <button onClick={onClose}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
-            No cancelar
-          </button>
-          <button onClick={submit} disabled={busy}
-            className="flex-1 flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg">
-            <Ban size={16} />
-            {busy ? 'Procesando…' : 'Cancelar factura'}
-          </button>
+        <div className="p-5 border-t border-gray-200 space-y-3">
+          {showForceLocal && (
+            <div className="bg-amber-50 border border-amber-200 rounded p-3 space-y-2">
+              <p className="text-sm font-semibold text-amber-900">
+                ⚠ El PAC no pudo procesar la cancelación
+              </p>
+              <p className="text-xs text-amber-800">
+                Puedes marcar la factura como CANCELADA solo en tu ERP (bypass local).
+                Úsalo cuando SW rebote por bug de vault en sandbox o cuando ya
+                cancelaste el CFDI directamente en el panel del PAC.
+              </p>
+              <button
+                type="button"
+                onClick={submitForceLocal}
+                disabled={busy}
+                className="w-full flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm px-3 py-2 rounded"
+              >
+                <Ban size={14} />
+                Cancelar solo localmente (sin llamar al PAC)
+              </button>
+            </div>
+          )}
+          <div className="flex gap-3">
+            <button onClick={onClose}
+              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
+              No cancelar
+            </button>
+            <button onClick={submit} disabled={busy}
+              className="flex-1 flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg">
+              <Ban size={16} />
+              {busy ? 'Procesando…' : 'Cancelar factura'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

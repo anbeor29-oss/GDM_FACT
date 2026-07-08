@@ -51,7 +51,7 @@ export async function stamp(req: Request, res: Response) {
 export async function cancel(req: Request, res: Response) {
   const companyId = getCompanyId(req);
   const { invoiceId } = req.params;
-  const { motivo, folioSustitucion } = req.body;
+  const { motivo, folioSustitucion, forceLocal } = req.body;
 
   if (!motivo) {
     throw new ValidationError('motivo es requerido (01, 02, 03, 04)');
@@ -61,12 +61,15 @@ export async function cancel(req: Request, res: Response) {
     companyId,
     invoiceId,
     motivo as MotivoCancelacion,
-    folioSustitucion
+    folioSustitucion,
+    forceLocal === true
   );
 
   res.status(200).json({
     success: true,
-    message: 'Factura cancelada (MODO SIMULACIÓN)',
+    message: forceLocal
+      ? 'Factura cancelada localmente (sin llamar al PAC)'
+      : 'Factura cancelada',
     data: result,
   });
 }

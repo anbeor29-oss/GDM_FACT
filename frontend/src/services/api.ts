@@ -346,10 +346,16 @@ class APIClient {
     return response.data;
   }
 
-  async cancelInvoice(invoiceId: string, motivo: string, folioSustitucion?: string) {
+  async cancelInvoice(
+    invoiceId: string,
+    motivo: string,
+    folioSustitucion?: string,
+    forceLocal?: boolean
+  ) {
     const response = await this.client.post(`/pac/cancel/${invoiceId}`, {
       motivo,
       folioSustitucion,
+      forceLocal,
     });
     return response.data;
   }
