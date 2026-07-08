@@ -287,6 +287,7 @@ Con 10 clientes activos mix Esencial/Pyme/Empresarial (~$7,200 MXN ingresos):
 - [BITACORA.md](BITACORA.md) — Histórico cronológico de cambios y decisiones
 - [docs/BUGS_RESUELTOS.md](docs/BUGS_RESUELTOS.md) — Bugs de las pruebas pre-producción con síntoma/causa/fix/commit
 - [docs/GUIA_ICONOS_FACTURAS.pdf](docs/GUIA_ICONOS_FACTURAS.pdf) — Guía visual de cada ícono de la lista de facturas (regenerable con `npm run docs:icons`)
+- [docs/DEPLOY_HCGM_DOMAIN.md](docs/DEPLOY_HCGM_DOMAIN.md) — Guía paso a paso para colgar el ERP de `erp.hcgm.com.mx` (custom domain + SSL + variables)
 - [DEPLOY_RENDER.md](DEPLOY_RENDER.md) — Guía paso a paso del deploy inicial
 - [ARCHITECTURE.md](ARCHITECTURE.md) — Arquitectura interna del backend
 - [ESTRUCTURA_PROYECTO.md](ESTRUCTURA_PROYECTO.md) — Layout de carpetas
