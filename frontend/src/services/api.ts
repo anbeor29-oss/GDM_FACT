@@ -731,6 +731,25 @@ class APIClient {
     const r = await this.client.patch(`/admin/prepaid/${companyId}/threshold`, { threshold });
     return r.data;
   }
+
+  /* ────── Manifiesto PAC (firma con e.firma) ────── */
+
+  async getManifestStatus() {
+    const r = await this.client.get('/manifest');
+    return r.data;
+  }
+  async getManifestText() {
+    const r = await this.client.get('/manifest/text');
+    return r.data;
+  }
+  async signManifest(body: { cerB64: string; keyB64: string; password: string }) {
+    const r = await this.client.post('/manifest/sign', body);
+    return r.data;
+  }
+  async manifestPdf() {
+    const r = await this.client.get('/manifest/pdf', { responseType: 'blob' });
+    return r.data as Blob;
+  }
   async adminCompanyUsage(id: string) {
     const r = await this.client.get(`/admin/companies/${id}/usage`);
     return r.data;

@@ -8,7 +8,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Building2, Plus, FileKey, Trash2, X, ShieldCheck, ScanText, Upload,
-  AlertTriangle, Loader2,
+  AlertTriangle, Loader2, Pencil, Save,
 } from 'lucide-react';
 import api from '@/services/api';
 import { useAuthStore } from '@/store/auth';
@@ -19,6 +19,7 @@ export function AdminCompaniesPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [csdTarget, setCsdTarget] = useState<any>(null);
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [editTarget, setEditTarget] = useState<any>(null);
 
   if (user?.role !== 'SUPER_ADMIN') {
     return (
@@ -89,6 +90,8 @@ export function AdminCompaniesPage() {
                 <td className="px-4 py-2 text-center text-sm">{c.users_active}</td>
                 <td className="px-4 py-2">
                   <div className="flex items-center justify-center gap-1">
+                    <button title="Editar datos generales y domicilio" onClick={() => setEditTarget(c)}
+                      className="p-1.5 text-sky-600 hover:bg-sky-50 rounded"><Pencil size={16}/></button>
                     <button title="Cargar CSD" onClick={() => setCsdTarget(c)}
                       className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded"><FileKey size={16}/></button>
                     {c.has_csd && (
@@ -128,6 +131,166 @@ export function AdminCompaniesPage() {
           onDone={()=>{ setDeleteTarget(null); qc.invalidateQueries({ queryKey: ['admin-companies'] }); }}
         />
       )}
+      {editTarget && (
+        <EditCompanyModal
+          company={editTarget}
+          onClose={()=>setEditTarget(null)}
+          onDone={()=>{ setEditTarget(null); qc.invalidateQueries({ queryKey: ['admin-companies'] }); }}
+          onOpenCsd={()=>{ const c = editTarget; setEditTarget(null); setCsdTarget(c); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─────────────── Modal: editar empresa (datos + domicilio + contacto) ─────────────── */
+
+function EditCompanyModal({
+  company, onClose, onDone, onOpenCsd,
+}: {
+  company: any;
+  onClose: () => void;
+  onDone: () => void;
+  onOpenCsd: () => void;
+}) {
+  const [form, setForm] = useState({
+    businessName: company.business_name || '',
+    fiscalRegime: company.fiscal_regime || '601',
+    postalCode:   company.postal_code || '',
+    street:       company.street || '',
+    extNumber:    company.ext_number || '',
+    neighborhood: company.neighborhood || '',
+    city:         company.city || '',
+    municipality: company.municipality || '',
+    state:        company.state || '',
+    contactEmail: company.contact_email || '',
+    phone:        company.phone || '',
+    website:      company.website || '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm({ ...form, [k]: e.target.value });
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!form.businessName.trim()) { setError('La razón social es obligatoria'); return; }
+    if (form.postalCode && !/^\d{5}$/.test(form.postalCode)) {
+      setError('El CP debe ser de 5 dígitos'); return;
+    }
+    setBusy(true);
+    try {
+      await api.adminUpdateCompany(company.id, form);
+      onDone();
+    } catch (err: any) {
+      setError(err.response?.data?.message || err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const F = ({ label, k, ph, span2 = false }: { label: string; k: keyof typeof form; ph?: string; span2?: boolean }) => (
+    <label className={`block ${span2 ? 'col-span-2' : ''}`}>
+      <span className="text-xs font-medium text-gray-600 block mb-1">{label}</span>
+      <input
+        value={form[k]}
+        onChange={set(k)}
+        placeholder={ph}
+        className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+      />
+    </label>
+  );
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <form onSubmit={submit} className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b border-gray-200 sticky top-0 bg-white z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-sky-100 rounded-lg flex items-center justify-center">
+              <Pencil className="text-sky-700" size={20}/>
+            </div>
+            <div>
+              <h2 className="font-bold text-gray-900">Editar empresa</h2>
+              <p className="text-xs text-slate-500 font-mono">{company.rfc}</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X size={20}/></button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">
+              {error}
+            </div>
+          )}
+
+          {/* Datos generales */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-sky-700 mb-2">Datos generales</p>
+            <div className="grid grid-cols-2 gap-3">
+              <F label="Razón social *" k="businessName" span2 />
+              <F label="Régimen fiscal (c_RegimenFiscal)" k="fiscalRegime" ph="601" />
+              <F label="Código postal fiscal" k="postalCode" ph="20000" />
+            </div>
+          </div>
+
+          {/* Domicilio */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-sky-700 mb-2">Domicilio</p>
+            <div className="grid grid-cols-2 gap-3">
+              <F label="Calle" k="street" />
+              <F label="Número exterior" k="extNumber" />
+              <F label="Colonia" k="neighborhood" />
+              <F label="Ciudad / Localidad" k="city" />
+              <F label="Municipio" k="municipality" />
+              <F label="Estado" k="state" />
+            </div>
+          </div>
+
+          {/* Contacto */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-sky-700 mb-2">Contacto</p>
+            <div className="grid grid-cols-2 gap-3">
+              <F label="Email de contacto (correos del sistema)" k="contactEmail" ph="facturas@empresa.mx" />
+              <F label="Teléfono" k="phone" />
+              <F label="Sitio web" k="website" ph="https://…" span2 />
+            </div>
+          </div>
+
+          {/* Sellos */}
+          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 flex items-center justify-between">
+            <div className="text-xs text-indigo-900">
+              <p className="font-semibold">Sellos digitales (CSD)</p>
+              <p>
+                {company.has_csd
+                  ? `Cargado — cert ${company.csd_no_certificado || 's/n'} · vence ${company.csd_valid_to ? String(company.csd_valid_to).slice(0, 10) : '—'}`
+                  : 'Sin CSD cargado'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenCsd}
+              className="flex items-center gap-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded"
+            >
+              <FileKey size={14}/> {company.has_csd ? 'Actualizar CSD' : 'Cargar CSD'}
+            </button>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 p-5 border-t border-gray-200 bg-slate-50 sticky bottom-0">
+          <button type="button" onClick={onClose} disabled={busy}
+            className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-white disabled:opacity-50">
+            Cancelar
+          </button>
+          <button type="submit" disabled={busy}
+            className="flex items-center gap-2 px-5 py-2 rounded-lg text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 font-semibold">
+            {busy ? <Loader2 size={16} className="animate-spin"/> : <Save size={16}/>}
+            {busy ? 'Guardando…' : 'Guardar cambios'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

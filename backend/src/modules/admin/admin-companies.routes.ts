@@ -47,6 +47,8 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const r = await query<any>(
     `SELECT c.id, c.rfc, c.business_name, c.fiscal_regime, c.postal_code, c.is_active,
             c.billing_plan, c.cap_timbres, c.monthly_fee, c.extra_stamp_fee,
+            c.street, c.ext_number, c.neighborhood, c.city, c.municipality, c.state,
+            c.contact_email, c.phone, c.website,
             (c.csd_key_encrypted IS NOT NULL) AS has_csd,
             c.csd_no_certificado, c.csd_valid_to,
             (SELECT COUNT(*)::int FROM users  u WHERE u.company_id = c.id AND u.is_active) AS users_active,
@@ -89,7 +91,14 @@ router.post('/', asyncHandler(async (req: Request, res: Response) => {
 
 /* ────────────────────────  UPDATE  ──────────────────────── */
 router.put('/:id', asyncHandler(async (req: Request, res: Response) => {
-  const { businessName, fiscalRegime, postalCode, billingPlan, capTimbres, monthlyFee, extraStampFee, isActive } = req.body as any;
+  const {
+    businessName, fiscalRegime, postalCode, billingPlan, capTimbres, monthlyFee,
+    extraStampFee, isActive,
+    // Domicilio fiscal completo (para la CFDI de cobro y el expediente)
+    street, extNumber, neighborhood, city, municipality, state,
+    // Contacto (contact_email es el remitente/destino de correos automáticos)
+    contactEmail, phone, website,
+  } = req.body as any;
   const fields: string[] = [];
   const params: any[] = [];
   const push = (f: string, v: any) => { params.push(v); fields.push(`${f} = $${params.length}`); };
@@ -105,6 +114,22 @@ router.put('/:id', asyncHandler(async (req: Request, res: Response) => {
   if (monthlyFee   !== undefined) push('monthly_fee',     parseFloat(monthlyFee));
   if (extraStampFee!== undefined) push('extra_stamp_fee', parseFloat(extraStampFee));
   if (isActive     !== undefined) push('is_active',       Boolean(isActive));
+  // Domicilio
+  if (street       !== undefined) push('street',        street || null);
+  if (extNumber    !== undefined) push('ext_number',    extNumber || null);
+  if (neighborhood !== undefined) push('neighborhood',  neighborhood || null);
+  if (city         !== undefined) push('city',          city || null);
+  if (municipality !== undefined) push('municipality',  municipality || null);
+  if (state        !== undefined) push('state',         state || null);
+  // Contacto
+  if (contactEmail !== undefined) {
+    if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      throw new ValidationError('contactEmail no es un correo válido');
+    }
+    push('contact_email', contactEmail || null);
+  }
+  if (phone        !== undefined) push('phone',   phone || null);
+  if (website      !== undefined) push('website', website || null);
 
   if (fields.length === 0) throw new ValidationError('Nada que actualizar');
   params.push(req.params.id);

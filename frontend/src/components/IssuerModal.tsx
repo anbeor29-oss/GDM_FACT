@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, Landmark, Save, FileUp, Loader2, KeyRound, Image as ImageIcon } from 'lucide-react';
 import api from '@/services/api';
+import { ManifestSigner } from './ManifestSigner';
 
 const upper = (v: string) => (v || '').toUpperCase();
 
@@ -350,6 +351,9 @@ export function IssuerModal({ companyId, onClose }: Props) {
 
             <Section>CSD — Certificado de Sello Digital (para timbrar)</Section>
             <CSDUploader companyId={companyId} />
+
+            <Section>Manifiesto PAC — autorización al proveedor de timbrado</Section>
+            <ManifestSigner />
 
             <div className="flex gap-3 pt-4 border-t border-gray-200">
               <button
