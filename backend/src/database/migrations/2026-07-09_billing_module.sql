@@ -115,9 +115,17 @@ COMMENT ON TABLE prepaid_stamp_purchases IS
 -- ─────────────────────────────────────────────────────────────────────
 -- 4) VISTA v_stamp_usage_current AMPLIADA con cap efectivo
 --    (cap del plan + rollover) y flag de si es plan prepago FLEX.
+--
+--    ⚠ DROP antes de CREATE: la versión nueva inserta columnas en medio
+--    (carried_over_stamps, effective_cap) y Postgres NO permite reordenar
+--    columnas con CREATE OR REPLACE VIEW — solo agregar al final. Sin el
+--    DROP, la migración truena con "cannot change name of view column".
+--    Nada en SQL depende de esta vista (solo la consulta el backend).
 -- ─────────────────────────────────────────────────────────────────────
 
-CREATE OR REPLACE VIEW v_stamp_usage_current AS
+DROP VIEW IF EXISTS v_stamp_usage_current;
+
+CREATE VIEW v_stamp_usage_current AS
 SELECT
     c.id                             AS company_id,
     c.rfc,
