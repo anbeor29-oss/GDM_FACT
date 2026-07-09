@@ -357,3 +357,78 @@ Resumen: 22 bugs corregidos, 7 features nuevas. Todos los commits `ab3bd70…1a4
 3. **Un mismo cálculo en 8 lugares**: al agregar `document_status != 'CANCELLED'` había que replicarlo en cada subquery. Vale la pena centralizar en una función helper.
 4. **Sandbox del PAC no es fiel al prod**: 404 falsos, timbres que "desaparecen" del vault, etc. En prod hay que tener botón "reintentar" y logging fino.
 5. **XML localmente generado ≠ XML del PAC**: hasta que NC y pago se timbren realmente, hay que mantener los atributos Anexo 20 (`NoCertificado`, `Emisor`, `Receptor`) coherentes en el XML de generación local, o el PDF los verá "pendientes".
+
+---
+
+## 2026-07-08/09 — Módulo de Facturación completo, marca GDM y despliegue en hcgm.com.mx
+
+### Contexto
+Con el timbrado real estable, esta ronda convirtió el ERP en un negocio
+auto-administrado: el sistema mide el consumo, cierra el mes, emite sus
+propios CFDIs de cobro y avisa por correo — más la integración visual y de
+navegación con el sitio corporativo hcgm.com.mx.
+
+### Bloque 1 — Módulo Facturación y Consumo (5 fases, diseño → producción)
+
+Diseño completo en `docs/DISENO_FACTURACION_PLANES.md` con **10 decisiones
+de negocio cerradas** (corte día 30/31, emisión día 1, prorrateo por días al
+cambiar de plan con cap redondeado ↑, rollover que se conserva, extras al
+precio del plan vigente al timbrar, CFDI de cobro emitido por el propio ERP,
+prepago $4.99 fijo, umbral de aviso 5, bloqueo total con saldo 0, cancelar
+no devuelve timbre).
+
+| Fase | Entregable | Commit |
+|------|-----------|--------|
+| 1 | Migración `2026-07-09_billing_module.sql` (rollover en companies, `monthly_invoicing`, `prepaid_stamp_balance/purchases`, vista con cap efectivo) + `billing.service` (assertCanStamp, recordStampUsed dentro de la TX de timbrado) | `e5a6e47` |
+| 2 | UI "Facturación y consumo": KPIs, tabla mes en curso (refresh 60 s), histórico anual, marcar pagado, botón cerrar mes; `close-month.service` idempotente | `56730cb` |
+| 3 | UI "Compras prepago": saldos semaforizados (verde/ámbar/rojo BLOQUEADO), modal recarga 30/60/90 con desglose IVA, histórico de compras; endpoints `/admin/prepaid/*` | `7f4cec4` |
+| 4 | **Dogfooding**: `issue-invoice.service` — HCGM (env `PLATFORM_COMPANY_RFC`) emite/timbra el CFDI de cobro contra cada cliente (upsert customer+producto SERV-TIMBRADO 81112000, PPD, IVA 16%), lo envía por correo y guarda folio+UUID; cron `node-cron` día 1 00:15 (`ENABLE_BILLING_CRON`); reintento por fila en la UI | `7473c6e` |
+| 5 | Correos automáticos: `billing-alerts.service` (prepaid_low/prepaid_zero con flags anti-spam que se limpian al recargar + recordatorio de cobranza día 10); `sendPlainMail` en el mailer; trigger post-timbrado fire-and-forget + cron horario como red de seguridad | `6ca71f5` |
+
+### Bloque 2 — Gestión de empresas (SUPER_ADMIN)
+
+- **Editar empresa completa**: modal con Datos generales / Domicilio / Contacto + panel de sellos con acceso directo a actualizar CSD. El domicilio y `contact_email` alimentan el CFDI de cobro y los correos automáticos.
+- **Reset operacional**: `POST /admin/companies/:id/reset-operations` (confirmRfc + dryRun) — para limpiar la escuela de pruebas sin PowerShell contra la BD.
+- **Eliminar empresa (2 pasos)**: borrado total (14 tablas en cascada, usuarios, CSD, la empresa misma) con doble confirmación server-side (RFC exacto → palabra ELIMINAR), preview de conteos, protección anti-auto-eliminación y audit log.
+
+### Bloque 3 — Manifiesto PAC con e.firma (firma criptográfica real)
+
+- Tabla `sw_manifests` + `manifest.service`: parsea el `.cer` (X509Certificate — RFC del subject, CN, serial SAT decodificado, vigencia), abre la `.key` PKCS#8 DER cifrada con passphrase, **valida que la pública derivada coincida con la del certificado**, firma RSA-SHA256 el texto legal y verifica antes de persistir. La `.key` jamás se guarda.
+- Pantalla en el modal Emisor (`ManifestSigner`): texto colapsable, carga de e.firma, badge verde al firmar y **constancia PDF** descargable (texto íntegro + serial + firma base64).
+- SW no expone endpoint público de manifiesto → la constancia es el documento del expediente (status SIGNED; SENT/ACCEPTED manuales al tramitar en su panel).
+
+### Bloque 4 — hcgm.com.mx: hosting, menú y marca
+
+- **`npm run build:hosting`**: genera `gdmfac-erp-hosting.zip` con base `/erp/`, `VITE_API_BASE` al backend Render y `.htaccess` (SPA fallback + cache immutable). Guía completa en `docs/DEPLOY_HOSTING_ZIP.md` (Parte A hosting + Parte B checklist PAC producción).
+- **Parche del menú corporativo**: se descargó el `index.html` real del sitio, se insertó "Facturas" en el nav (entre Nómina y Nosotros) y "📄 Facturación Electrónica" en el footer Herramientas — verificado byte a byte; entregado como `hcgm-menu-facturas.zip`.
+- **Botón de regreso** en el login del ERP (`← hcgm.com.mx` junto a Ingresar) — ciclo completo sitio ↔ ERP.
+- **Logo oficial GDM**: primero se recreó como SVG (feedback: "quedó feo") → se reemplazó por la **imagen real** de `hcgm.com.mx/assets/logo.png` (mockup 4000×2667, 7 MB) recortada al círculo con sharp y optimizada a 256×256 (104 KB). Aplicada en login, sidebar, landing y favicon; theme-color al azul marino del logo.
+
+### Bugs de la ronda
+
+| Bug | Causa | Fix |
+|-----|-------|-----|
+| **Failed deploy en Render** (backend caído) | `CREATE OR REPLACE VIEW v_stamp_usage_current` insertaba columnas en medio — Postgres solo permite agregar al final; migrate-up aborta con exit 1 | `DROP VIEW IF EXISTS` antes del CREATE (la migración es transaccional: el fallo hizo rollback y no quedó registrada) — `947cb99` |
+| PDF guía de íconos con caracteres corruptos (Ø=Ý) | Helvetica no tiene glifos emoji | Íconos dibujados con los SVG paths reales de Lucide (`doc.path()` + `doc.circle()`) |
+| Logo 7 MB en el bundle | `assets/logo.png` del sitio es el mockup completo | Recorte con sharp `extract` + `resize(256)` — verificación visual iterativa |
+
+### Aprendizajes clave
+1. **`CREATE OR REPLACE VIEW` no reordena columnas** — para vistas que evolucionan, `DROP VIEW IF EXISTS` + `CREATE` (si nada SQL depende de ellas) evita el deploy roto.
+2. **Dogfooding cierra el círculo**: HCGM factura con su propio producto — cada mejora al ERP mejora también la operación del negocio, y los reportes de cobranza sirven de inmediato.
+3. **Registrar consumo DENTRO de la TX de timbrado** garantiza que nunca haya CFDI timbrado sin contabilizar (ni al revés).
+4. **Los flags anti-spam de correos** (low/zero_notified_at) deben marcarse solo si el envío tuvo éxito, y limpiarse al recargar — así los fallos de SMTP se reintentan sin duplicar avisos.
+5. **Assets de sitios en producción pueden ser gigantes** — siempre verificar dimensiones/peso antes de meterlos al bundle; sharp del backend sirve para procesarlos sin dependencias nuevas.
+
+---
+
+## Estado para producción (checklist vivo)
+
+- [x] Timbrado real SW sandbox verificado end-to-end
+- [x] Módulo de facturación/cobro automático completo
+- [x] ERP servido desde hcgm.com.mx/erp (ZIP) con marca GDM
+- [ ] `git push` + deploy Live con el fix de la vista
+- [ ] Subir ZIPs a cPanel (menú + ERP con logo)
+- [ ] `CORS_ORIGIN` con hcgm.com.mx
+- [ ] Pruebas finales con las 2 empresas reales
+- [ ] Switch a SW producción (token + CSDs al vault + `SW_SAPIEN_ENV=production`)
+- [ ] `PLATFORM_COMPANY_RFC` + `ENABLE_BILLING_CRON=true` en Render

@@ -78,6 +78,9 @@ Sistema de facturación electrónica CFDI 4.0 para México. Backend Node/Express
 | Envío por correo (SMTP) | ✅ | Nodemailer + selección PDF/XML de factura + NC + pagos; tolerante a fallos parciales |
 | Cancelación en cascada | ✅ | NC/pagos con botón cancelar en Historia; validación de dependientes en la factura padre |
 | Cancelación SW real | ✅ | `/v4/cfdi/cancel/{rfc}` + parseo de códigos SAT (201/202/205); bypass local + resend |
+| Marca de agua CANCELADO | ✅ | Diagonal roja translúcida en PDFs de factura/NC/pago cancelados (se regenera al descargar) |
+| Manifiesto PAC con e.firma | ✅ | Firma RSA-SHA256 real con la FIEL del contribuyente (valida RFC + vigencia + correspondencia .cer/.key); constancia PDF; la .key nunca se persiste |
+| Marca corporativa GDM | ✅ | Logo oficial (monograma azul/plata) en login, sidebar, landing y favicon |
 
 ### 🔶 Plataforma (solo SUPER_ADMIN)
 
@@ -86,8 +89,15 @@ Sistema de facturación electrónica CFDI 4.0 para México. Backend Node/Express
 | Importar XML | ✅ | Preview + auto-sugerencia (yo=emisor → receptor=CUSTOMER) |
 | Proveedores | ✅ | Read-only, alimentados por Importar XML |
 | Paquetes fiscales | ✅ | 4 planes: PKG_100/200/500/FLEX + descarga de respaldo SAT |
+| **Facturación y consumo** | ✅ | Consumo del mes con cap efectivo (quota + rollover), cierre mensual idempotente, histórico anual, marcar pagado. Cron día 1 00:15 (`ENABLE_BILLING_CRON`) |
+| **CFDI de cobro (dogfooding)** | ✅ | Al cerrar el mes, HCGM (`PLATFORM_COMPANY_RFC`) emite y timbra el CFDI contra cada cliente, lo envía por correo y guarda folio+UUID; reintento por fila en errores |
+| **Compras prepago (FLEX)** | ✅ | Saldos semaforizados, recarga por bloques (30 × $4.99 + IVA), histórico de compras, bloqueo de timbrado al llegar a 0 |
+| **Correos automáticos** | ✅ | Alertas prepago (saldo ≤ 5 y saldo 0) con flags anti-spam + recordatorio de cobranza el día 10 |
 | Usuarios | ✅ | CRUD + reset password + impersonate |
 | Empresas | ✅ | CRUD + lector CIF SAT + selector de plan + carga de CSD cifrado |
+| Editar empresa completa | ✅ | Modal con datos generales, domicilio y contacto + acceso directo a actualizar CSD |
+| Reset operacional | ✅ | `POST /admin/companies/:id/reset-operations` (confirmRfc + dryRun) — vacía operación conservando empresa/usuarios |
+| Eliminar empresa (2 pasos) | ✅ | Borrado total (usuarios, CSD, todo) con doble confirmación server-side: RFC exacto + palabra ELIMINAR |
 
 ### 🔴 Infraestructura
 
@@ -187,7 +197,10 @@ Copiar `backend/.env.example` a `backend/.env` y llenar:
 | `PAC_PROVIDER` | `MOCK` (dev) o `SW_SAPIEN` (prod) | Manual |
 | `SW_SAPIEN_ENV` | `sandbox` o `production` | Manual |
 | `SW_SAPIEN_TOKEN` | Bearer token del panel SW | **Manual — no en git** |
-| `CORS_ORIGIN` | URL exacta del frontend con `https://` | Manual (Render usa host sin protocolo, falla) |
+| `CORS_ORIGIN` | URLs exactas del frontend con `https://`, separadas por coma (incluir `hcgm.com.mx` y `www.` si aplica) | Manual (Render usa host sin protocolo, falla) |
+| `MAIL_HOST/PORT/USER/PASS/FROM` | SMTP para envío de facturas y correos automáticos (ej. `mail.hcgm.com.mx:465`) | Manual |
+| `PLATFORM_COMPANY_RFC` | RFC de la empresa que emite los CFDIs de cobro (GRUPOHCGM). Vacío = cierre sin emisión | Manual |
+| `ENABLE_BILLING_CRON` | `true` activa los crons: cierre mensual (día 1 00:15), alertas prepago (cada hora), cobranza (día 10 09:00) | Manual — `false` en dev |
 
 ---
 
@@ -228,6 +241,21 @@ cd backend
 npm run docs:icons
 # → docs/GUIA_ICONOS_FACTURAS.pdf
 ```
+
+### Generar el ZIP para el hosting (hcgm.com.mx/erp)
+
+```bash
+cd frontend
+npm run build:hosting
+# → frontend/dist-hosting/gdmfac-erp-hosting.zip
+# Subir a cPanel → public_html/ → Extract (ver docs/DEPLOY_HOSTING_ZIP.md)
+```
+
+### Cerrar el mes de facturación manualmente
+
+Desde la UI: SUPER_ADMIN → **Facturación y consumo** → "Cerrar mes anterior"
+(calcula rollover, genera cargos y emite CFDIs de cobro). Es idempotente.
+El cron del día 1 hace lo mismo automáticamente si `ENABLE_BILLING_CRON=true`.
 
 ### Limpiar productos de prueba (Render Shell)
 
