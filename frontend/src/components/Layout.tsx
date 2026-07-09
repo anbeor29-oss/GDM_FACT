@@ -4,6 +4,7 @@
  */
 
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { GdmLogo } from './GdmLogo';
 import {
   FileText,
   Users,
@@ -14,7 +15,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Building2,
-  Sparkles,
   FileMinus2,
   ShieldCheck,
   Wallet,
@@ -60,12 +60,10 @@ export function Layout() {
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
           {sidebarOpen && (
             <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 via-blue-500 to-cyan-400 rounded-xl flex items-center justify-center shadow-md ring-1 ring-white/40">
-                <Sparkles size={20} className="text-white" />
-              </div>
+              <GdmLogo size={40} className="shadow-md rounded-full shrink-0" />
               <div className="leading-tight">
-                <h1 className="font-semibold text-sm text-slate-800 tracking-tight">Sistema de</h1>
-                <p className="font-semibold text-xs text-indigo-600">Facturación</p>
+                <h1 className="font-semibold text-sm text-slate-800 tracking-tight">GDM Facturación</h1>
+                <p className="font-semibold text-xs text-red-700">High Consulting México</p>
               </div>
             </div>
           )}

@@ -11,13 +11,14 @@
  */
 import { Link } from 'react-router-dom';
 import {
-  Sparkles, Zap, Star, Rocket, Coins, Check,
+  Zap, Star, Rocket, Coins, Check,
   FileText, ScanText, FileUp, FileMinus2, Users, Boxes, BarChart3,
   ShieldCheck, LogIn, Wallet, Mail, Ban, QrCode,
   ClipboardCheck, Building2, FileSignature, Send,
   ChevronDown,
 } from 'lucide-react';
 import { useState } from 'react';
+import { GdmLogo } from '@/components/GdmLogo';
 
 const PLANS = [
   {
@@ -176,12 +177,10 @@ export function PublicHomePage() {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
         <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 via-blue-500 to-cyan-400 rounded-xl flex items-center justify-center shadow-md">
-              <Sparkles size={20} className="text-white" />
-            </div>
+            <GdmLogo size={40} className="shadow-md rounded-full shrink-0" />
             <div>
-              <p className="font-bold text-slate-800 tracking-tight leading-tight">Sistema de Facturación</p>
-              <p className="text-xs text-slate-500 leading-tight">CFDI 4.0 México · HCGM</p>
+              <p className="font-bold text-slate-800 tracking-tight leading-tight">GDM Facturación</p>
+              <p className="text-xs text-slate-500 leading-tight">CFDI 4.0 México · High Consulting</p>
             </div>
           </div>
           <div className="flex items-center gap-4">

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
+import { GdmLogo } from '@/components/GdmLogo';
 import api from '@/services/api';
 
 /** Sitio corporativo al que regresa el botón junto a "Ingresar". */
@@ -45,11 +46,9 @@ export function LoginPage() {
       <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex w-14 h-14 mb-3 bg-gradient-to-br from-pink-500 via-fuchsia-500 to-blue-500 rounded-2xl items-center justify-center shadow-lg">
-            <span className="text-white text-2xl">✨</span>
-          </div>
+          <GdmLogo size={64} className="inline-block mb-3 drop-shadow-lg" />
           <h1 className="text-3xl font-bold text-gray-900 mb-1">Sistema de Facturación</h1>
-          <p className="text-gray-500 text-sm">Inicia sesión para continuar</p>
+          <p className="text-gray-500 text-sm">GDM High Consulting México · Inicia sesión para continuar</p>
         </div>
 
         {/* Form */}
