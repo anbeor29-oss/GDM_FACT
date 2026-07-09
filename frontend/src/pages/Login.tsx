@@ -4,8 +4,12 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import api from '@/services/api';
+
+/** Sitio corporativo al que regresa el botón junto a "Ingresar". */
+const CORPORATE_SITE_URL = 'https://hcgm.com.mx';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -84,18 +88,27 @@ export function LoginPage() {
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors"
-          >
-            {loading ? 'Ingresando...' : 'Ingresar'}
-          </button>
+          {/* Acceso + regreso al sitio corporativo, lado a lado */}
+          <div className="grid grid-cols-2 gap-3">
+            <a
+              href={CORPORATE_SITE_URL}
+              className="flex items-center justify-center gap-2 border-2 border-gray-300 hover:border-blue-400 text-gray-700 font-semibold py-2 rounded-lg transition-colors"
+            >
+              <ArrowLeft size={16} /> hcgm.com.mx
+            </a>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-2 rounded-lg transition-colors"
+            >
+              {loading ? 'Ingresando...' : 'Ingresar'}
+            </button>
+          </div>
         </form>
 
         {/* Footer */}
         <div className="mt-6 pt-6 border-t border-gray-200 text-center text-sm text-gray-600">
-          <p>Demo: usa cualquier email y contraseña</p>
+          <p>© {new Date().getFullYear()} GDM High Consulting México · Sistema de facturación CFDI 4.0</p>
         </div>
       </div>
     </div>
