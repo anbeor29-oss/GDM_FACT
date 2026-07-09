@@ -60,10 +60,10 @@ export function Layout() {
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
           {sidebarOpen && (
             <div className="flex items-center gap-2.5">
-              <GdmLogo size={40} className="shadow-md rounded-full shrink-0" />
+              <GdmLogo size={40} className="shadow-md shrink-0" />
               <div className="leading-tight">
                 <h1 className="font-semibold text-sm text-slate-800 tracking-tight">GDM Facturación</h1>
-                <p className="font-semibold text-xs text-red-700">High Consulting México</p>
+                <p className="font-semibold text-xs text-blue-800">High Consulting México</p>
               </div>
             </div>
           )}
