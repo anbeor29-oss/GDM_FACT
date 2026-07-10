@@ -432,3 +432,152 @@ no devuelve timbre).
 - [ ] Pruebas finales con las 2 empresas reales
 - [ ] Switch a SW producción (token + CSDs al vault + `SW_SAPIEN_ENV=production`)
 - [ ] `PLATFORM_COMPANY_RFC` + `ENABLE_BILLING_CRON=true` en Render
+
+---
+
+## 2026-07-09 — Mudanza del repositorio a E: (consolidación de copias)
+
+### Contexto
+C: se estaba llenando y existían 3 copias del proyecto (C: repo real, D: y E:
+copias obsoletas de Obsidian). Se consolidó todo en UNA copia local + GitHub.
+
+### Procedimiento (seguro, con verificación antes de borrar)
+1. Verificado: 0 commits sin pushear (GitHub como doble respaldo) y solo un
+   archivo untracked (`docs/SW_TIMBRADO_ANALISIS.md`, viaja con la copia).
+2. `robocopy /MIR /MT:16` de C:\Users\EQ-7\GDM_FAC → E:\Obsidian\GDM_FAC_new
+   (484 MB, incluye `.git` y `node_modules`).
+3. Verificación de integridad: mismo HEAD (`a4c1369`), mismo status, y
+   **36,931 = 36,931 archivos**.
+4. Swap: eliminada la copia vieja de E: (18,308 archivos obsoletos) y
+   renombrado `GDM_FAC_new` → `GDM_FAC`. Re-verificado git + remote.
+5. Eliminado `C:\Users\EQ-7\GDM_FAC` por completo (el directorio raíz requirió
+   sacar primero el cwd de los shells de la sesión).
+6. `D:\Obsidian\GDM_FAC` (copia obsoleta, 145 MB): su único archivo no
+   presente en E: (`.claude/launch.json`) fue preservado; el borrado del
+   contenido quedó **bloqueado por el guard de la sesión de Claude** (es su
+   working directory — protección anti auto-borrado). Comando manual para el
+   usuario al cerrar la sesión: `Remove-Item D:\Obsidian\GDM_FAC -Recurse -Force`.
+
+### Resultado
+```
+E:\Obsidian\GDM_FAC   ← ÚNICA copia local (repo git íntegro)
+GitHub                ← respaldo remoto + fuente del auto-deploy
+Render                ← producción
+```
+
+### Aprendizajes
+1. **Verificar antes de borrar**: conteo de archivos origen vs destino +
+   `git log`/`status` en la copia ANTES de tocar el original.
+2. **"Está en uso"** al borrar una carpeta = algún shell tiene su cwd dentro;
+   mover el cwd y reintentar (el contenido puede borrarse aunque el raíz
+   resista).
+3. Los guards del entorno que impiden a una herramienta borrar su propio
+   directorio de trabajo son deliberados: no rodearlos, documentar el paso
+   manual.
+
+---
+
+# 📕 COMPENDIO MAESTRO — de cero a producción
+
+> Resumen ejecutivo de TODO el proyecto para usarlo como plantilla del
+> siguiente. Complementa: README §Lecciones, docs/BUGS_RESUELTOS.md (detalle
+> bug-por-bug con commits) y las entradas cronológicas de arriba.
+
+## 1. Línea de tiempo (10 etapas)
+
+| # | Etapa | Qué se construyó |
+|---|-------|------------------|
+| 1 | **Fundación local** | Backend Node 20/Express/TS + frontend React 18/Vite + PostgreSQL. Módulos core: auth JWT multi-tenant (4 roles, force-password, impersonación), facturas CFDI 4.0 con retenciones, clientes (+ lector CIF PDF), productos (52k claves SAT), NC, complementos de pago, reportes, PDFs pdfkit |
+| 2 | **Deploy a Render** | Blueprint render.yaml, backend Starter + PG Free + static site. Bugs de arranque: CORS, devDeps, versión de Node, TS 6 |
+| 3 | **Estabilización post-deploy** | 13 bugs (tabla 2026-07-02): catálogos SAT no seedeados, columnas sin migrar, logo sin disco → BYTEA, assets que tsc no copia, fetch relativo |
+| 4 | **Plataforma SUPER_ADMIN** | Paquetes fiscales, usuarios, empresas con CSD cifrado (pgcrypto), guards por rol y por URL |
+| 5 | **Timbrado real (SW Sapien sandbox)** | Análisis JSON vs XML → ruta JSON `/v3/cfdi33/issue/json/v4` (el CSD vive en el vault del PAC). Bugs: token corrupto, fecha UTC vs México, "MODO SIMULACIÓN" hardcodeado |
+| 6 | **Ciclo completo de documentos** | QR SAT real, NoCertificado desde el XML, cancelación en cascada (NC/REP → factura) con endpoint v4 + bypass local + resend, edición de DRAFT, envío SMTP con selección de adjuntos, marca de agua CANCELADO |
+| 7 | **Módulo Facturación y Consumo** (5 fases) | Rollover de timbres, prepago FLEX con bloqueo, cierre mensual idempotente, **dogfooding** (HCGM emite sus CFDIs de cobro con su propio motor), correos automáticos con flags anti-spam, 3 crons |
+| 8 | **Expediente del emisor** | Edición completa de empresas (domicilio/contacto), manifiesto PAC firmado con **e.firma real** (X509 + RSA-SHA256 + constancia PDF), full-delete con doble confirmación |
+| 9 | **Integración hcgm.com.mx** | `build:hosting` (ZIP con base `/erp/` + .htaccess SPA), parche del menú del sitio, botón de regreso, logo oficial (recorte con sharp del asset real) |
+| 10 | **Consolidación** | Mudanza del repo a E:, documentación integral, checklist de producción |
+
+## 2. Catálogo maestro de errores (consolidado por categoría)
+
+### Infraestructura / Render
+| Error | Causa | Fix |
+|---|---|---|
+| CORS bloquea login | `CORS_ORIGIN` sin `https://` (fromService inyecta host pelón) | Hardcodear URL completa; múltiples orígenes separados por coma sin espacios |
+| Build sin devDependencies | `npm ci` en prod las omite | `npm ci --include=dev && npm run build` |
+| Node 26 rompe el build | Render usa la última si no se pinnea | `engines.node: "20.x"` + `.nvmrc` |
+| tsc no copia binarios | `.gz`/assets no son TS | `scripts/copy-assets.js` post-build |
+| Archivos suben pero desaparecen | Starter sin disco persistente | BYTEA en BD (logo, CSD); FS solo como cache |
+| **Failed deploy** por migración | `CREATE OR REPLACE VIEW` reordenando columnas | `DROP VIEW IF EXISTS` + `CREATE` (migración transaccional → el fallo no dejó registro) |
+| Modal eterno "Cargando…" | Código SELECT de columnas inexistentes (42703) | Migración `ADD COLUMN IF NOT EXISTS`; nunca evolucionar código sin su migración |
+
+### PAC / SAT
+| Error | Causa | Fix |
+|---|---|---|
+| "El token debe contener 3 partes" | JWT pegado con prefijo/`...`/saltos | Validar 2 puntos exactos; re-pegar limpio |
+| "Fecha fuera del rango permitido" | `getHours()` en server UTC (6 h adelante) | `toLocaleString('sv-SE',{timeZone:'America/Mexico_City'})` |
+| "XmlCFDI no proporcionado" | Flujo XML esperaba xml_content inexistente | Serializer `buildCFDIJson` + `stampFromJson` (ruta JSON) |
+| Toast "MODO SIMULACIÓN" con timbre real | provider hardcodeado en controller y UI | Devolver `provider`/`is_mock` reales; endpoint diagnóstico `/pac/providers` con flags de env |
+| Cancelación 404 (siempre) | `rfcEmisor='ABC010101ABC'` placeholder | Leer `companies.rfc`; regla: placeholders deben tronar |
+| Cancelación 404 (sandbox intermitente) | Bug de vault sandbox + endpoint legacy | Endpoint v4 `/v4/cfdi/cancel/{rfc}`, parseo códigos 201/202/205, bypass `forceLocal` + resend |
+| Factura MOCK no cancela en SW | SW nunca conoció ese UUID | Detectar `pac_id='MOCK'` → cancelar solo local |
+
+### Datos / cálculos
+| Error | Causa | Fix |
+|---|---|---|
+| Factura pagada seguía "Pago parcial" | Status ignoraba NC (`pagos >= total`) | `cubierto = pagos + NC`; migración one-shot que recalculó histórico |
+| Saldo insoluto = monto de la NC | `ImpSaldoAnt` sin restar NC | Restar NC vigentes en XML del REP y en su PDF |
+| Cancelar pago no liberaba la factura | 8 subqueries sumaban pagos cancelados | `AND document_status != 'CANCELLED'` en todas; lección: centralizar |
+| Checkbox XML del pago siempre gris | Endpoint devolvía `uuid AS payment_uuid`, UI leía `p.uuid` | Quitar el alias (contrato de API consistente) |
+| PDF "No. Certificado — pendiente" | XML local de NC/REP sin atributos Anexo 20 | Incluir `NoCertificado` + `Emisor`/`Receptor` en el XML generado localmente |
+
+### PDF / UI
+| Error | Causa | Fix |
+|---|---|---|
+| Emojis como `Ø=Ý` en PDF | Helvetica sin glifos emoji | Íconos con SVG paths de Lucide via `doc.path()`/`doc.circle()` |
+| "−" renderizaba como coma | U+2212 no está en la fuente | ASCII `-` |
+| Botón borrar/editar "no hace nada" en prod | `fetch('/api/…')` relativo o método inexistente en el api client | Siempre el cliente axios con baseURL; TS habría detectado el método faltante sin `as any` |
+| Botón Cancelar invisible (círculo vicioso) | Acción dentro de `{r.uuid && …}` | Acciones de estado nunca condicionadas a datos opcionales |
+| Logo de 7 MB | Asset del sitio era el mockup 4000×2667 | sharp `extract` + `resize(256)` con verificación visual |
+
+## 3. Recetas y atajos (copiar/pegar)
+
+### SQL de emergencia (Render Shell)
+```bash
+# Reset contraseña super-admin
+psql $DATABASE_URL -c "UPDATE users SET password_hash = crypt('NuevaPass1!', gen_salt('bf',12)), password_change_required=false WHERE email='superadmin@plataforma.local';"
+```
+
+### Diagnóstico PAC end-to-end (PowerShell, sin DevTools)
+```powershell
+$b="https://gdmfac-backend.onrender.com"
+$t=(Invoke-RestMethod -Method Post -Uri "$b/api/v1/auth/login" -ContentType application/json -Body (@{email="…";password="…"}|ConvertTo-Json)).data.token
+Invoke-RestMethod -Uri "$b/api/v1/pac/providers" -Headers @{Authorization="Bearer $t"} | ConvertTo-Json -Depth 5
+# → active/is_mock/env_sw_token_present dicen exactamente qué está mal
+```
+
+### Scripts npm del repo
+```
+backend:  reset:company -- <RFC>   · docs:icons   · migrate:up (auto en start:prod)
+frontend: build:hosting            · build        · dev
+```
+
+### Flujo de trabajo diario
+```powershell
+cd E:\Obsidian\GDM_FAC ; git pull        # empezar
+# …cambios…  (tsc --noEmit en backend/frontend antes de commitear)
+git add … ; git commit -m "feat/fix: …" ; git push   # Render deploya solo
+```
+
+## 4. Checklist para replicar en un proyecto nuevo
+
+1. [ ] Monorepo `backend/ + frontend/` + `render.yaml`; pinnear Node y TS
+2. [ ] `schema.sql` base + `migrations/` idempotentes + runner que aborta el boot
+3. [ ] Auth JWT con tenant en el token; guards por rol Y por URL
+4. [ ] Binarios en BYTEA desde el día 1 (no filesystem)
+5. [ ] Integraciones externas tras interfaz provider (MOCK primero)
+6. [ ] Cliente API único en frontend (nada de fetch suelto); sin `as any`
+7. [ ] Cálculos de dinero en UN helper/vista; probar con el caso "cancelado"
+8. [ ] Fechas fiscales SIEMPRE con timeZone explícita
+9. [ ] Scripts npm para toda operación repetible + endpoint de diagnóstico
+10. [ ] Documentar al cerrar cada ronda: BITACORA (qué/por qué) + BUGS (síntoma/causa/fix)

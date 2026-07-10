@@ -169,7 +169,7 @@ scripts/stop-all.ps1         # apagar (pregunta si detener PG)
 ### Deploy a producción
 
 ```powershell
-cd C:/Users/EQ-7/GDM_FAC
+cd E:\Obsidian\GDM_FAC        # ← el repo vive en E: desde 2026-07-09
 git add .
 git commit -m "feat/fix: descripción"
 git push
@@ -346,6 +346,59 @@ Suite E2E en `tests/e2e/` con 14 archivos: smoke, auth, productos, facturas, NC 
 - **Bugs de código**: crear issue en el repo con etiqueta `bug` + captura
 - **Emergencias PAC**: soporte SW Sapien 33 1380 9988
 - **Reset admin en prod**: Render Shell + SQL directo (documentado arriba)
+
+---
+
+## 🧭 Lecciones del proyecto — guía para el siguiente
+
+> Esta sección condensa TODO lo aprendido de cero a producción, pensada para
+> arrancar un nuevo proyecto que incluya (o se parezca a) este. El detalle
+> cronológico vive en [BITACORA.md](BITACORA.md) (§ Compendio Maestro) y el
+> catálogo bug-por-bug en [docs/BUGS_RESUELTOS.md](docs/BUGS_RESUELTOS.md).
+
+### Arquitectura que SÍ funcionó (repetir tal cual)
+
+| Decisión | Por qué repetirla |
+|---|---|
+| **Monorepo backend/ + frontend/** con deploy separado en Render | Un push deploya ambos; el static site del frontend es gratis |
+| **Migraciones SQL idempotentes** (`IF NOT EXISTS` + tabla `schema_migrations` + runner que aborta el boot si falla) | Cada deploy auto-migra; imposible arrancar con schema a medias |
+| **Multi-tenant por `company_id` en el JWT** (nunca en el body) | Elimina toda una clase de vulnerabilidades de un plumazo |
+| **Persistencia binaria en BYTEA** (logos, CSD cifrado) | Render Starter NO tiene disco persistente — el filesystem se borra en cada deploy |
+| **Patrón provider para el PAC** (interfaz + registry MOCK/SW_SAPIEN por env) | Desarrollas todo con MOCK y conectas el PAC real sin recompilar |
+| **PDFs regenerados al vuelo** (nunca persistidos) | Cada fix de PDF aplica retroactivamente a documentos viejos |
+| **Contadores dentro de la MISMA transacción** que el evento (timbre → `stamp_usage`) | Nunca hay CFDI timbrado sin contabilizar ni viceversa |
+| **Scripts npm para operación** (`reset:company`, `docs:icons`, `build:hosting`) | La operación repetible vive en el repo, no en la memoria de nadie |
+| **Dogfooding**: la plataforma se factura a sí misma con su propio motor | Cada mejora al producto mejora la operación del negocio |
+
+### Los 10 errores que más costaron (no repetir)
+
+1. **CORS sin protocolo** — Express compara el `Origin` literal (`https://…`); Render inyecta el host pelón vía `fromService`. Hardcodear la URL completa.
+2. **Placeholder olvidado** (`'ABC010101ABC'` como RFC) — costó horas contra el PAC. Todo placeholder debe gritar (`TODO-FIXME`) o fallar en arranque.
+3. **`getHours()` en servidor UTC** para fechas fiscales — SAT valida contra hora México. Siempre `toLocaleString('sv-SE', { timeZone: 'America/Mexico_City' })`.
+4. **`CREATE OR REPLACE VIEW` reordenando columnas** — Postgres solo permite agregar al final; tumbó el deploy. `DROP VIEW IF EXISTS` primero.
+5. **Columnas usadas por el código sin migración** — el modal "Saldo" quedó en `Cargando…` para siempre por un `42703`. El schema base y el código deben evolucionar juntos.
+6. **Un cálculo replicado en 8 lugares** (saldo = total − pagos − NC) — al agregar la condición `!= 'CANCELLED'` hubo que cazarlos todos. Centralizar en un helper/vista desde el día 1.
+7. **Emojis en PDFKit** — Helvetica no tiene esos glifos (salen `Ø=Ý`). Texto plano o dibujar los íconos con `doc.path()` (SVG paths de Lucide).
+8. **`fetch('/api/…')` relativo en prod** — con frontend y backend en dominios distintos apunta al static site. Siempre el cliente axios con `baseURL`.
+9. **Token JWT pegado con basura** (`NOMBRE=`, `...`, saltos) — validar formato (2 puntos exactos) antes de culpar al servidor.
+10. **Confiar en el sandbox del PAC** — 404 falsos de vault, timbres que no aparecen. Siempre tener botón "reintentar" + bypass local + logging del `messageDetail`.
+
+### Gotchas de plataforma (Render / Postgres / SAT)
+
+- **Render**: sin disco persistente · `npm ci` omite devDeps (usar `--include=dev`) · pinnear Node (`engines` + `.nvmrc`) y TypeScript exacto · el runner de migraciones corre en `start:prod` · cron interno con `node-cron` funciona porque Starter no hiberna.
+- **Postgres**: vistas no se reordenan · `pg` multi-statement respeta el `BEGIN/COMMIT` del archivo (migraciones atómicas) · `??` y `||` no se mezclan sin paréntesis en TS.
+- **SAT/CFDI**: sandbox SW solo acepta el RFC de prueba `EKU9003173C9` · cancelación exige cancelar dependientes primero (NC/REP) · el timbre cancelado NO se devuelve · QR del portal = `?id=UUID&re=&rr=&tt=(17 chars zero-pad)&fe=(últimos 8 del sello)` · e.firma ≠ CSD (la FIEL firma manifiestos; el CSD sella CFDIs) · la `.key` SAT es PKCS#8 DER cifrado — Node la abre nativo con `passphrase`.
+
+### Atajos de operación diaria
+
+```powershell
+cd E:\Obsidian\GDM_FAC                      # repo (única copia local + GitHub)
+npm run reset:company -- <RFC>              # backend: vaciar una empresa (dry-run + confirmación)
+npm run docs:icons                          # backend: regenerar guía PDF de íconos
+npm run build:hosting                       # frontend: ZIP para hcgm.com.mx/erp
+# SUPER_ADMIN UI: Facturación y consumo → "Cerrar mes anterior" (idempotente)
+# Diagnóstico PAC sin abrir DevTools: GET /api/v1/pac/providers (con token)
+```
 
 ---
 
