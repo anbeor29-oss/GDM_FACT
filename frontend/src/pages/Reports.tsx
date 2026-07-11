@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { TrendingUp, DollarSign, Receipt, ClipboardList, Download } from 'lucide-react';
+import { TrendingUp, DollarSign, Receipt, ClipboardList, FileDown, Loader2 } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -16,6 +16,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import api from '@/services/api';
+import { getToken } from '@/utils/authStorage';
 
 type Tab = 'collections' | 'receivables' | 'sales' | 'tax';
 
@@ -79,13 +80,31 @@ function ReceivablesReport() {
   });
 
   const report = data?.data;
+  const [exporting, setExporting] = useState(false);
 
-  const openPDF = () => {
-    const url = api.receivablesPDFUrl(customerId || undefined);
-    const token = localStorage.getItem('token');
-    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => r.blob())
-      .then((blob) => window.open(URL.createObjectURL(blob), '_blank'));
+  const selectedCustomer = (customersResp?.data?.customers || []).find((c: any) => c.id === customerId);
+
+  const openPDF = async () => {
+    setExporting(true);
+    try {
+      const url = api.receivablesPDFUrl(customerId || undefined);
+      const token = getToken();
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error(`No se pudo generar el PDF (HTTP ${r.status})`);
+      const blob = await r.blob();
+      // Descarga con nombre descriptivo: reporte + cliente + fecha
+      const stamp = new Date().toISOString().slice(0, 10);
+      const who = selectedCustomer ? `-${(selectedCustomer.rfc || 'cliente')}` : '-todos';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `cobranza-detallada${who}-${stamp}.pdf`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e: any) {
+      alert(e.message || 'Error al exportar el PDF');
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -108,9 +127,12 @@ function ReceivablesReport() {
         <button
           type="button"
           onClick={openPDF}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow"
+          disabled={exporting}
+          title="Exportar a PDF (con fecha, empresa, reporte y cliente)"
+          className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg shadow font-medium"
         >
-          <Download size={16} /> Descargar PDF
+          {exporting ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
+          {exporting ? 'Generando…' : 'Exportar PDF'}
         </button>
       </div>
 

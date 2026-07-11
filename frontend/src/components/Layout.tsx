@@ -23,12 +23,16 @@ import {
   DollarSign,
   ShoppingCart,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useAuthStore } from '@/store/auth';
+import { useIdleTimeout } from '@/hooks/useIdleTimeout';
 import api from '@/services/api';
 import { IssuerModal } from './IssuerModal';
 import { ForcePasswordChange } from './ForcePasswordChange';
 import { ImpersonationBanner } from './ImpersonationBanner';
+
+/** Minutos de inactividad tras los cuales se cierra la sesión. */
+const IDLE_MINUTES = 10;
 
 export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -36,15 +40,27 @@ export function Layout() {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
 
-  const handleLogout = async () => {
+  const doLogout = useCallback(async (reason?: 'idle') => {
     try {
       await api.logout();
     } catch (error) {
       console.error('Logout error:', error);
     }
     logout();
-    navigate('/login');
-  };
+    navigate('/login', { replace: true });
+    if (reason === 'idle') {
+      // Aviso tras redirigir — el usuario entiende por qué salió.
+      setTimeout(() => {
+        alert(`Tu sesión se cerró por ${IDLE_MINUTES} minutos de inactividad. Vuelve a iniciar sesión.`);
+      }, 100);
+    }
+  }, [logout, navigate]);
+
+  const handleLogout = () => doLogout();
+
+  // Cierre automático por inactividad (10 min). El hook reinicia el conteo
+  // con cualquier interacción del usuario.
+  useIdleTimeout(() => doLogout('idle'), IDLE_MINUTES * 60 * 1000);
 
   return (
     <div className="flex flex-col h-screen bg-gray-100">

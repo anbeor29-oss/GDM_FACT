@@ -10,6 +10,7 @@
 
 import PDFDocument from 'pdfkit';
 import * as companiesService from '../companies/companies.service';
+import * as customersService from '../customers/customers.service';
 import { getOptimizedLogo } from '../cfdi/logo-cache';
 import { drawPageNumbers, fmtMoney, PAGE_LEFT, PAGE_RIGHT, PAGE_TOP } from '../cfdi/pdf-helpers';
 import * as reportsService from './reports.service';
@@ -31,23 +32,52 @@ export async function generateReceivablesReportPDF(
   ]);
   const logoBuf = await getOptimizedLogo((company as any).logo_path);
 
+  // Nombre del cliente cuando el reporte está filtrado por uno solo. Se
+  // resuelve aparte del reporte porque si el cliente no tiene saldo > umbral
+  // report.customers viene vacío pero igual queremos rotularlo en el header.
+  let customerLabel: string | null = null;
+  if (customerId) {
+    if (report.customers.length > 0) {
+      const c = report.customers[0];
+      customerLabel = `${(c.business_name || '').toUpperCase()} · ${c.rfc || '—'}`;
+    } else {
+      try {
+        const c: any = await customersService.getCustomerById(companyId, customerId);
+        customerLabel = `${(c.business_name || '').toUpperCase()} · ${c.rfc || '—'}`;
+      } catch { customerLabel = '(cliente sin saldo pendiente)'; }
+    }
+  }
+
   const doc = new PDFDocument({ size: 'letter', margin: 40, bufferPages: true });
   const chunks: Buffer[] = [];
   doc.on('data', (b: Buffer) => chunks.push(b));
+
+  // Y donde termina el header (varía si hay línea de cliente).
+  const HEADER_BOTTOM = PAGE_TOP + (customerLabel ? 100 : 88);
+  const BODY_TOP = HEADER_BOTTOM + 12;
 
   const drawHeader = () => {
     if (logoBuf) {
       try { doc.image(logoBuf, PAGE_LEFT, PAGE_TOP, { fit: [70, 70] }); } catch {}
     }
-    doc.font('Helvetica-Bold').fontSize(18).fillColor('#0f172a')
-      .text('REPORTE DE COBRANZA', PAGE_LEFT + 82, PAGE_TOP);
+    // Nombre del reporte
+    doc.font('Helvetica-Bold').fontSize(17).fillColor('#0f172a')
+      .text('REPORTE DE COBRANZA DETALLADA', PAGE_LEFT + 82, PAGE_TOP);
+    // Empresa emisora + RFC
     doc.font('Helvetica').fontSize(9).fillColor('#475569')
       .text((company.business_name || '').toUpperCase(), PAGE_LEFT + 82, PAGE_TOP + 22);
     doc.text(`RFC: ${company.rfc || '—'}`, PAGE_LEFT + 82, PAGE_TOP + 34);
-    doc.text(`Fecha: ${new Date().toLocaleString('es-MX')}`, PAGE_LEFT + 82, PAGE_TOP + 46);
-    doc.text(`Umbral saldo: > $${fmtMoney(report.threshold)}`, PAGE_LEFT + 82, PAGE_TOP + 58);
+    // Fecha de impresión (día + hora)
+    doc.text(`Impreso el: ${new Date().toLocaleString('es-MX', { dateStyle: 'long', timeStyle: 'short' })}`,
+      PAGE_LEFT + 82, PAGE_TOP + 46);
+    doc.text(`Umbral de saldo: > $${fmtMoney(report.threshold)}`, PAGE_LEFT + 82, PAGE_TOP + 58);
+    // Cliente (solo cuando el reporte está filtrado por uno)
+    if (customerLabel) {
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#1e3a8a')
+        .text(`Cliente: ${customerLabel}`, PAGE_LEFT + 82, PAGE_TOP + 72);
+    }
 
-    // Totales generales
+    // Totales generales (caja derecha)
     const tX = PAGE_RIGHT - 200;
     doc.roundedRect(tX, PAGE_TOP, 200, 74, 6).fillAndStroke('#f1f5f9', '#cbd5e1');
     doc.font('Helvetica-Bold').fontSize(8).fillColor('#64748b').text('TOTAL POR COBRAR', tX + 10, PAGE_TOP + 8);
@@ -57,19 +87,19 @@ export async function generateReceivablesReportPDF(
       .text(`${report.totals.invoice_count} factura(s) · ${report.customers.length} cliente(s)`, tX + 10, PAGE_TOP + 44);
     doc.text(`Facturado: $ ${fmtMoney(report.totals.invoiced)}`, tX + 10, PAGE_TOP + 56);
 
-    doc.moveTo(PAGE_LEFT, PAGE_TOP + 88).lineTo(PAGE_RIGHT, PAGE_TOP + 88)
+    doc.moveTo(PAGE_LEFT, HEADER_BOTTOM).lineTo(PAGE_RIGHT, HEADER_BOTTOM)
       .strokeColor('#e2e8f0').lineWidth(1).stroke();
     doc.fillColor('#000000');
   };
 
   drawHeader();
-  let y = PAGE_TOP + 100;
+  let y = BODY_TOP;
 
   const ensureRoom = (needed: number) => {
     if (y + needed > doc.page.height - BOTTOM_MARGIN) {
       doc.addPage();
       drawHeader();
-      y = PAGE_TOP + 100;
+      y = BODY_TOP;
     }
   };
 

@@ -5,6 +5,7 @@
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { APIResponse, Invoice, Customer, Product } from '@/types';
+import { getToken, clearSession } from '@/utils/authStorage';
 
 // En dev, Vite hace proxy de /api → localhost:3000 (ver vite.config.ts).
 // En prod (Render), VITE_API_BASE apunta al servicio backend.
@@ -26,7 +27,7 @@ class APIClient {
 
     // Add token to requests
     this.client.interceptors.request.use((config) => {
-      const token = localStorage.getItem('token');
+      const token = getToken();
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -41,8 +42,10 @@ class APIClient {
       (response) => response,
       async (error: AxiosError) => {
         if (error.response?.status === 401) {
-          localStorage.removeItem('token');
-          window.location.href = '/login';
+          clearSession();
+          // Respeta el base del deploy (/ en Render, /erp/ en hosting).
+          const base = import.meta.env.BASE_URL || '/';
+          window.location.href = `${base.replace(/\/$/, '')}/login`;
         }
         const r: any = error.response;
         const status = r?.status || 0;

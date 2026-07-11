@@ -4,8 +4,15 @@
  */
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { AuthState, User } from '@/types';
+import {
+  sessionStore, setToken as ssSetToken, setRefreshToken as ssSetRefresh,
+  clearSession, purgeLegacyLocalStorage,
+} from '@/utils/authStorage';
+
+// Limpia credenciales viejas de localStorage al cargar (ver authStorage).
+purgeLegacyLocalStorage();
 
 interface AuthStore extends AuthState {
   setUser: (user: User | null) => void;
@@ -31,20 +38,12 @@ export const useAuthStore = create<AuthStore>()(
 
       setToken: (token) => {
         set({ token });
-        if (token) {
-          localStorage.setItem('token', token);
-        } else {
-          localStorage.removeItem('token');
-        }
+        ssSetToken(token);
       },
 
       setRefreshToken: (refreshToken) => {
         set({ refreshToken });
-        if (refreshToken) {
-          localStorage.setItem('refreshToken', refreshToken);
-        } else {
-          localStorage.removeItem('refreshToken');
-        }
+        ssSetRefresh(refreshToken);
       },
 
       login: (user, token, refreshToken) => {
@@ -54,8 +53,8 @@ export const useAuthStore = create<AuthStore>()(
           refreshToken,
           isAuthenticated: true,
         });
-        localStorage.setItem('token', token);
-        localStorage.setItem('refreshToken', refreshToken);
+        ssSetToken(token);
+        ssSetRefresh(refreshToken);
       },
 
       logout: () => {
@@ -65,8 +64,7 @@ export const useAuthStore = create<AuthStore>()(
           refreshToken: null,
           isAuthenticated: false,
         });
-        localStorage.removeItem('token');
-        localStorage.removeItem('refreshToken');
+        clearSession();
       },
 
       markPasswordChanged: () => {
@@ -76,6 +74,9 @@ export const useAuthStore = create<AuthStore>()(
     }),
     {
       name: 'auth-store',
+      // sessionStorage: la sesión se borra al cerrar la pestaña/ventana (la
+      // "X"), pero sobrevive a un refresh. Ver src/utils/authStorage.ts.
+      storage: createJSONStorage(() => sessionStore),
       partialize: (state) => ({
         user: state.user,
         token: state.token,
