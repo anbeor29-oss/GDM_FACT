@@ -172,6 +172,7 @@ export async function createProduct(companyId: string, data: {
   noIdentificacion?: string;  // NoIdentificacion del CFDI cuando aplica
   currency?: string;          // ISO 4217: 'MXN', 'USD', 'EUR', etc. (c_Moneda)
   taxPresetId?: string;       // preset del catálogo de impuestos (iva16/hon_pf_pm/resico_pf_pm/…)
+  wholesalePrice?: number;    // precio de mayoreo para el POS
 }): Promise<Product> {
   // Validate SAT Clave Producto/Servicio
   logger.info(`Validando clave SAT de producto: ${data.claveSat}`);
@@ -215,8 +216,8 @@ export async function createProduct(companyId: string, data: {
      (company_id, sku, name, description, clave_sat, unit_code, unit_name,
       base_price, tax_type, tax_rate, is_deductible, is_exempt, applies_ieps,
       stock_quantity, stock_minimum, stock_maximum, last_cost, no_identificacion, currency,
-      tax_preset_id, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, true)
+      tax_preset_id, wholesale_price, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, true)
      RETURNING *`,
     [
       companyId,
@@ -239,6 +240,7 @@ export async function createProduct(companyId: string, data: {
       (data as any).noIdentificacion || null,
       data.currency || 'MXN',
       data.taxPresetId || null,
+      data.wholesalePrice != null ? data.wholesalePrice : null,
     ]
   );
 
@@ -367,6 +369,35 @@ export async function updateProduct(
 ): Promise<Product> {
   const product = await getProductById(companyId, productId);
 
+  // El frontend envía camelCase; el resto de esta función lee snake_case
+  // (columnas de BD). Normalizamos para que TODOS los campos editables
+  // persistan sin importar la convención de origen (precio, claves SAT,
+  // impuestos, mayoreo y existencias). Sólo copiamos si el destino snake
+  // no vino ya poblado, para no pisar un valor explícito.
+  {
+    const d: any = data;
+    const alias: Record<string, string> = {
+      claveSat: 'clave_sat',
+      unitCode: 'unit_code',
+      basePrice: 'base_price',
+      wholesalePrice: 'wholesale_price',
+      stockQuantity: 'stock_quantity',
+      stockMinimum: 'stock_minimum',
+      stockMaximum: 'stock_maximum',
+      lastCost: 'last_cost',
+      noIdentificacion: 'no_identificacion',
+      taxType: 'tax_type',
+      taxRate: 'tax_rate',
+      taxPresetId: 'tax_preset_id',
+      isExempt: 'is_exempt',
+      appliesIEPS: 'applies_ieps',
+      isActive: 'is_active',
+    };
+    for (const [camel, snake] of Object.entries(alias)) {
+      if (d[camel] !== undefined && d[snake] === undefined) d[snake] = d[camel];
+    }
+  }
+
   // Validate new SAT clave if changed
   if (data.clave_sat && data.clave_sat !== product.clave_sat) {
     logger.info(`Revalidating SAT clave: ${data.clave_sat}`);
@@ -419,6 +450,15 @@ export async function updateProduct(
   if (data.base_price !== undefined) {
     fields.push(`base_price = $${paramCount++}`);
     values.push(data.base_price);
+  }
+  if ((data as any).wholesale_price !== undefined || (data as any).wholesalePrice !== undefined) {
+    const wp = (data as any).wholesale_price ?? (data as any).wholesalePrice;
+    fields.push(`wholesale_price = $${paramCount++}`);
+    values.push(wp === '' || wp == null ? null : Number(wp));
+  }
+  if ((data as any).stock_quantity !== undefined) {
+    fields.push(`stock_quantity = $${paramCount++}`);
+    values.push(Number((data as any).stock_quantity) || 0);
   }
   if (data.tax_type) {
     fields.push(`tax_type = $${paramCount++}`);

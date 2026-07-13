@@ -113,6 +113,7 @@ export async function createProduct(req: Request, res: Response) {
     noIdentificacion,
     currency,
     taxPresetId,
+    wholesalePrice,
   } = req.body;
 
   // Validate required fields (SKU es opcional: si falta, el service lo auto-genera "P-N")
@@ -140,6 +141,7 @@ export async function createProduct(req: Request, res: Response) {
     noIdentificacion,
     currency,
     taxPresetId,
+    wholesalePrice,
   });
 
   res.status(201).json({

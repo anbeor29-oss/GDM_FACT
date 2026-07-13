@@ -23,6 +23,7 @@
     "seed:cfdi": "ts-node -r dotenv/config scripts/seed-cfdi.ts",
     "create:admin": "ts-node -r dotenv/config scripts/create-admin.ts",
     "reset:company": "ts-node -r dotenv/config scripts/reset-company.ts",
+    "seed:examples": "ts-node -r dotenv/config scripts/seed-examples.ts",
     "docs:icons": "ts-node -r dotenv/config scripts/generate-icons-guide.ts"
   },
   "keywords": [

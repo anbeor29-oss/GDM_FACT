@@ -22,7 +22,14 @@ import {
   Truck,
   DollarSign,
   ShoppingCart,
+  Store,
+  Warehouse,
+  ClipboardCheck,
+  ShoppingBag,
+  ClipboardList,
+  Landmark,
 } from 'lucide-react';
+import { canAccess, type ModuleKey } from '@/utils/permissions';
 import { useState, useCallback } from 'react';
 import { useAuthStore } from '@/store/auth';
 import { useIdleTimeout } from '@/hooks/useIdleTimeout';
@@ -97,16 +104,38 @@ export function Layout() {
           {/* Operación diaria — SOLO para roles de empresa (no SUPER_ADMIN).
               El SUPER_ADMIN es operador de la plataforma; los módulos operativos
               pertenecen a cada empresa usuaria y aparecen cuando impersona. */}
-          {user?.role !== 'SUPER_ADMIN' && (
-            <>
-              <NavItem to="/dashboard"    icon={<LayoutGrid size={20} />}  accent="sky"     label="Dashboard"        open={sidebarOpen} />
-              <NavItem to="/invoices"     icon={<FileText size={20} />}    accent="amber"   label="Facturas"         open={sidebarOpen} />
-              <NavItem to="/credit-notes" icon={<FileMinus2 size={20} />}  accent="rose"    label="Notas de Crédito" open={sidebarOpen} />
-              <NavItem to="/customers"    icon={<Users size={20} />}       accent="emerald" label="Clientes"         open={sidebarOpen} />
-              <NavItem to="/products"     icon={<Boxes size={20} />}       accent="fuchsia" label="Productos"        open={sidebarOpen} />
-              <NavItem to="/reports"      icon={<BarChart3 size={20} />}   accent="violet"  label="Reportes"         open={sidebarOpen} />
-            </>
-          )}
+          {user?.role !== 'SUPER_ADMIN' && (() => {
+            const g = user?.workGroup;
+            const show = (m: ModuleKey) => canAccess(g, m);
+            // Cada entrada se muestra solo si el grupo de trabajo la permite.
+            // El dashboard es común a todos.
+            return (
+              <>
+                <NavItem to="/dashboard" icon={<LayoutGrid size={20} />} accent="sky" label="Dashboard" open={sidebarOpen} />
+
+                {/* Ventas */}
+                {show('pos')          && <NavItem to="/pos"          icon={<Store size={20} />}       accent="emerald" label="Punto de Venta"   open={sidebarOpen} />}
+                {show('invoices')     && <NavItem to="/invoices"     icon={<FileText size={20} />}    accent="amber"   label="Facturas"         open={sidebarOpen} />}
+                {show('credit_notes') && <NavItem to="/credit-notes" icon={<FileMinus2 size={20} />}  accent="rose"    label="Notas de Crédito" open={sidebarOpen} />}
+                {show('customers')    && <NavItem to="/customers"    icon={<Users size={20} />}       accent="emerald" label="Clientes"         open={sidebarOpen} />}
+                {show('reports')      && <NavItem to="/reports"      icon={<BarChart3 size={20} />}   accent="violet"  label="Reportes"         open={sidebarOpen} />}
+
+                {/* Almacén */}
+                {show('products')           && <NavItem to="/products"           icon={<Boxes size={20} />}          accent="fuchsia" label="Productos"        open={sidebarOpen} />}
+                {show('inventory')          && <NavItem to="/inventory"          icon={<ClipboardList size={20} />}  accent="sky"     label="Inventarios"      open={sidebarOpen} />}
+                {show('warehouses')         && <NavItem to="/warehouses"         icon={<Warehouse size={20} />}      accent="violet"  label="Almacenes"        open={sidebarOpen} />}
+                {show('physical_inventory') && <NavItem to="/physical-inventory" icon={<ClipboardCheck size={20} />} accent="amber"   label="Inventario físico" open={sidebarOpen} />}
+
+                {/* Compras */}
+                {show('purchases')       && <NavItem to="/purchases"       icon={<ShoppingBag size={20} />}  accent="rose"    label="Compras"           open={sidebarOpen} />}
+                {show('purchase_orders') && <NavItem to="/purchase-orders" icon={<ClipboardList size={20} />} accent="amber"  label="Órdenes de compra" open={sidebarOpen} />}
+
+                {/* Tesorería */}
+                {show('suppliers') && <NavItem to="/suppliers-tesoreria" icon={<Truck size={20} />}    accent="fuchsia" label="Proveedores" open={sidebarOpen} />}
+                {show('treasury')  && <NavItem to="/treasury"            icon={<Landmark size={20} />} accent="emerald" label="Tesorería"   open={sidebarOpen} />}
+              </>
+            );
+          })()}
 
           {/* Módulos de plataforma — SOLO SUPER_ADMIN */}
           {user?.role === 'SUPER_ADMIN' && (

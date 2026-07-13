@@ -303,6 +303,31 @@ class APIClient {
     return response.data;
   }
 
+  /* ────── Punto de Venta (POS) ────── */
+
+  async posCatalog(search?: string) {
+    const r = await this.client.get('/pos/catalog', { params: search ? { search } : {} });
+    return r.data;
+  }
+  async posCreateSale(body: {
+    items: { productId: string; quantity: number }[];
+    paymentMethod: 'EFECTIVO' | 'TARJETA';
+    amountTendered?: number;
+    cardRef?: string;
+    customerName?: string;
+  }) {
+    const r = await this.client.post('/pos/sales', body);
+    return r.data;
+  }
+  async posSales(limit = 50) {
+    const r = await this.client.get('/pos/sales', { params: { limit } });
+    return r.data;
+  }
+  async posDailySummary(date?: string) {
+    const r = await this.client.get('/pos/summary', { params: date ? { date } : {} });
+    return r.data;
+  }
+
   /** Reporte de cobranza detallado — facturas por cliente con saldo > 0.20. */
   async getReceivablesReport(customerId?: string) {
     const response = await this.client.get('/reports/receivables', {
@@ -594,7 +619,7 @@ class APIClient {
     const r = await this.client.get('/admin/users', { params });
     return r.data;
   }
-  async adminCreateUser(data: { email: string; firstName: string; lastName: string; role: string; companyId?: string }) {
+  async adminCreateUser(data: { email: string; firstName: string; lastName: string; role: string; companyId?: string; workGroup?: string }) {
     const r = await this.client.post('/admin/users', data);
     return r.data;
   }

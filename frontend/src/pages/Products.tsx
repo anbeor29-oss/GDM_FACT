@@ -91,6 +91,8 @@ export function ProductsPage() {
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Clave SAT</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-900 uppercase tracking-wide">Unidad</th>
               <th className="px-4 py-3 text-right text-xs font-semibold text-gray-900 uppercase tracking-wide">Precio</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-900 uppercase tracking-wide" title="Precio de mayoreo (Punto de Venta)">Mayoreo</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-900 uppercase tracking-wide" title="Existencias en almacén">Stock</th>
               <th className="px-4 py-3 text-center text-xs font-semibold text-gray-900 uppercase tracking-wide" title="IVA trasladado">IVA</th>
               <th className="px-4 py-3 text-center text-xs font-semibold text-gray-900 uppercase tracking-wide" title="Retención IVA">Ret. IVA</th>
               <th className="px-4 py-3 text-center text-xs font-semibold text-gray-900 uppercase tracking-wide" title="Retención ISR">Ret. ISR</th>
@@ -99,9 +101,9 @@ export function ProductsPage() {
           </thead>
           <tbody className="divide-y divide-gray-200">
             {isLoading ? (
-              <tr><td colSpan={9} className="px-6 py-8 text-center text-gray-600">Cargando…</td></tr>
+              <tr><td colSpan={11} className="px-6 py-8 text-center text-gray-600">Cargando…</td></tr>
             ) : productsData?.data?.products?.length === 0 ? (
-              <tr><td colSpan={9} className="px-6 py-8 text-center text-gray-600">No hay productos. Crea uno o importa XMLs.</td></tr>
+              <tr><td colSpan={11} className="px-6 py-8 text-center text-gray-600">No hay productos. Crea uno o importa XMLs.</td></tr>
             ) : (
               productsData?.data?.products?.map((p: any) => {
                 const rates = ratesFor(p.tax_preset_id, p.tax_type, Number(p.tax_rate));
@@ -118,6 +120,23 @@ export function ProductsPage() {
                   <td className="px-4 py-3 text-sm text-gray-600 font-mono">{p.unit_code}</td>
                   <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
                     ${Number(p.base_price || 0).toFixed(2)}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-right">
+                    {p.wholesale_price != null && Number(p.wholesale_price) > 0
+                      ? <span className="font-semibold text-emerald-700">${Number(p.wholesale_price).toFixed(2)}</span>
+                      : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-right">
+                    {(() => {
+                      const s = Number(p.stock_quantity || 0);
+                      const min = Number(p.stock_minimum || 0);
+                      const low = s <= min;
+                      return (
+                        <span className={`font-semibold ${s <= 0 ? 'text-red-600' : low ? 'text-amber-600' : 'text-gray-700'}`}>
+                          {s}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <span className="inline-block min-w-[3rem] px-2 py-1 rounded bg-sky-50 text-sky-700 text-xs font-semibold border border-sky-100">
@@ -369,6 +388,8 @@ interface ProductForm {
   unitCode: string;
   unitCodeLabel: string;
   basePrice: number;
+  wholesalePrice: number | '';   // precio de mayoreo para el POS (vacío = sin mayoreo)
+  stockQuantity: number;
   taxType: string;
   taxRate: number;
   taxPresetId: string;     // ← guarda CUÁL preset escogió el usuario
@@ -384,6 +405,8 @@ const emptyForm: ProductForm = {
   unitCode: '',
   unitCodeLabel: '',
   basePrice: 0,
+  wholesalePrice: '',
+  stockQuantity: 0,
   taxType: 'IVA',
   taxRate: 0.16,
   taxPresetId: 'iva16',
@@ -435,6 +458,8 @@ function ProductModal({
         unitCode: p.unit_code || '',
         unitCodeLabel: p.unit_name || p.unit_code || '',
         basePrice: Number(p.base_price) || 0,
+        wholesalePrice: p.wholesale_price != null && p.wholesale_price !== '' ? Number(p.wholesale_price) : '',
+        stockQuantity: Number(p.stock_quantity) || 0,
         taxType: p.tax_type || 'IVA',
         taxRate: Number(p.tax_rate) || 0.16,
         // Priorizar el preset guardado (hon_pf_pm, resico_pf_pm, etc.). Sólo si
@@ -497,6 +522,9 @@ function ProductModal({
       claveSat: form.claveSat,
       unitCode: form.unitCode,
       basePrice: form.basePrice,
+      // Precio de mayoreo (POS): vacío ⇒ null (no aplica mayoreo)
+      wholesalePrice: form.wholesalePrice === '' ? null : Number(form.wholesalePrice),
+      stockQuantity: Number(form.stockQuantity) || 0,
       taxType: taxTypeForDb,
       taxRate: form.taxRate,
       currency: form.currency,
@@ -578,6 +606,44 @@ function ProductModal({
                   ));
                 })()}
               </select>
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Precio de mayoreo (POS)">
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={form.wholesalePrice}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  if (raw === '') { setForm({ ...form, wholesalePrice: '' }); return; }
+                  const v = parseFloat(raw);
+                  setForm({ ...form, wholesalePrice: isFinite(v) && v >= 0 ? v : 0 });
+                }}
+                placeholder="Opcional — se aplica al vender por volumen"
+                className="input"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Se cobra automáticamente en el Punto de Venta al alcanzar la cantidad de mayoreo. Déjalo vacío si no maneja mayoreo.
+              </p>
+            </Field>
+            <Field label="Existencias (stock)">
+              <input
+                type="number"
+                min={0}
+                step="1"
+                value={form.stockQuantity}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  setForm({ ...form, stockQuantity: isFinite(v) && v >= 0 ? v : 0 });
+                }}
+                className="input"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Unidades disponibles en almacén. El Punto de Venta descuenta de aquí en cada venta.
+              </p>
             </Field>
           </div>
 

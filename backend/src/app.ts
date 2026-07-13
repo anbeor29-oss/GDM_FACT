@@ -38,6 +38,7 @@ import adminAuditRoutes     from './modules/admin/admin-audit.routes';
 import adminBillingRoutes   from './modules/admin/admin-billing.routes';
 import adminPrepaidRoutes   from './modules/admin/admin-prepaid.routes';
 import manifestRoutes       from './modules/manifest/manifest.routes';
+import posRoutes            from './modules/pos/pos.routes';
 import cfdiImportRoutes     from './modules/cfdi-import/cfdi-import.routes';
 import suppliersRoutes      from './modules/suppliers/suppliers.routes';
 
@@ -142,6 +143,7 @@ export function createApp(): Express {
   app.use(`/api/${config.apiVersion}/admin/billing`,   adminBillingRoutes);
   app.use(`/api/${config.apiVersion}/admin/prepaid`,   adminPrepaidRoutes);
   app.use(`/api/${config.apiVersion}/manifest`,        manifestRoutes);
+  app.use(`/api/${config.apiVersion}/pos`,             posRoutes);
   app.use(`/api/${config.apiVersion}/cfdi-import`,     cfdiImportRoutes);
   app.use(`/api/${config.apiVersion}/suppliers`,       suppliersRoutes);
   // app.use(`/api/${config.apiVersion}/payments`, paymentRoutes);

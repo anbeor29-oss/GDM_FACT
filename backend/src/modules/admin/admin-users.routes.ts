@@ -29,6 +29,7 @@ router.use(requireSuperAdmin);
 
 const VALID_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'USER'] as const;
 type Role = typeof VALID_ROLES[number];
+const VALID_WORK_GROUPS: string[] = ['ADMIN_ALL', 'VENTAS', 'ALMACEN', 'COMPRAS', 'TESORERIA'];
 
 /** Genera password temporal legible: ej. "Lima-9248" — fácil de transmitir al usuario. */
 function generateTemporaryPassword(): string {
@@ -62,7 +63,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
 
   params.push(limit, offset);
   const r = await query<any>(
-    `SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.is_active,
+    `SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.work_group, u.is_active,
             u.password_change_required, u.last_login, u.disabled_at,
             u.company_id, c.business_name AS company_name, c.rfc AS company_rfc,
             u.created_at, u.created_by_user_id
@@ -83,7 +84,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
 /* ────────────────────────  GET ONE  ──────────────────────── */
 router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   const r = await query<any>(
-    `SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.is_active,
+    `SELECT u.id, u.email, u.first_name, u.last_name, u.role, u.work_group, u.is_active,
             u.password_change_required, u.last_login, u.disabled_at, u.created_at,
             u.company_id, c.business_name AS company_name, c.rfc AS company_rfc
        FROM users u LEFT JOIN companies c ON c.id = u.company_id
@@ -97,9 +98,13 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
 /* ────────────────────────  CREATE  ──────────────────────── */
 router.post('/', asyncHandler(async (req: Request, res: Response) => {
   const { email, firstName, lastName, role, companyId } = req.body as any;
+  const workGroup = String(req.body?.workGroup || 'ADMIN_ALL').toUpperCase();
   if (!email || !validEmail(email)) throw new ValidationError('Email inválido');
   if (!firstName || !lastName)      throw new ValidationError('firstName y lastName son requeridos');
   if (!VALID_ROLES.includes(role))  throw new ValidationError(`role inválido. Válidos: ${VALID_ROLES.join(', ')}`);
+  if (!VALID_WORK_GROUPS.includes(workGroup)) {
+    throw new ValidationError(`workGroup inválido. Válidos: ${VALID_WORK_GROUPS.join(', ')}`);
+  }
   if (role !== 'SUPER_ADMIN' && !companyId) {
     throw new ValidationError('companyId es requerido para roles distintos a SUPER_ADMIN');
   }
@@ -114,11 +119,11 @@ router.post('/', asyncHandler(async (req: Request, res: Response) => {
   const hash     = await bcrypt.hash(tempPass, 10);
 
   const r = await query<any>(
-    `INSERT INTO users (email, first_name, last_name, password_hash, role,
+    `INSERT INTO users (email, first_name, last_name, password_hash, role, work_group,
                         company_id, is_active, password_change_required, created_by_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6, true, true, $7)
-     RETURNING id, email, role, company_id, password_change_required, created_at`,
-    [email.toLowerCase(), firstName, lastName, hash, role,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, true, true, $8)
+     RETURNING id, email, role, work_group, company_id, password_change_required, created_at`,
+    [email.toLowerCase(), firstName, lastName, hash, role, workGroup,
      role === 'SUPER_ADMIN' ? null : companyId,
      req.user!.userId]
   );
@@ -136,7 +141,7 @@ router.post('/', asyncHandler(async (req: Request, res: Response) => {
 
 /* ────────────────────────  UPDATE  ──────────────────────── */
 router.put('/:id', asyncHandler(async (req: Request, res: Response) => {
-  const { firstName, lastName, role, companyId } = req.body as any;
+  const { firstName, lastName, role, companyId, workGroup } = req.body as any;
   const fields: string[] = [];
   const params: any[] = [];
   const push = (f: string, v: any) => { params.push(v); fields.push(`${f} = $${params.length}`); };
@@ -146,6 +151,11 @@ router.put('/:id', asyncHandler(async (req: Request, res: Response) => {
   if (role) {
     if (!VALID_ROLES.includes(role)) throw new ValidationError('role inválido');
     push('role', role);
+  }
+  if (workGroup) {
+    const wg = String(workGroup).toUpperCase();
+    if (!VALID_WORK_GROUPS.includes(wg)) throw new ValidationError('workGroup inválido');
+    push('work_group', wg);
   }
   if (companyId !== undefined) push('company_id', companyId || null);
 

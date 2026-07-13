@@ -23,6 +23,9 @@ import { AdminPrepaidPage }   from '@/pages/AdminPrepaid';
 import { ImportXMLWizardPage } from '@/pages/ImportXMLWizard';
 import { SuppliersPage }      from '@/pages/Suppliers';
 import { useAuthStore } from '@/store/auth';
+import { PointOfSalePage } from '@/pages/PointOfSale';
+import { ComingSoon } from '@/pages/ComingSoon';
+import { canAccess, type ModuleKey } from '@/utils/permissions';
 
 const queryClient = new QueryClient();
 
@@ -71,6 +74,18 @@ function CompanyOnlyRoute({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * Ruta de empresa gateada por MÓDULO según el grupo de trabajo del usuario.
+ * Un usuario de VENTAS que teclee /products a mano es redirigido al dashboard.
+ * (Bloquea también a SUPER_ADMIN vía CompanyOnlyRoute.)
+ */
+function ModuleRoute({ module, children }: { module: ModuleKey; children: React.ReactNode }) {
+  const { user } = useAuthStore();
+  if (user?.role === 'SUPER_ADMIN') return <Navigate to="/admin/companies" replace />;
+  if (!canAccess(user?.workGroup, module)) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
+/**
  * Módulos administrativos de plataforma — sólo SUPER_ADMIN.
  * Si un usuario común escribe /import-xml o /admin/... a mano, lo enviamos
  * al dashboard en lugar de renderizar la página.
@@ -99,15 +114,27 @@ export function App() {
               </ProtectedRoute>
             }
           >
-            {/* Operación diaria — ADMIN / MANAGER / USER (SUPER_ADMIN redirigido) */}
+            {/* Operación diaria — gateada por grupo de trabajo (SUPER_ADMIN redirigido) */}
             <Route path="dashboard"    element={<CompanyOnlyRoute><DashboardPage /></CompanyOnlyRoute>} />
-            <Route path="invoices"     element={<CompanyOnlyRoute><InvoicesPage /></CompanyOnlyRoute>} />
-            <Route path="invoices/new"       element={<CompanyOnlyRoute><NewInvoicePage /></CompanyOnlyRoute>} />
-            <Route path="invoices/:id/edit"  element={<CompanyOnlyRoute><NewInvoicePage /></CompanyOnlyRoute>} />
-            <Route path="customers"    element={<CompanyOnlyRoute><CustomersPage /></CompanyOnlyRoute>} />
-            <Route path="products"     element={<CompanyOnlyRoute><ProductsPage /></CompanyOnlyRoute>} />
-            <Route path="reports"      element={<CompanyOnlyRoute><ReportsPage /></CompanyOnlyRoute>} />
-            <Route path="credit-notes" element={<CompanyOnlyRoute><CreditNotesPage /></CompanyOnlyRoute>} />
+            {/* Ventas */}
+            <Route path="pos"          element={<ModuleRoute module="pos"><PointOfSalePage /></ModuleRoute>} />
+            <Route path="invoices"     element={<ModuleRoute module="invoices"><InvoicesPage /></ModuleRoute>} />
+            <Route path="invoices/new"       element={<ModuleRoute module="invoices"><NewInvoicePage /></ModuleRoute>} />
+            <Route path="invoices/:id/edit"  element={<ModuleRoute module="invoices"><NewInvoicePage /></ModuleRoute>} />
+            <Route path="credit-notes" element={<ModuleRoute module="credit_notes"><CreditNotesPage /></ModuleRoute>} />
+            <Route path="customers"    element={<ModuleRoute module="customers"><CustomersPage /></ModuleRoute>} />
+            <Route path="reports"      element={<ModuleRoute module="reports"><ReportsPage /></ModuleRoute>} />
+            {/* Almacén */}
+            <Route path="products"     element={<ModuleRoute module="products"><ProductsPage /></ModuleRoute>} />
+            <Route path="inventory"           element={<ModuleRoute module="inventory"><ComingSoon title="Inventarios" description="Existencias por producto, kardex de movimientos y valuación." bullets={['Kardex de entradas y salidas','Existencia y costo promedio','Alertas de mínimos y máximos']} /></ModuleRoute>} />
+            <Route path="warehouses"          element={<ModuleRoute module="warehouses"><ComingSoon title="Almacenes" description="Alta de almacenes y ubicaciones, traspasos entre ellos." bullets={['Múltiples almacenes por empresa','Traspasos entre almacenes','Existencia por ubicación']} /></ModuleRoute>} />
+            <Route path="physical-inventory"  element={<ModuleRoute module="physical_inventory"><ComingSoon title="Inventario físico" description="Conteos físicos y ajustes contra el sistema." bullets={['Hojas de conteo','Diferencias físico vs sistema','Ajustes con folio y motivo']} /></ModuleRoute>} />
+            {/* Compras */}
+            <Route path="purchases"       element={<ModuleRoute module="purchases"><ComingSoon title="Compras" description="Registro de compras a proveedores que alimentan el inventario." bullets={['Compras con recepción de mercancía','Costeo automático','Vínculo con proveedores']} /></ModuleRoute>} />
+            <Route path="purchase-orders" element={<ModuleRoute module="purchase_orders"><ComingSoon title="Órdenes de compra" description="Solicitudes de compra y su seguimiento hasta recepción." bullets={['Órdenes con autorización','Seguimiento pendiente/recibida','Conversión a compra']} /></ModuleRoute>} />
+            {/* Tesorería */}
+            <Route path="suppliers-tesoreria" element={<ModuleRoute module="suppliers"><SuppliersPage /></ModuleRoute>} />
+            <Route path="treasury"            element={<ModuleRoute module="treasury"><ComingSoon title="Tesorería" description="Cuentas por pagar, flujo de efectivo y pagos a proveedores." bullets={['Cuentas por pagar','Programación de pagos','Flujo de efectivo']} /></ModuleRoute>} />
 
             {/* Módulos de plataforma — SOLO SUPER_ADMIN (guard por URL directa) */}
             <Route path="admin/packages"  element={<SuperAdminRoute><AdminPackagesPage /></SuperAdminRoute>} />

@@ -110,6 +110,7 @@ export function AdminUsersPage() {
               <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Email</th>
               <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Nombre</th>
               <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Rol</th>
+              <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Grupo</th>
               <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Empresa</th>
               <th className="px-4 py-2 text-center text-xs font-semibold text-gray-600">Estado</th>
               <th className="px-4 py-2 text-center text-xs font-semibold text-gray-600">Acciones</th>
@@ -121,6 +122,11 @@ export function AdminUsersPage() {
                 <td className="px-4 py-2 text-sm font-mono">{u.email}</td>
                 <td className="px-4 py-2 text-sm">{u.first_name} {u.last_name}</td>
                 <td className="px-4 py-2"><RoleBadge role={u.role}/></td>
+                <td className="px-4 py-2">
+                  {u.role === 'SUPER_ADMIN'
+                    ? <span className="text-gray-400 text-xs italic">—</span>
+                    : <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">{u.work_group || 'ADMIN_ALL'}</span>}
+                </td>
                 <td className="px-4 py-2 text-sm">
                   {u.company_name ? (
                     <span><b>{u.company_rfc}</b> <span className="text-gray-500">· {u.company_name}</span></span>
@@ -169,7 +175,7 @@ export function AdminUsersPage() {
               </tr>
             ))}
             {!usersQ.isLoading && (usersQ.data?.data?.users || []).length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500 italic">Sin resultados</td></tr>
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500 italic">Sin resultados</td></tr>
             )}
           </tbody>
         </table>
@@ -206,8 +212,16 @@ function IconBtn({ color, title, onClick, children }: any) {
   return <button type="button" title={title} onClick={onClick} className={`p-1.5 rounded ${map[color]}`}>{children}</button>;
 }
 
+const WORK_GROUPS = [
+  { value: 'ADMIN_ALL', label: 'Administrador — todos los módulos' },
+  { value: 'VENTAS',    label: 'Ventas — POS, facturación, clientes, NC' },
+  { value: 'ALMACEN',   label: 'Almacén — productos, inventarios, almacenes' },
+  { value: 'COMPRAS',   label: 'Compras — compras y órdenes de compra' },
+  { value: 'TESORERIA', label: 'Tesorería — proveedores y tesorería' },
+];
+
 function CreateUserModal({ companies, onClose, onDone }: any) {
-  const [form, setForm] = useState({ email:'', firstName:'', lastName:'', role:'USER', companyId:'' });
+  const [form, setForm] = useState({ email:'', firstName:'', lastName:'', role:'USER', companyId:'', workGroup:'ADMIN_ALL' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -258,12 +272,23 @@ function CreateUserModal({ companies, onClose, onDone }: any) {
               {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select></label>
           {form.role !== 'SUPER_ADMIN' && (
-            <label className="block"><span className="text-sm font-medium block mb-1">Empresa *</span>
-              <select required className="input w-full" value={form.companyId}
-                onChange={(e)=>setForm({...form,companyId:e.target.value})}>
-                <option value="">— seleccionar —</option>
-                {companies.map((c: any) => <option key={c.id} value={c.id}>{c.rfc} · {c.business_name}</option>)}
-              </select></label>
+            <>
+              <label className="block"><span className="text-sm font-medium block mb-1">Empresa *</span>
+                <select required className="input w-full" value={form.companyId}
+                  onChange={(e)=>setForm({...form,companyId:e.target.value})}>
+                  <option value="">— seleccionar —</option>
+                  {companies.map((c: any) => <option key={c.id} value={c.id}>{c.rfc} · {c.business_name}</option>)}
+                </select></label>
+              <label className="block"><span className="text-sm font-medium block mb-1">Grupo de trabajo *</span>
+                <select className="input w-full" value={form.workGroup}
+                  onChange={(e)=>setForm({...form,workGroup:e.target.value})}>
+                  {WORK_GROUPS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
+                </select>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Define qué módulos verá el usuario. Ej. "Ventas" solo accede a Punto de Venta, Facturas, Clientes y NC.
+                </p>
+              </label>
+            </>
           )}
           <p className="text-xs text-gray-500">
             Se generará una contraseña temporal. El usuario debe cambiarla en el primer login.
