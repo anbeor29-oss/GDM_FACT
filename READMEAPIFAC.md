@@ -207,13 +207,49 @@ depende del PAC y del SAT.
 **Mitigación:** la app debe decirlo con claridad ("sin conexión: puedes capturar,
 no timbrar"), no fallar con un error genérico. Los catálogos sí se cachean.
 
-### 8.2 Idempotencia del timbrado — el riesgo más caro
-**Riesgo:** en móvil la conexión se corta a media petición. Si el usuario
-reintenta, puede **timbrar dos veces la misma factura**. Un timbre gastado **no
-se recupera** y cancelar ante el SAT no lo devuelve.
-**Mitigación:** clave de idempotencia por intento de timbrado, verificada en el
-backend. **Es requisito de la Fase 4 y hoy no existe** — la web no lo sufre
-tanto porque la conexión es estable.
+### 8.2 Timbrado sobre datos móviles — REQUISITO EXPLÍCITO
+
+> Requisito del 2026-07-16: *"el timbrado debe funcionar correctamente, ya sea
+> con datos móviles o wifi"*. No es facturar sin señal: es ser **confiable sobre
+> una red intermitente**.
+
+**Lo que YA protege (verificado, no supuesto):**
+
+| Protección | Dónde |
+|---|---|
+| `timeout: 30_000` hacia el PAC | `pac/providers/sw-sapien.provider.ts:78` |
+| Guarda contra retimbrar | `invoices.service.ts:384` — `if (status !== 'DRAFT' \|\| is_stamped)` rechaza |
+
+**Conclusión: un corte de datos móviles NO produce doble timbrado.** La guarda lo
+impide. (Una versión anterior de este documento afirmaba lo contrario; era
+impreciso.)
+
+**El problema real — hay que separar dos tramos:**
+
+**a) Android → backend (el inestable, el de datos móviles)**
+1. El móvil pide timbrar → el backend timbra **bien** → la respuesta se pierde.
+2. La factura **quedó timbrada**; el celular no se enteró.
+3. El usuario reintenta → el backend responde *"ya está timbrada"* → **error
+   confuso y sin PDF/XML**.
+
+El dato está a salvo; **la experiencia es pésima**. Es el escenario cotidiano en
+la calle con mala señal, no un caso raro.
+
+**b) Backend → PAC (servidor a servidor, estable)**
+El PAC timbra pero se pierde la respuesta antes de registrar `is_stamped` ⇒ el
+timbre se consume y la factura sigue DRAFT; un reintento consumiría **otro**.
+Es el caso caro, pero **raro**: es red de datacenter, no celular.
+
+**Mitigación (Fase 4, requisito bloqueante):**
+1. **Clave de idempotencia por intento**: el cliente genera un UUID y lo envía al
+   timbrar. Con la misma clave, el backend devuelve **el mismo resultado** (la
+   factura timbrada con su PDF/XML), no un error. Hoy **no existe**
+   (`grep -i idempotenc` en el módulo de timbrado → vacío).
+2. **Reintento seguro en el cliente**: ante un corte, **consultar el estado** de
+   la factura en vez de repetir el POST.
+3. **Timeouts diferenciados**: timbrar tolera más espera que un GET de catálogo.
+4. **(b)**: al reintentar, consultar primero en el PAC si el UUID ya existe antes
+   de volver a timbrar.
 
 ### 8.3 OWASP — token en un dispositivo perdido
 | Riesgo | Mitigación |

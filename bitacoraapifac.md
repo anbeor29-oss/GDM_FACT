@@ -65,10 +65,27 @@ quedan fuera; si se necesitan en móvil, serán una app del producto ALMACEN.
 - **Versiones verificadas contra npm, no citadas de memoria**: Capacitor está en
   **8.4.2** (no en la 6.x que se habría supuesto). Camera 8.2.1, Filesystem
   8.1.2, Share 8.0.1, Preferences 8.0.1.
-- **Idempotencia del timbrado es el riesgo más caro del móvil**: la conexión
-  celular se corta a media petición y el reintento puede timbrar dos veces. Un
-  timbre gastado no se recupera ni cancelándolo. **Hoy no existe clave de
-  idempotencia** — la web lo sufre menos porque la conexión es estable.
+- **Timbrado sobre datos móviles — corrección de un análisis impreciso.**
+  Se afirmó que un corte de conexión podía **timbrar dos veces** y que no había
+  protección. **Falso, verificado en el código:** existe `timeout: 30_000` hacia
+  el PAC (`sw-sapien.provider.ts:78`) y una guarda que rechaza retimbrar
+  (`invoices.service.ts:384`). Un corte **no** produce doble timbrado.
+
+  El problema real es otro, y hay que separar dos tramos:
+  · **Android → backend** (datos móviles, inestable): el backend timbra bien,
+    la respuesta se pierde, el usuario reintenta y recibe *"ya está timbrada"*
+    → **error confuso y sin su PDF/XML**. El dato está a salvo; la experiencia
+    es pésima. Es el escenario **cotidiano** en la calle, no un caso raro.
+  · **Backend → PAC** (servidor a servidor): el PAC timbra pero se pierde la
+    respuesta antes de registrar `is_stamped` → timbre consumido y factura en
+    DRAFT. Caro, pero **raro**: red de datacenter.
+
+  Mitigación (Fase 4): clave de idempotencia por intento (hoy **no existe**:
+  `grep -i idempotenc` en timbrado → vacío), reintento que **consulta estado**
+  en vez de repetir POST, y timeouts diferenciados.
+
+  **Lección:** "no existe protección" se afirmó tras un grep en los archivos
+  equivocados. Un grep vacío prueba que no encontraste, no que no está.
 - **Rate limiting no existe** y un cliente móvil es más fácil de atacar que un
   navegador (OWASP A05).
 - **La sesión actual cierra al cerrar la pestaña** (decisión de negocio del
