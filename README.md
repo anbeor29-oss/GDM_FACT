@@ -1,8 +1,61 @@
-# GDM_FAC — ERP CFDI 4.0 México
+# GDM_FAC — Facturación CFDI 4.0 México
 
-Sistema de facturación electrónica CFDI 4.0 para México. Backend Node/Express + TypeScript, frontend React + Vite, PostgreSQL 15. Integrado con **SW Sapien** como PAC para timbrado real.
+Sistema de **facturación electrónica CFDI 4.0** para México. Backend Node/Express + TypeScript, frontend React + Vite, PostgreSQL 15. Integrado con **SW Sapien** como PAC para timbrado real.
 
-**Estado**: 🟢 **Live en producción** (Render.com)
+**Estado**: 🟢 **Live en producción** (Render.com + `hcgm.com.mx/erp`)
+
+---
+
+## ⚠️ Lo primero: GDM_FAC es SOLO facturación
+
+> Léelo antes de tocar código. Aquí se confundieron dos productos y costó una
+> sesión entera de limpieza (BITÁCORA 2026-07-16).
+
+**GDM_FAC factura. No maneja inventarios, ni compras, ni punto de venta.** Esos
+módulos son del producto **ALMACEN**, que es **otro sistema, con otro repo y otra
+base de datos**.
+
+| | **GDM_FAC** (este repo) | **ALMACEN** (otro producto) |
+|---|---|---|
+| Ruta local | `E:\Obsidian\GDM_FAC` | `E:\Obsidian\ALMACEN\app` |
+| Repo | `github.com/anbeor29-oss/GDM_FACT` (`origin`) | `github.com/anbeor29-oss/GDM_ALMACEN` (`gdmalmacen`) |
+| Marca en pantalla | "GDM Facturación" | "GDM ALMACÉN" |
+| Alcance | CFDI 4.0: facturas, NC, complementos, clientes, productos, reportes | Inventarios, almacenes, compras, POS, tesorería |
+| Estado | En producción | En desarrollo |
+
+### Los seis módulos que existen aquí
+
+`dashboard` · `invoices` · `credit_notes` · `customers` · `reports` · `products`
+
+Definidos en `frontend/src/utils/permissions.ts` y su **espejo obligatorio**
+`backend/src/middleware/permissions.ts`. **Si cambias uno, cambia el otro.**
+
+**No agregues aquí módulos de ALMACEN.** Hasta el 2026-07-16 el menú anunciaba
+Inventarios, Almacenes, Inventario físico, Compras, Órdenes de compra y
+Tesorería como pantallas `ComingSoon` ("Próximamente"): el sistema prometía lo
+que no tenía y confundía al usuario. Se eliminaron junto con sus rutas. Punto de
+Venta y Proveedores sí funcionaban, pero también se retiraron por pertenecer a
+ALMACEN.
+
+> 🧨 **`modules/pos` (backend) sigue en el repo** para migrarlo a ALMACEN, pero
+> **no se concede a ningún grupo**: sus endpoints responden 403 y la UI no lo
+> expone. `'pos'` sigue declarado en `ModuleKey` solo porque `pos.routes.ts` usa
+> `requireModule('pos')`. Al migrarlo, se borra el módulo y la clave.
+
+### ⚠️ Tres cosas distintas que se llaman parecido
+
+Esta es la trampa que más confunde:
+
+| Qué | Dónde | Qué contiene |
+|---|---|---|
+| **GDM_FAC** | `origin/main` | Facturación pura (6 módulos) |
+| **Entorno GDM_ALMACEN** | `origin/almacen` (rama de ESTE repo) | 2º despliegue del **mismo código**, con los 14 módulos (POS + inventarios) |
+| **Producto ALMACEN** | repo `GDM_ALMACEN` | El sistema de inventarios de verdad |
+
+> 🚨 **NO hagas `merge main → almacen` a ciegas.** La rama `almacen` conserva los
+> 14 módulos **a propósito**; un merge de `main` le borraría POS e inventarios.
+> Si necesitas llevar un fix de `main` a `almacen`, hazlo con `cherry-pick` del
+> commit puntual, no del branch completo.
 
 ---
 
@@ -10,10 +63,45 @@ Sistema de facturación electrónica CFDI 4.0 para México. Backend Node/Express
 
 | Servicio | URL |
 |----------|-----|
-| Frontend | https://gdmfac-frontend.onrender.com |
+| **Frontend productivo (clientes)** | https://hcgm.com.mx/erp |
+| Frontend Render (pruebas) | https://gdmfac-frontend.onrender.com |
 | Backend API | https://gdmfac-backend.onrender.com/api/v1 |
 | Health check | https://gdmfac-backend.onrender.com/health |
+| Manual de usuario (PDF) | https://hcgm.com.mx/erp/manual-usuario.pdf |
 | Repo | https://github.com/anbeor29-oss/GDM_FACT |
+
+**Hay DOS frontends contra el MISMO backend.** Ambos deben estar en `CORS_ORIGIN`
+o el navegador bloquea todo desde el que falte (ver ⚠️ abajo). Se actualizan
+distinto:
+
+| Frontend | Cómo se actualiza |
+|---|---|
+| Render | `git push` a `main` → auto-deploy (3-5 min) |
+| `hcgm.com.mx/erp` | `npm run build:hosting` → subir el ZIP por el panel del hosting |
+
+### ⚠️ CORS: el fallo que se ve como "ningún usuario funciona"
+
+Si `CORS_ORIGIN` no incluye **exactamente** el origen desde el que entra el
+usuario, el navegador bloquea la petición **antes de que salga** — login
+incluido. No hay error en el backend, no hay log, las contraseñas son correctas y
+el síntoma es "no entra nadie" (pasó el 2026-07-16 con `hcgm.com.mx`).
+
+Valor correcto hoy (en `render.yaml`, aplicado por Blueprint):
+
+```
+CORS_ORIGIN=https://gdmfac-frontend.onrender.com,https://hcgm.com.mx,https://www.hcgm.com.mx
+```
+
+Reglas: con protocolo `https://`, sin barra final, y **con y sin `www`** (para el
+navegador son orígenes distintos). Verifícalo por origen, no de memoria:
+
+```bash
+curl -si -X OPTIONS https://gdmfac-backend.onrender.com/api/v1/auth/login \
+  -H "Origin: https://hcgm.com.mx" -H "Access-Control-Request-Method: POST" \
+  | grep -i access-control-allow-origin
+# Debe responder: access-control-allow-origin: https://hcgm.com.mx
+# Si no sale la cabecera → ese origen está bloqueado.
+```
 
 ---
 
@@ -59,7 +147,16 @@ Sistema de facturación electrónica CFDI 4.0 para México. Backend Node/Express
 
 ---
 
-## 🧭 Entorno GDM_ALMACEN (segundo despliegue)
+## 🧭 Entorno GDM_ALMACEN (segundo despliegue de ESTE código)
+
+> ⚠️ **No confundir con el producto ALMACEN** (repo `GDM_ALMACEN`, carpeta
+> `E:\Obsidian\ALMACEN`). Esto es un **despliegue de este mismo repo** desde la
+> rama `almacen`, que conserva los 14 módulos. Ver "Tres cosas que se llaman
+> parecido" al inicio.
+>
+> 🚨 **Nunca `merge main → almacen`.** Desde el 2026-07-16 `main` no tiene POS ni
+> inventarios; un merge se los borraría a este entorno. Para llevar un fix
+> puntual: `git checkout almacen && git cherry-pick <sha>`.
 
 `GDM_ALMACEN` es un **entorno independiente** del mismo código, pensado para
 demostrar/operar el flujo completo (POS + inventarios + grupos de trabajo) sin
@@ -91,14 +188,16 @@ restringido a sus módulos.
 > si el free ya lo usa `gdmfac`, cambia `gdm-almacen-postgres` a `basic-256mb`
 > (~$6 USD/mes) en el `render.yaml` de la rama `almacen`, o libera el otro.
 
-> 🔄 Para actualizar este entorno con cambios de `main`, haz
-> `git checkout almacen && git merge main` y push (conservando su `render.yaml`).
+> 🔄 **Obsoleto desde 2026-07-16**: antes se decía "haz `git merge main`". **Ya
+> no.** `main` es solo facturación; mergearlo aquí borraría POS e inventarios.
+> Lleva los fixes uno a uno con `git cherry-pick <sha>` (conservando su
+> `render.yaml`).
 
 ---
 
 ## 📦 Módulos y estado
 
-### 🔷 Operación diaria (todos los roles)
+### 🔷 Operación diaria — los 6 módulos del menú de empresa
 
 | Módulo | Estado | Descripción |
 |--------|--------|-------------|
@@ -110,6 +209,8 @@ restringido a sus módulos.
 | Clientes | ✅ | STI con `party_type`; extractor de CIF SAT (PDF); RFC + CP + régimen |
 | Productos | ✅ | Impuestos por producto (11 presets fiscales); catálogo SAT 52,513 claves; c_ClaveUnidad ~115 opciones |
 | Reportes | ✅ | Cobranza, cobranza detallada (saldo > 0.20), ventas, fiscal |
+| **Ventas por periodo** | ✅ | Reportes → Ventas: filtro mes/año + detalle (fecha, cliente, factura, importe, pagado, no pagado) y totales: ventas totales / cobradas / no cobradas. `GET /reports/sales-detail?year&month`. **Criterio**: "pagado" = pagos timbrados **+ NC**, para que `importe = pagado + no pagado` siempre cuadre |
+| **Manual de usuario** | ✅ | `frontend/public/manual-usuario.pdf`, abierto desde el botón "Manual" de la landing (`import.meta.env.BASE_URL` → sirve en Render y en `/erp`). Se regenera con el script del scratchpad; documenta los **9 iconos** del panel de facturas |
 | Timbrado real SW Sapien | ✅ | Endpoint `/v3/cfdi33/issue/json/v4` con vault CSD; QR SAT + sellos del XML real |
 | Editar factura DRAFT | ✅ | Reuso de la vista de emisión; totales se recalculan al guardar |
 | Envío por correo (SMTP) | ✅ | Nodemailer + selección PDF/XML de factura + NC + pagos; tolerante a fallos parciales |
@@ -145,6 +246,34 @@ restringido a sus módulos.
 | Logo persistente en BD (BYTEA) | ✅ |
 | Watchdog local con auto-restart | ✅ |
 | Health checks | ✅ |
+
+---
+
+## 🚦 Listos para facturar de verdad — qué falta
+
+Al 2026-07-16 el sistema quedó limpio (solo facturación), publicado y con los
+accesos funcionando desde `hcgm.com.mx/erp`. Lo que falta para operar en real:
+
+| # | Pendiente | Quién |
+|---|---|---|
+| 1 | **Dar de alta los clientes reales** (usar el lector de CIF: sube el PDF de la Constancia y autollena RFC, razón social, régimen y CP) | Operación |
+| 2 | **Verificar el PAC en modo producción**: `PAC_PROVIDER=SW_SAPIEN` + `SW_SAPIEN_ENV=production` + token productivo. En sandbox el SAT solo acepta el RFC de prueba `EKU9003173C9` | Config |
+| 3 | **CSD vigente cargado** por empresa (SUPER_ADMIN → Empresas → CSD) | Operación |
+| 4 | Subir el último ZIP a `public_html/erp` si hay cambios de frontend sin publicar | Deploy |
+
+### Deudas conocidas (no bloquean, pero confunden)
+
+- **Productos aún tiene campos de ALMACEN**: columna "Mayoreo" y "Existencias
+  (stock)", con textos que citan el Punto de Venta ("se cobra automáticamente en
+  el Punto de Venta…", "el Punto de Venta descuenta de aquí…"). Son de ALMACEN y
+  siguen visibles en facturación. Decisión pendiente.
+- **Usuarios sin `work_group` ven todo lo que exista en el mapa**: la columna
+  tiene default `ADMIN_ALL` y `canAccess` es fail-open. Asignar grupo (`VENTAS`)
+  a quien deba ver solo facturación.
+- **El manual muestra capturas con el menú anterior** (se tomaron antes de la
+  limpieza). El texto y la tabla de iconos son correctos; las imágenes del menú
+  no reflejan los 6 módulos actuales.
+- `AdminUsers` describe el grupo "Ventas" mencionando Punto de Venta.
 
 ---
 
@@ -409,7 +538,7 @@ Suite E2E en `tests/e2e/` con 14 archivos: smoke, auth, productos, facturas, NC 
 
 ### Los 10 errores que más costaron (no repetir)
 
-1. **CORS sin protocolo** — Express compara el `Origin` literal (`https://…`); Render inyecta el host pelón vía `fromService`. Hardcodear la URL completa.
+1. **CORS sin protocolo / origen faltante** — Express compara el `Origin` literal (`https://…`); Render inyecta el host pelón vía `fromService`. Hardcodear la URL completa **y listar TODOS los orígenes** (Render + `hcgm.com.mx` + `www.`). Picó dos veces: el 07-02 por el protocolo y el **07-16 por olvidar `hcgm.com.mx` al publicar en el hosting** — se vio como "ningún usuario funciona". La lección ya estaba escrita aquí y aun así volvió a pasar: **documentarla no basta, hay que verificarla por origen con `curl -X OPTIONS`**.
 2. **Placeholder olvidado** (`'ABC010101ABC'` como RFC) — costó horas contra el PAC. Todo placeholder debe gritar (`TODO-FIXME`) o fallar en arranque.
 3. **`getHours()` en servidor UTC** para fechas fiscales — SAT valida contra hora México. Siempre `toLocaleString('sv-SE', { timeZone: 'America/Mexico_City' })`.
 4. **`CREATE OR REPLACE VIEW` reordenando columnas** — Postgres solo permite agregar al final; tumbó el deploy. `DROP VIEW IF EXISTS` primero.
@@ -419,6 +548,8 @@ Suite E2E en `tests/e2e/` con 14 archivos: smoke, auth, productos, facturas, NC 
 8. **`fetch('/api/…')` relativo en prod** — con frontend y backend en dominios distintos apunta al static site. Siempre el cliente axios con `baseURL`.
 9. **Token JWT pegado con basura** (`NOMBRE=`, `...`, saltos) — validar formato (2 puntos exactos) antes de culpar al servidor.
 10. **Confiar en el sandbox del PAC** — 404 falsos de vault, timbres que no aparecen. Siempre tener botón "reintentar" + bypass local + logging del `messageDetail`.
+11. **Verificar con el happy path** — un `401` en `/reports/sales-detail` pareció probar que la ruta existía tras el deploy; una ruta inventada daba **el mismo 401**, porque `router.use(authenticateToken)` corre antes del match. Igual, un `200 OK` no distingue el PDF nuevo del viejo. **Verifica con un control negativo y con evidencia que cambie** (hash del bundle, bytes del archivo), no con "responde".
+12. **Anunciar módulos que no existen** — el menú traía 6 pantallas `ComingSoon`; el usuario creyó que se habían mezclado dos sistemas. Un placeholder en producción es una promesa que confunde: o está, o no se anuncia.
 
 ### Gotchas de plataforma (Render / Postgres / SAT)
 

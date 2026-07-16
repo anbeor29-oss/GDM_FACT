@@ -634,3 +634,100 @@ producción `gdmfac`.
 POS operativo con mayoreo; permisos por grupo demostrables; `GDM_ALMACEN`
 desplegable en 1 clic (Apply del Blueprint) y auto-inicializado con admin
 ADMIN_ALL + ejemplos.
+
+---
+
+## 2026-07-16 — GDM_FAC se queda SOLO con facturación + el CORS que tumbó todos los accesos
+
+### Contexto
+El usuario entró a facturación y se encontró un menú con 14 módulos: Punto de
+Venta, Inventarios, Almacenes, Inventario físico, Compras, Órdenes de compra,
+Proveedores y Tesorería. Su reclamo fue directo: *"una cosa es GDM_FACT, el otro
+es el GDM_Almacen… no mezcles las cosas, porque no lo podré administrar
+correctamente"*. En paralelo reportó que **ningún usuario podía entrar**.
+
+Investigado: no había mezcla de repos. Esos módulos eran de GDM_FAC mismo —
+seis de ellos eran pantallas `ComingSoon` ("Próximamente") introducidas por el
+commit `0e9bd24`, es decir, **el sistema anunciaba módulos que no tenía**. Se
+decidió que GDM_FAC es solo facturación y que POS/inventarios/compras/tesorería/
+proveedores pertenecen al producto ALMACEN.
+
+### Qué se hizo
+
+**Manual y reporte (commit `4adec5f`)**
+- Botón "Manual" en la landing, junto a "Entrar al sistema", que abre
+  `manual-usuario.pdf` en pestaña nueva. Usa `import.meta.env.BASE_URL`, así
+  resuelve igual en Render (`/`) y en el hosting de México (`/erp/`).
+- Reportes → Ventas: detalle por mes/año con fecha, cliente, factura, importe,
+  pagado y no pagado, totalizando ventas totales / cobradas / no cobradas.
+  Backend `getSalesDetailReport` + `GET /reports/sales-detail?year&month`.
+  **Criterio**: "pagado" = pagos timbrados **+ notas de crédito**, para que
+  `importe = pagado + no pagado` siempre cuadre y los totales reconcilien.
+
+**Solo facturación (commits `1acc91a`, `61f046b`)**
+- Se retiran del mapa de módulos, del menú y de **sus rutas** (no solo ocultos:
+  tampoco se alcanzan por URL directa): `inventory`, `warehouses`,
+  `physical_inventory`, `purchases`, `purchase_orders`, `treasury` (los seis
+  `ComingSoon`), más `suppliers` y `pos`, que sí funcionaban pero son de ALMACEN.
+- Menú de empresa final: **dashboard, facturas, notas de crédito, clientes,
+  reportes, productos**.
+- `modules/pos` (backend) se conserva para migrarlo a ALMACEN, pero **no se
+  concede a ningún grupo**: sus endpoints responden 403 y la UI no lo expone.
+  `'pos'` sigue en `ModuleKey` solo porque `pos.routes.ts` usa `requireModule('pos')`.
+- `SuppliersPage` se conserva: la usa el SUPER_ADMIN en `/suppliers`, que
+  acompaña a Importar XML (facturas recibidas).
+
+**CORS — la causa real de "ningún usuario funciona" (commit `248a8f2`)**
+- `render.yaml` solo listaba `https://gdmfac-frontend.onrender.com`. El navegador
+  **bloqueaba toda petición desde `https://hcgm.com.mx/erp`** antes de que
+  saliera, login incluido. Las contraseñas nunca estuvieron mal.
+- Fix: `CORS_ORIGIN` con los tres orígenes (Render + `hcgm.com.mx` +
+  `www.hcgm.com.mx`; con y sin www son orígenes distintos para el navegador).
+  `parseArray` ya separaba por coma.
+
+**Manual: 9 iconos (commit `63dff68`)**
+- La tabla de iconos estaba incompleta **y con dos etiquetas equivocadas**:
+  la cartera verde decía "Abonos/saldo" cuando es **Complemento de Pago**; el
+  naranja en borrador decía "Descartar" cuando es **Cancelar factura**; y faltaba
+  por completo el **ámbar `coins` "Ver saldo y aplicaciones"**.
+- Se corrigió contra la fuente canónica del repo (`scripts/generate-icons-guide.ts`)
+  y contra `Invoices.tsx`. La tabla dibuja los 9 iconos con los mismos paths
+  Lucide que usa la app.
+
+**Landing (commit `61f046b`)**
+- Las 12 tarjetas de "Módulos incluidos" pintaban su icono con el mismo índigo
+  plano. Ahora cada una usa el color con el que ese módulo aparece **dentro del
+  sistema** (acento del menú o color del icono en facturas), para que quien entra
+  reconozca lo que vio. "Facturación CFDI 4.0" pasa de `FileText` al sello morado
+  (`Stamp`), que es el icono real con el que se timbra.
+
+### Decisiones / gotchas
+
+- **La lección de CORS ya estaba escrita en el README** (§ "10 errores", punto 1,
+  desde el 07-02) pero el `render.yaml` nunca la siguió al agregar el hosting de
+  México. Documentar un gotcha no lo previene: hay que verificarlo por origen.
+- **Un 401 NO prueba que una ruta exista.** Al validar el endpoint nuevo, dio
+  `401` y pareció confirmar el deploy; una ruta inventada (`/reports/ruta-inventada`)
+  daba **el mismo 401**, porque `router.use(authenticateToken)` corre antes del
+  match de ruta. La prueba concluyente fue otra (hash del bundle, bytes del PDF).
+  Regla: verificar con un control negativo, no con el happy path.
+- **`canAccess` es fail-open**: `GROUP_MODULES[g] || GROUP_MODULES.ADMIN_ALL`. Si
+  se borra un grupo del mapa y algún usuario lo tiene en BD, **vería TODO**. Por
+  eso ALMACEN/COMPRAS/TESORERIA se conservan aunque ya casi no tengan módulos.
+  Combinado con el default `ADMIN_ALL` de la columna `work_group` (07-13), un
+  usuario sin grupo ve todo lo que exista en el mapa.
+- **La rama `almacen` NO se debe sincronizar a ciegas con `main`**: conserva los
+  14 módulos a propósito. Un `merge main → almacen` le borraría POS e inventarios.
+- Vite **no empaqueta** un módulo sin referencias: al quitar la ruta y el import,
+  `PointOfSale.tsx` desapareció del bundle (verificado buscando "venta de
+  mostrador" en el JS servido).
+
+### Consecuencia
+GDM_FAC quedó como sistema de facturación puro, sin anunciar nada que no opere.
+Accesos restaurados desde `hcgm.com.mx`. Manual publicado y consultable desde la
+landing. Todo verificado en producción por evidencia (hash de bundle, bytes del
+PDF, cabecera CORS por origen), no por "responde 200".
+
+**Pendiente para facturar de verdad: dar de alta los clientes reales.** Además,
+Productos aún muestra campos de **mayoreo y existencias (stock)** con textos que
+citan el Punto de Venta — son de ALMACEN y siguen visibles en facturación.
