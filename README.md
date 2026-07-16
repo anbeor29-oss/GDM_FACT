@@ -23,12 +23,16 @@ base de datos**.
 | Alcance | CFDI 4.0: facturas, NC, complementos, clientes, productos, reportes | Inventarios, almacenes, compras, POS, tesorería |
 | Estado | En producción | En desarrollo |
 
-### Los seis módulos que existen aquí
+### Los módulos que existen aquí
 
+**Por grupo de trabajo (todos los usuarios de empresa):**
 `dashboard` · `invoices` · `credit_notes` · `customers` · `reports` · `products`
 
 Definidos en `frontend/src/utils/permissions.ts` y su **espejo obligatorio**
 `backend/src/middleware/permissions.ts`. **Si cambias uno, cambia el otro.**
+
+**Por ROL, solo para el ADMIN de la empresa** (no pasan por grupo de trabajo —
+son autoridad, no módulos): **Usuarios** (`/team`) y **Contrato** (`/contract`).
 
 **No agregues aquí módulos de ALMACEN.** Hasta el 2026-07-16 el menú anunciaba
 Inventarios, Almacenes, Inventario físico, Compras, Órdenes de compra y
@@ -197,7 +201,7 @@ restringido a sus módulos.
 
 ## 📦 Módulos y estado
 
-### 🔷 Operación diaria — los 6 módulos del menú de empresa
+### 🔷 Operación diaria — módulos del menú de empresa (por grupo de trabajo)
 
 | Módulo | Estado | Descripción |
 |--------|--------|-------------|
@@ -211,6 +215,16 @@ restringido a sus módulos.
 | Reportes | ✅ | Cobranza, cobranza detallada (saldo > 0.20), ventas, fiscal |
 | **Ventas por periodo** | ✅ | Reportes → Ventas: filtro mes/año + detalle (fecha, cliente, factura, importe, pagado, no pagado) y totales: ventas totales / cobradas / no cobradas. `GET /reports/sales-detail?year&month`. **Criterio**: "pagado" = pagos timbrados **+ NC**, para que `importe = pagado + no pagado` siempre cuadre |
 | **Manual de usuario** | ✅ | `frontend/public/manual-usuario.pdf`, abierto desde el botón "Manual" de la landing (`import.meta.env.BASE_URL` → sirve en Render y en `/erp`). Se regenera con el script del scratchpad; documenta los **9 iconos** del panel de facturas |
+| **Resumen mensual (PDF)** | ✅ | Reportes → Resumen mensual. Por mes y año: venta, cobrada, no cobrada y **adeudo acumulado**, con subtotal por año. `GET /reports/sales-summary/pdf` (inline) |
+| **Facturas no pagadas (PDF)** | ✅ | Reportes → No pagadas. TODAS las facturas con saldo, lista plana cronológica, sin importar antigüedad y **sin el umbral de $0.20** (solo descarta el redondeo, >= $0.01). Días de antigüedad: ámbar > 30, rojo > 90. `GET /reports/unpaid/pdf` |
+
+### 🟣 Solo el ADMIN de la empresa (por ROL, no por grupo de trabajo)
+
+| Módulo | Estado | Descripción |
+|--------|--------|-------------|
+| **Usuarios** (`/team`) | ✅ | El ADMIN da de alta/baja a los **USER de SU empresa** + contraseña temporal (se muestra una vez) + reset. Aislamiento: `company_id` **siempre del JWT**, todo query lleva `AND company_id = <mía>` (id ajeno → 404) y el rol va **fijo a USER** (un ADMIN no crea otro ADMIN). Cada acción → `audit_log` |
+| **Contrato** (`/contract`) | ⚠️ | Contrato de prestación de servicios + T&C firmados con la **e.firma del contratante**. Estructura completa y probada; **el TEXTO LEGAL está pendiente** (ver abajo). Reusa las primitivas de e.firma de `modules/manifest`. Guarda el texto íntegro + SHA-256; la `.key` **nunca** se persiste |
+| **Bitácora de actividad** | ✅ | `user_activity_log` vía **middleware global** (`middleware/activity-log.ts`): registra toda mutación exitosa de usuarios de empresa. **Se registra a TODOS**; `users.monitoring_enabled/_email` solo controla el **envío** del reporte mensual (cláusula SEXTA del contrato). Cron día 1 06:00; el correo va **solo** a `monitoring_email` |
 | Timbrado real SW Sapien | ✅ | Endpoint `/v3/cfdi33/issue/json/v4` con vault CSD; QR SAT + sellos del XML real |
 | Editar factura DRAFT | ✅ | Reuso de la vista de emisión; totales se recalculan al guardar |
 | Envío por correo (SMTP) | ✅ | Nodemailer + selección PDF/XML de factura + NC + pagos; tolerante a fallos parciales |
@@ -261,6 +275,21 @@ accesos funcionando desde `hcgm.com.mx/erp`. Lo que falta para operar en real:
 | 3 | **CSD vigente cargado** por empresa (SUPER_ADMIN → Empresas → CSD) | Operación |
 | 4 | Subir el último ZIP a `public_html/erp` si hay cambios de frontend sin publicar | Deploy |
 
+### 🔴 Bloqueantes del contrato y la bitácora
+
+| # | Bloqueante | Consecuencia si falta |
+|---|---|---|
+| 1 | **Texto legal del contrato** — `docs/CONTRATO_TYC_BORRADOR.docx` tiene 10 bloques `[PENDIENTE — texto legal]` que debe redactar el abogado (precios, vigencia, datos personales, responsabilidad, jurisdicción). La cláusula SEXTA (auditoría) está redactada pero **requiere revisión**, sobre todo el deslinde laboral | El contrato que firmen los clientes tiene cláusulas incompletas |
+| 2 | **`PLATFORM_COMPANY_RFC`** en Render | El contrato se firma con el **RFC del prestador en blanco** |
+| 3 | **`ENABLE_BILLING_CRON=true`** | El reporte mensual de la bitácora **no se envía** (el cron no se registra) |
+| 4 | **SMTP** (`MAIL_HOST/USER/PASS/FROM`) | El reporte se genera pero no sale |
+
+> Al entregar el texto legal: se edita **un solo archivo**
+> (`backend/src/modules/contracts/contract-text.ts`) y **se sube
+> `CONTRACT_VERSION`**. Quien firmó la versión anterior verá "los T&C cambiaron,
+> vuelve a firmar"; su firma vieja se conserva atada al texto que sí aceptó.
+> El Word se regenera desde ese mismo archivo, así documento y sistema no divergen.
+
 ### Deudas conocidas (no bloquean, pero confunden)
 
 - **Productos aún tiene campos de ALMACEN**: columna "Mayoreo" y "Existencias
@@ -272,7 +301,7 @@ accesos funcionando desde `hcgm.com.mx/erp`. Lo que falta para operar en real:
   a quien deba ver solo facturación.
 - **El manual muestra capturas con el menú anterior** (se tomaron antes de la
   limpieza). El texto y la tabla de iconos son correctos; las imágenes del menú
-  no reflejan los 6 módulos actuales.
+  no reflejan el menú actual (ni los módulos nuevos Usuarios y Contrato).
 - `AdminUsers` describe el grupo "Ventas" mencionando Punto de Venta.
 
 ---
@@ -550,6 +579,19 @@ Suite E2E en `tests/e2e/` con 14 archivos: smoke, auth, productos, facturas, NC 
 10. **Confiar en el sandbox del PAC** — 404 falsos de vault, timbres que no aparecen. Siempre tener botón "reintentar" + bypass local + logging del `messageDetail`.
 11. **Verificar con el happy path** — un `401` en `/reports/sales-detail` pareció probar que la ruta existía tras el deploy; una ruta inventada daba **el mismo 401**, porque `router.use(authenticateToken)` corre antes del match. Igual, un `200 OK` no distingue el PDF nuevo del viejo. **Verifica con un control negativo y con evidencia que cambie** (hash del bundle, bytes del archivo), no con "responde".
 12. **Anunciar módulos que no existen** — el menú traía 6 pantallas `ComingSoon`; el usuario creyó que se habían mezclado dos sistemas. Un placeholder en producción es una promesa que confunde: o está, o no se anuncia.
+13. **Palabras reservadas de Postgres como alias** — `SELECT TO_CHAR(ts,'YYYY-MM-DD') day` es error de sintaxis (`day` es reservada); exige `AS day`. Habría explotado el día 1 a las 6 AM **dentro de un cron, en silencio**. Lo atrapó el smoke, no el typecheck: *el compilador no ve el SQL*.
+14. **El typecheck no valida el schema** — `last_login_at` compilaba perfecto y reventaba en runtime (la columna es `last_login`). Igual que el bug nº5. Todo query nuevo necesita ejercitarse contra la BD, aunque el tipo diga que está bien.
+
+### Cómo verificar de verdad (lo aprendido a golpes)
+
+| Situación | Verificación que NO sirve | La que sí |
+|---|---|---|
+| ¿La ruta nueva existe tras el deploy? | Un `401`/`200` — el middleware de auth responde antes del match de ruta | **Control negativo**: una ruta inventada debe dar 404 mientras la real da 200 |
+| ¿Se publicó el bundle nuevo? | `200 OK` — la caché sirve el viejo con 200 | **Hash del bundle** + buscar una cadena que solo exista en la versión nueva |
+| ¿Se subió el PDF nuevo? | `200 OK` | **Bytes exactos** contra el archivo local |
+| ¿El origen tiene CORS? | Suponerlo porque está documentado | `curl -X OPTIONS -H "Origin: …"` y ver `access-control-allow-origin` |
+| ¿La firma con e.firma funciona? | Que compile | **Generar una e.firma de prueba con openssl** (RFC en `x500UniqueIdentifier`, `.key` PKCS#8 cifrada) y firmar de verdad |
+| ¿Se filtró un secreto? | Leer el código | **Consultar la BD** buscando la cadena del secreto en la fila y en `audit_log` |
 
 ### Gotchas de plataforma (Render / Postgres / SAT)
 

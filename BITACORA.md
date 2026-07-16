@@ -731,3 +731,93 @@ PDF, cabecera CORS por origen), no por "responde 200".
 **Pendiente para facturar de verdad: dar de alta los clientes reales.** Además,
 Productos aún muestra campos de **mayoreo y existencias (stock)** con textos que
 citan el Punto de Venta — son de ALMACEN y siguen visibles en facturación.
+
+---
+
+## 2026-07-16 (tarde) — Reportes PDF, Usuarios por ADMIN, contrato con e.firma y bitácora
+
+### Contexto
+Cuatro pedidos encadenados: (1) reportes de resumen mensual y de facturas no
+pagadas, en PDF dentro del navegador; (2) que el ADMIN de empresa pudiera dar de
+alta a sus USER; (3) un contrato de prestación de servicios anclado en T&C y
+firmado con la e.firma del contratante; (4) una bitácora confidencial del USER
+con reporte mensual por correo.
+
+El punto (2) reveló que **la premisa no se sostenía**: `/admin/users` era
+exclusivo del SUPER_ADMIN (`requireSuperAdmin`), así que un ADMIN de empresa no
+podía crear usuarios — dependía de HCGM para cada alta. Hubo que construirlo.
+
+### Qué se hizo
+
+**Reportes PDF (commit `a3b7e7c`)**
+- `GET /reports/sales-summary/pdf`: por mes y año — venta, cobrada, no cobrada y
+  **adeudo acumulado** (suma corrida), con subtotal por año y total general.
+- `GET /reports/unpaid/pdf`: TODAS las facturas con saldo, lista plana
+  cronológica. A diferencia de Cobranza detallada (agrupa por cliente y filtra
+  saldos > $0.20), aquí solo se descarta el redondeo (>= $0.01). Columna de días
+  de antigüedad, ámbar > 30, rojo > 90.
+- Se sirven `inline` y se muestran DENTRO de la página en un `<iframe>` con blob
+  (mismo patrón que la vista previa de facturas), no se descargan.
+- "Cobrada"/"pagado" = pagos timbrados + NC, el MISMO criterio de
+  `getSalesDetailReport`, para que los tres reportes reconcilien.
+
+**Módulo Usuarios — `/team` (commit `bbe3e38`)**
+- El ADMIN da de alta/baja a los USER de SU empresa; contraseña temporal que se
+  muestra UNA vez.
+- Tres reglas sostienen el aislamiento: `company_id` SIEMPRE del JWT (nunca del
+  body), todo query lleva `AND company_id = <mía>` (un id ajeno → 404, no opera),
+  y el rol va **fijo a USER** (un ADMIN no crea otro ADMIN).
+- Gateado por ROL en el frontend (`CompanyAdminRoute`), no por grupo de trabajo:
+  gestionar usuarios es autoridad, no un módulo más.
+
+**Contrato con e.firma (commit `7d7c1ea`)**
+- Tabla `service_contracts` + `/contract`, `/contract/sign`, `/contract/verify`.
+- Se REUSAN las primitivas de e.firma de `modules/manifest` (`parseCertificate`,
+  `openPrivateKey`) exportándolas, en vez de copiarlas.
+- Se guarda el **texto íntegro + SHA-256**, no solo un "acepté": la firma es
+  sobre el texto exacto; sin él no se puede verificar después y no vale como
+  prueba.
+- La `.key` nunca se persiste; la contraseña tampoco entra al `audit_log`.
+- ⚠️ **El texto legal está PENDIENTE**: 8 cláusulas con bloques
+  `[PENDIENTE — texto legal]`. Exportado a `docs/CONTRATO_TYC_BORRADOR.docx`,
+  generado desde el MISMO archivo que firma el sistema para que no diverjan.
+
+**Bitácora + reporte mensual (commit `2761c4d`)**
+- `user_activity_log` + `users.monitoring_enabled/_email`. **Se registra a TODOS;
+  el interruptor solo controla el ENVÍO del reporte** — así lo dice la cláusula
+  SEXTA, y además si el monitoreo se activa después, el historial ya está.
+- Registro por **middleware global**, no llamadas por módulo: si dependiera de
+  recordar `log()` en cada ruta nueva, la bitácora tendría huecos justo donde
+  importa. Registra en `res.on('finish')`, cuando `req.user` ya está poblado.
+- Cron día 1 06:00 (tras el cierre de facturación de las 00:15, para no competir
+  por el pool ni el SMTP). El reporte va SOLO a `monitoring_email`.
+
+### Decisiones / gotchas
+
+- **El control negativo por fin se aplicó bien**: `/reports/ruta-inventada/pdf`
+  → 404 (con token), mientras los reportes reales dan 200 con magic `%PDF-`.
+  Comparar contra una ruta inventada es lo que distingue "existe" de "responde".
+- **Se probó la firma REAL sin e.firma del SAT**: se generó una de prueba con
+  openssl (RFC en `x500UniqueIdentifier`, `.key` PKCS#8 cifrada). El primer
+  intento dio 400 — el error era del que probaba, no del código: se usó el RFC
+  de un CLIENTE en vez del de la empresa contratante. O sea, la validación que
+  impide que un tercero firme por la empresa **funciona**.
+- **`day` es palabra reservada en Postgres**: `TO_CHAR(...) day` como alias sin
+  `AS` es error de sintaxis. Habría explotado el día 1 a las 6 AM dentro del
+  cron, en silencio. Lo atrapó la prueba del reporte, no el typecheck.
+- **`last_login_at` no existe; la columna es `last_login`** (error nº5 del
+  README otra vez). Lo atrapó el smoke, no el compilador.
+- Chromium headless **no trae visor de PDF**: el `<iframe>` sale en blanco en las
+  capturas automatizadas. No es bug — se verificó que el iframe recibe el blob y
+  no hay errores de consola; el mismo patrón ya opera en la vista previa de
+  facturas.
+
+### Consecuencia
+GDM_FAC cierra la etapa con: reportes de cobranza completos, autonomía del ADMIN
+para gestionar su equipo, base legal firmable con e.firma y bitácora de auditoría
+con reporte mensual opt-in.
+
+**Bloqueantes antes de operar de verdad:** el texto legal del contrato,
+`PLATFORM_COMPANY_RFC` (hoy el contrato saldría con el RFC del prestador en
+blanco), `ENABLE_BILLING_CRON=true` (sin eso el reporte mensual NO se envía) y
+SMTP configurado.
