@@ -289,6 +289,26 @@ falta de señal — resuelve inmediatez y flexibilidad. Quien elija compartir de
 saber que el cliente recibirá la factura de un correo personal y que **no
 quedará constancia** del envío en el sistema.
 
+### 8.2c WhatsApp y dónde quedan los archivos (acordado 2026-07-16)
+
+Se pidió "apuntar las descargas a la galería para que aparezcan primero al abrir
+los archivos de WhatsApp". **Corrección técnica:** la galería de Android indexa
+**fotos y video** (MediaStore Images/Video); un PDF o XML guardados ahí **no
+aparecen**. Lo que los muestra en el selector es **Descargas/Documentos**.
+
+**Pero el selector sobra:** con `@capacitor/share`, el flujo es
+`Compartir → WhatsApp → contacto` y **el archivo ya va adjunto**. El operador
+nunca busca nada, así que "que aparezca primero" deja de ser un problema.
+
+**Acordado — las dos cosas:**
+1. **Compartir nativo** como camino principal (sin picker, sin buscar).
+2. **Guardar también en Descargas**, para que el archivo quede en el teléfono y
+   se pueda reenviar después sin volver a la app.
+
+⚠️ Desde **Android 10 (scoped storage)** escribir en Descargas compartidas exige
+MediaStore. Si se hace mal, los archivos caen en la carpeta privada de la app y
+**WhatsApp no los ve**. Es el error clásico de esta parte.
+
 ### 8.3 OWASP — token en un dispositivo perdido
 | Riesgo | Mitigación |
 |---|---|

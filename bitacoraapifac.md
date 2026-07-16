@@ -140,3 +140,40 @@ de la empresa y queda registrado).
 
 ### Consecuencia
 Diseño de la Fase 5 acordado. Sin código todavía: entra con el APK.
+
+---
+
+## 2026-07-16 — WhatsApp, almacenamiento y paso al PAC productivo
+
+### WhatsApp: corrección técnica
+Se pidió apuntar las descargas **a la galería** para que aparezcan primero en el
+selector de WhatsApp. **La galería indexa fotos y video**: un PDF/XML guardado
+ahí no aparece. El destino correcto es **Descargas/Documentos**.
+
+Además, **el selector sobra**: con `@capacitor/share` el flujo es
+`Compartir → WhatsApp → contacto` con el archivo **ya adjunto**. El operador
+nunca busca el archivo.
+
+**Acordado:** compartir nativo como camino principal **+** guardar en Descargas
+para poder reenviar después sin volver a la app.
+
+⚠️ Android 10+ (scoped storage): escribir en Descargas compartidas exige
+MediaStore. Hecho mal, los archivos caen en la carpeta privada de la app y
+**WhatsApp no los ve**.
+
+### Paso al PAC productivo (previsto viernes/sábado, con GRUPO HCGM)
+El usuario avisó que hoy se timbra en sandbox y que integrará el ambiente real.
+
+**`PLATFORM_COMPANY_RFC` es el punto ciego:** hoy está vacío y lo usan DOS
+cosas — el CFDI de cobro que HCGM emite a sus clientes **y el contrato de
+prestación de servicios firmado con e.firma**. Si sigue vacío, el contrato se
+firma con el RFC del prestador en blanco.
+
+Checklist acordado:
+1. `PAC_PROVIDER=SW_SAPIEN` + `SW_SAPIEN_ENV=production` + token productivo.
+2. `PLATFORM_COMPANY_RFC` = RFC de Grupo HCGM.
+3. CSD real y vigente por empresa.
+4. Verificar que **ninguna empresa** quedó con el RFC de prueba `EKU9003173C9`
+   (el sandbox de SW solo acepta ese; en producción el SAT lo rechaza).
+5. **Timbrar UNA factura real y validarla en el portal del SAT** antes de
+   soltarlo a los clientes.
