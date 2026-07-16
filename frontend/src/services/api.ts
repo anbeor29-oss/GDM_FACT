@@ -349,6 +349,34 @@ class APIClient {
     return response.data;
   }
 
+  /* ────── Equipo: el ADMIN gestiona a los USER de SU empresa ────── */
+
+  async getTeam() {
+    const r = await this.client.get('/team');
+    return r.data;
+  }
+
+  /** Alta de USER. La empresa y el rol los fija el backend desde el JWT. */
+  async createTeamUser(body: { email: string; firstName: string; lastName: string }) {
+    const r = await this.client.post('/team', body);
+    return r.data;
+  }
+
+  async disableTeamUser(id: string) {
+    const r = await this.client.post(`/team/${id}/disable`);
+    return r.data;
+  }
+
+  async enableTeamUser(id: string) {
+    const r = await this.client.post(`/team/${id}/enable`);
+    return r.data;
+  }
+
+  async resetTeamUserPassword(id: string) {
+    const r = await this.client.post(`/team/${id}/reset-password`);
+    return r.data;
+  }
+
   /** Resumen de ventas por mes y año (venta, cobrada, no cobrada, adeudo). */
   async getSalesSummaryReport() {
     const response = await this.client.get('/reports/sales-summary');

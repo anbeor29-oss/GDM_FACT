@@ -32,6 +32,7 @@ import mailerRoutes from './modules/mailer/mailer.routes';
 import paymentsRoutes from './modules/payments/payments.routes';
 import creditNotesRoutes from './modules/credit-notes/credit-notes.routes';
 import archiveRoutes from './modules/archive/archive.routes';
+import teamRoutes from './modules/team/team.routes';
 import adminUsersRoutes     from './modules/admin/admin-users.routes';
 import adminCompaniesRoutes from './modules/admin/admin-companies.routes';
 import adminAuditRoutes     from './modules/admin/admin-audit.routes';
@@ -137,6 +138,7 @@ export function createApp(): Express {
   app.use(`/api/${config.apiVersion}/payments`, paymentsRoutes);
   app.use(`/api/${config.apiVersion}/credit-notes`, creditNotesRoutes);
   app.use(`/api/${config.apiVersion}/archive`, archiveRoutes);
+  app.use(`/api/${config.apiVersion}/team`, teamRoutes);
   app.use(`/api/${config.apiVersion}/admin/users`,     adminUsersRoutes);
   app.use(`/api/${config.apiVersion}/admin/companies`, adminCompaniesRoutes);
   app.use(`/api/${config.apiVersion}/admin/audit`,     adminAuditRoutes);

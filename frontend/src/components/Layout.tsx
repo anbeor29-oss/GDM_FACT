@@ -22,6 +22,7 @@ import {
   Truck,
   DollarSign,
   ShoppingCart,
+  Users2,
 } from 'lucide-react';
 import { canAccess, type ModuleKey } from '@/utils/permissions';
 import { useState, useCallback } from 'react';
@@ -115,6 +116,12 @@ export function Layout() {
 
                 {/* Catálogos */}
                 {show('products') && <NavItem to="/products" icon={<Boxes size={20} />} accent="fuchsia" label="Productos" open={sidebarOpen} />}
+
+                {/* Equipo — por ROL, no por grupo de trabajo: gestionar usuarios
+                    es autoridad del ADMIN de la empresa, no un módulo más. */}
+                {user?.role === 'ADMIN' && (
+                  <NavItem to="/team" icon={<Users2 size={20} />} accent="violet" label="Usuarios" open={sidebarOpen} />
+                )}
               </>
             );
           })()}

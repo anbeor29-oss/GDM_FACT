@@ -22,6 +22,7 @@ import { AdminBillingPage }   from '@/pages/AdminBilling';
 import { AdminPrepaidPage }   from '@/pages/AdminPrepaid';
 import { ImportXMLWizardPage } from '@/pages/ImportXMLWizard';
 import { SuppliersPage }      from '@/pages/Suppliers';
+import { TeamPage }           from '@/pages/Team';
 import { useAuthStore } from '@/store/auth';
 import { canAccess, type ModuleKey } from '@/utils/permissions';
 
@@ -84,6 +85,17 @@ function ModuleRoute({ module, children }: { module: ModuleKey; children: React.
 }
 
 /**
+ * Ruta gateada por ROL ADMIN de empresa. Gestionar usuarios es una cuestión de
+ * AUTORIDAD, no de grupo de trabajo: por eso no pasa por ModuleRoute. El
+ * SUPER_ADMIN administra usuarios desde /admin/users, no desde aquí.
+ */
+function CompanyAdminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuthStore();
+  if (user?.role !== 'ADMIN') return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
+/**
  * Módulos administrativos de plataforma — sólo SUPER_ADMIN.
  * Si un usuario común escribe /import-xml o /admin/... a mano, lo enviamos
  * al dashboard en lugar de renderizar la página.
@@ -127,6 +139,8 @@ export function App() {
                 facturación. SuppliersPage sigue existiendo, pero SOLO para el
                 SUPER_ADMIN de la plataforma (ruta /suppliers, más abajo). */}
             <Route path="products" element={<ModuleRoute module="products"><ProductsPage /></ModuleRoute>} />
+            {/* Equipo: el ADMIN de la empresa gestiona a sus USER. */}
+            <Route path="team" element={<CompanyOnlyRoute><CompanyAdminRoute><TeamPage /></CompanyAdminRoute></CompanyOnlyRoute>} />
 
             {/* Módulos de plataforma — SOLO SUPER_ADMIN (guard por URL directa) */}
             <Route path="admin/packages"  element={<SuperAdminRoute><AdminPackagesPage /></SuperAdminRoute>} />
