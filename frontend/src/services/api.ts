@@ -349,6 +349,28 @@ class APIClient {
     return response.data;
   }
 
+  /** Resumen de ventas por mes y año (venta, cobrada, no cobrada, adeudo). */
+  async getSalesSummaryReport() {
+    const response = await this.client.get('/reports/sales-summary');
+    return response.data;
+  }
+
+  /** PDF del resumen por mes y año (se sirve inline: se ve en el navegador). */
+  salesSummaryPDFUrl(): string {
+    return `${this.client.defaults.baseURL}/reports/sales-summary/pdf`;
+  }
+
+  /** Todas las facturas no pagadas, lista plana sin filtro de antigüedad. */
+  async getUnpaidReport() {
+    const response = await this.client.get('/reports/unpaid');
+    return response.data;
+  }
+
+  /** PDF de facturas no pagadas (inline). */
+  unpaidPDFUrl(): string {
+    return `${this.client.defaults.baseURL}/reports/unpaid/pdf`;
+  }
+
   /** Reporte de ventas detallado por periodo (mes opcional). */
   async getSalesDetailReport(year: number, month?: number) {
     const response = await this.client.get('/reports/sales-detail', {

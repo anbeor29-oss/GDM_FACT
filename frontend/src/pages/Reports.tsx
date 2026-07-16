@@ -3,9 +3,12 @@
  * Cobranza, Ventas, Fiscal
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { TrendingUp, DollarSign, Receipt, ClipboardList, FileDown, Loader2 } from 'lucide-react';
+import {
+  TrendingUp, DollarSign, Receipt, ClipboardList, FileDown, Loader2,
+  CalendarRange, AlertCircle,
+} from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -18,7 +21,7 @@ import {
 import api from '@/services/api';
 import { getToken } from '@/utils/authStorage';
 
-type Tab = 'collections' | 'receivables' | 'sales' | 'tax';
+type Tab = 'collections' | 'receivables' | 'sales' | 'summary' | 'unpaid' | 'tax';
 
 export function ReportsPage() {
   const [tab, setTab] = useState<Tab>('collections');
@@ -51,6 +54,18 @@ export function ReportsPage() {
           label="Ventas"
         />
         <TabButton
+          active={tab === 'summary'}
+          onClick={() => setTab('summary')}
+          icon={<CalendarRange size={18} />}
+          label="Resumen mensual"
+        />
+        <TabButton
+          active={tab === 'unpaid'}
+          onClick={() => setTab('unpaid')}
+          icon={<AlertCircle size={18} />}
+          label="No pagadas"
+        />
+        <TabButton
           active={tab === 'tax'}
           onClick={() => setTab('tax')}
           icon={<Receipt size={18} />}
@@ -61,6 +76,8 @@ export function ReportsPage() {
       {tab === 'collections' && <CollectionsReport />}
       {tab === 'receivables' && <ReceivablesReport />}
       {tab === 'sales' && <SalesReport />}
+      {tab === 'summary' && <SalesSummaryReport />}
+      {tab === 'unpaid' && <UnpaidReport />}
       {tab === 'tax' && <TaxReport />}
     </div>
   );
@@ -320,6 +337,96 @@ const MONTHS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
+
+/**
+ * Visor de reportes en PDF: los muestra dentro de la página (no los descarga).
+ * El endpoint pide token, así que no se puede apuntar el <iframe> a la URL
+ * directamente: se descarga con Authorization y se muestra como blob — el
+ * mismo patrón que la vista previa de facturas.
+ */
+function PdfReport({ url, filename, hint }: { url: string; filename: string; hint: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let revoked: string | null = null;
+    let cancelled = false;
+    (async () => {
+      setError(null);
+      setBlobUrl(null);
+      try {
+        const r = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } });
+        if (!r.ok) throw new Error(`No se pudo generar el PDF (HTTP ${r.status})`);
+        const u = URL.createObjectURL(await r.blob());
+        if (cancelled) { URL.revokeObjectURL(u); return; }
+        revoked = u;
+        setBlobUrl(u);
+      } catch (e: any) {
+        if (!cancelled) setError(e.message || 'Error al generar el PDF');
+      }
+    })();
+    // Liberamos el blob al desmontar o al cambiar de reporte: si no, el PDF
+    // queda retenido en memoria mientras viva la pestaña.
+    return () => { cancelled = true; if (revoked) URL.revokeObjectURL(revoked); };
+  }, [url]);
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-lg shadow-lg p-6">
+        <p className="text-red-600 font-medium">{error}</p>
+      </div>
+    );
+  }
+  if (!blobUrl) return <LoadingState />;
+
+  return (
+    <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+      <div className="p-4 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200">
+        <p className="text-sm text-gray-600">{hint}</p>
+        <div className="flex gap-2">
+          <a
+            href={blobUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 hover:bg-gray-50"
+          >
+            Abrir en pestaña nueva
+          </a>
+          <a
+            href={blobUrl}
+            download={filename}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+          >
+            <FileDown size={16} /> Descargar
+          </a>
+        </div>
+      </div>
+      <iframe src={blobUrl} title={filename} className="w-full" style={{ height: '75vh', border: 0 }} />
+    </div>
+  );
+}
+
+function SalesSummaryReport() {
+  const stamp = new Date().toISOString().slice(0, 10);
+  return (
+    <PdfReport
+      url={api.salesSummaryPDFUrl()}
+      filename={`resumen-ventas-${stamp}.pdf`}
+      hint="Ventas, cobros y adeudo acumulado, mes a mes y con total por año."
+    />
+  );
+}
+
+function UnpaidReport() {
+  const stamp = new Date().toISOString().slice(0, 10);
+  return (
+    <PdfReport
+      url={api.unpaidPDFUrl()}
+      filename={`facturas-no-pagadas-${stamp}.pdf`}
+      hint="Todas las facturas con saldo, sin importar la antigüedad."
+    />
+  );
+}
 const money = (n: any) =>
   `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 

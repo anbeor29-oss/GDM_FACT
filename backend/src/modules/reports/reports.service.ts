@@ -526,10 +526,157 @@ export async function getSalesDetailReport(
   return { year: opts.year, month: opts.month ?? null, rows, totals };
 }
 
+/**
+ * RESUMEN DE VENTAS POR MES Y AÑO
+ * Una fila por mes: lo vendido, lo cobrado, lo que quedó por cobrar y el
+ * adeudo acumulado (suma corrida de lo no cobrado hasta ese mes).
+ *
+ * "Cobrado" = pagos timbrados + notas de crédito, el MISMO criterio que
+ * getSalesDetailReport, para que ambos reportes reconcilien entre sí.
+ */
+export async function getSalesSummaryReport(companyId: string): Promise<{
+  months: Array<{
+    month: string; year: number; label: string; invoice_count: number;
+    sales: number; paid: number; unpaid: number; cumulative_debt: number;
+  }>;
+  years: Array<{ year: number; sales: number; paid: number; unpaid: number; invoice_count: number }>;
+  totals: { sales: number; paid: number; unpaid: number; invoice_count: number };
+}> {
+  const r = await query<any>(
+    `SELECT
+       TO_CHAR(i.date_issued, 'YYYY-MM') AS month,
+       EXTRACT(YEAR FROM i.date_issued)::int AS year,
+       COUNT(*)::int AS invoice_count,
+       COALESCE(SUM(i.total), 0)::numeric AS sales,
+       COALESCE(SUM(
+         COALESCE((SELECT SUM(p.payment_amount) FROM payments p
+                    WHERE p.invoice_id = i.id AND p.deleted_at IS NULL
+                      AND p.document_status != 'CANCELLED'), 0)
+         + COALESCE((SELECT SUM(cn.total) FROM credit_notes cn
+                    WHERE cn.invoice_id = i.id AND cn.deleted_at IS NULL
+                      AND cn.status != 'CANCELLED'), 0)
+       ), 0)::numeric AS paid
+     FROM invoices i
+     WHERE i.company_id = $1
+       AND i.status NOT IN ('CANCELLED', 'DRAFT')
+       AND i.deleted_at IS NULL
+     GROUP BY month, year
+     ORDER BY month`,
+    [companyId]
+  );
+
+  const MES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+  let running = 0;
+  const months = r.rows.map((row) => {
+    const sales = Number(row.sales);
+    const paid = Math.round(Number(row.paid) * 100) / 100;
+    const unpaid = Math.round((sales - paid) * 100) / 100;
+    running = Math.round((running + unpaid) * 100) / 100;
+    const mIdx = parseInt(String(row.month).slice(5, 7), 10) - 1;
+    return {
+      month: row.month,
+      year: Number(row.year),
+      label: `${MES[mIdx]} ${row.year}`,
+      invoice_count: Number(row.invoice_count),
+      sales, paid, unpaid,
+      cumulative_debt: running,
+    };
+  });
+
+  const byYear = new Map<number, any>();
+  for (const m of months) {
+    if (!byYear.has(m.year)) {
+      byYear.set(m.year, { year: m.year, sales: 0, paid: 0, unpaid: 0, invoice_count: 0 });
+    }
+    const y = byYear.get(m.year)!;
+    y.sales += m.sales; y.paid += m.paid; y.unpaid += m.unpaid;
+    y.invoice_count += m.invoice_count;
+  }
+
+  const totals = months.reduce(
+    (a, m) => ({
+      sales: a.sales + m.sales, paid: a.paid + m.paid,
+      unpaid: a.unpaid + m.unpaid, invoice_count: a.invoice_count + m.invoice_count,
+    }),
+    { sales: 0, paid: 0, unpaid: 0, invoice_count: 0 }
+  );
+
+  return { months, years: Array.from(byYear.values()), totals };
+}
+
+/**
+ * FACTURAS NO PAGADAS — lista plana, cronológica, sin agrupar por cliente.
+ * Abarca TODAS las facturas con saldo, sin importar la antigüedad. A
+ * diferencia de getReceivablesReport (que agrupa por cliente y filtra saldos
+ * > $0.20), aquí solo se descarta el redondeo: saldo >= $0.01.
+ */
+export async function getUnpaidInvoicesReport(companyId: string): Promise<{
+  rows: Array<{
+    id: string; date_issued: string; customer: string; rfc: string;
+    invoice: string; status: string; days: number;
+    total: number; paid: number; balance: number;
+  }>;
+  totals: { total: number; paid: number; balance: number; invoice_count: number };
+}> {
+  const r = await query<any>(
+    `SELECT
+       i.id, i.serie, i.folio, i.date_issued, i.status,
+       i.total::numeric AS total,
+       c.rfc, c.business_name,
+       COALESCE((SELECT SUM(p.payment_amount) FROM payments p
+                  WHERE p.invoice_id = i.id AND p.deleted_at IS NULL
+                    AND p.document_status != 'CANCELLED'), 0)::numeric AS paid,
+       COALESCE((SELECT SUM(cn.total) FROM credit_notes cn
+                  WHERE cn.invoice_id = i.id AND cn.deleted_at IS NULL
+                    AND cn.status != 'CANCELLED'), 0)::numeric AS credited
+     FROM invoices i
+     JOIN customers c ON c.id = i.customer_id
+     WHERE i.company_id = $1
+       AND i.status NOT IN ('CANCELLED', 'DRAFT')
+       AND i.deleted_at IS NULL
+     ORDER BY i.date_issued, i.folio`,
+    [companyId]
+  );
+
+  const today = Date.now();
+  const rows = r.rows
+    .map((x) => {
+      const total = Number(x.total);
+      const paid = Math.round((Number(x.paid) + Number(x.credited)) * 100) / 100;
+      const balance = Math.round((total - paid) * 100) / 100;
+      const days = Math.max(0, Math.floor((today - new Date(x.date_issued).getTime()) / 86400000));
+      return {
+        id: x.id,
+        date_issued: x.date_issued,
+        customer: x.business_name,
+        rfc: x.rfc,
+        invoice: x.serie ? `${x.serie}-${x.folio}` : String(x.folio ?? ''),
+        status: x.status,
+        days,
+        total, paid, balance,
+      };
+    })
+    .filter((x) => x.balance >= 0.01);
+
+  const totals = rows.reduce(
+    (a, x) => ({
+      total: a.total + x.total, paid: a.paid + x.paid,
+      balance: a.balance + x.balance, invoice_count: a.invoice_count + 1,
+    }),
+    { total: 0, paid: 0, balance: 0, invoice_count: 0 }
+  );
+
+  return { rows, totals };
+}
+
 export default {
   getCollectionsReport,
   getSalesReport,
   getSalesDetailReport,
+  getSalesSummaryReport,
+  getUnpaidInvoicesReport,
   getTaxReport,
   getStatusReport,
   getDashboardMetrics,

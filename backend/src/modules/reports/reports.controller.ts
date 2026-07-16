@@ -121,9 +121,59 @@ export async function getReceivablesPDF(req: Request, res: Response) {
   res.send(pdf);
 }
 
+/**
+ * GET /api/v1/reports/sales-summary
+ * Resumen por mes y año: venta, cobrada, no cobrada y adeudo acumulado.
+ */
+export async function getSalesSummary(req: Request, res: Response) {
+  const companyId = getCompanyId(req);
+  const report = await reportsService.getSalesSummaryReport(companyId);
+  res.status(200).json({ success: true, data: report });
+}
+
+/**
+ * GET /api/v1/reports/sales-summary/pdf
+ * El mismo resumen en PDF, inline para verlo en el navegador.
+ */
+export async function getSalesSummaryPDF(req: Request, res: Response) {
+  const companyId = getCompanyId(req);
+  const { generateSalesSummaryPDF } = await import('./sales-pdf.service');
+  const pdf = await generateSalesSummaryPDF(companyId);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'inline; filename="resumen-ventas.pdf"');
+  res.send(pdf);
+}
+
+/**
+ * GET /api/v1/reports/unpaid
+ * Todas las facturas no pagadas, lista plana, sin importar la antigüedad.
+ */
+export async function getUnpaid(req: Request, res: Response) {
+  const companyId = getCompanyId(req);
+  const report = await reportsService.getUnpaidInvoicesReport(companyId);
+  res.status(200).json({ success: true, data: report });
+}
+
+/**
+ * GET /api/v1/reports/unpaid/pdf
+ * Las facturas no pagadas en PDF, inline para verlo en el navegador.
+ */
+export async function getUnpaidPDF(req: Request, res: Response) {
+  const companyId = getCompanyId(req);
+  const { generateUnpaidInvoicesPDF } = await import('./sales-pdf.service');
+  const pdf = await generateUnpaidInvoicesPDF(companyId);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'inline; filename="facturas-no-pagadas.pdf"');
+  res.send(pdf);
+}
+
 export default {
   getCollections,
   getSales,
+  getSalesSummary,
+  getSalesSummaryPDF,
+  getUnpaid,
+  getUnpaidPDF,
   getTax,
   getStatus,
   getDashboard,
