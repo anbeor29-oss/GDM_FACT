@@ -13,24 +13,31 @@ import { Request, Response, NextFunction } from 'express';
 
 export type WorkGroup = 'ADMIN_ALL' | 'VENTAS' | 'ALMACEN' | 'COMPRAS' | 'TESORERIA';
 
-/** Claves de módulo protegibles. */
+/**
+ * Claves de módulo protegibles.
+ *
+ * GDM_FAC es SOLO facturación: aquí únicamente van módulos que existen y
+ * funcionan. Inventarios, compras, tesorería y proveedores pertenecen al
+ * producto ALMACEN (repo GDM_ALMACEN) y no se declaran aquí.
+ */
 export type ModuleKey =
   | 'pos' | 'invoices' | 'credit_notes' | 'customers' | 'reports'
-  | 'products' | 'inventory' | 'warehouses' | 'physical_inventory'
-  | 'purchases' | 'purchase_orders'
-  | 'suppliers' | 'treasury';
+  | 'products';
 
-/** Módulos permitidos por grupo (dashboard es común, no se lista). */
+/**
+ * Módulos permitidos por grupo (dashboard es común, no se lista).
+ * Los grupos ALMACEN/COMPRAS/TESORERIA se conservan para no romper a usuarios
+ * que ya los tengan asignados en BD; en facturación solo alcanzan lo que existe.
+ */
 export const GROUP_MODULES: Record<WorkGroup, ModuleKey[]> = {
   ADMIN_ALL: [
     'pos', 'invoices', 'credit_notes', 'customers', 'reports',
-    'products', 'inventory', 'warehouses', 'physical_inventory',
-    'purchases', 'purchase_orders', 'suppliers', 'treasury',
+    'products',
   ],
   VENTAS:    ['pos', 'invoices', 'credit_notes', 'customers', 'reports'],
-  ALMACEN:   ['products', 'inventory', 'warehouses', 'physical_inventory'],
-  COMPRAS:   ['purchases', 'purchase_orders'],
-  TESORERIA: ['suppliers', 'treasury'],
+  ALMACEN:   ['products'],
+  COMPRAS:   [],
+  TESORERIA: [],
 };
 
 export function groupCanAccess(group: WorkGroup | undefined, mod: ModuleKey): boolean {

@@ -24,7 +24,6 @@ import { ImportXMLWizardPage } from '@/pages/ImportXMLWizard';
 import { SuppliersPage }      from '@/pages/Suppliers';
 import { useAuthStore } from '@/store/auth';
 import { PointOfSalePage } from '@/pages/PointOfSale';
-import { ComingSoon } from '@/pages/ComingSoon';
 import { canAccess, type ModuleKey } from '@/utils/permissions';
 
 const queryClient = new QueryClient();
@@ -124,17 +123,11 @@ export function App() {
             <Route path="credit-notes" element={<ModuleRoute module="credit_notes"><CreditNotesPage /></ModuleRoute>} />
             <Route path="customers"    element={<ModuleRoute module="customers"><CustomersPage /></ModuleRoute>} />
             <Route path="reports"      element={<ModuleRoute module="reports"><ReportsPage /></ModuleRoute>} />
-            {/* Almacén */}
-            <Route path="products"     element={<ModuleRoute module="products"><ProductsPage /></ModuleRoute>} />
-            <Route path="inventory"           element={<ModuleRoute module="inventory"><ComingSoon title="Inventarios" description="Existencias por producto, kardex de movimientos y valuación." bullets={['Kardex de entradas y salidas','Existencia y costo promedio','Alertas de mínimos y máximos']} /></ModuleRoute>} />
-            <Route path="warehouses"          element={<ModuleRoute module="warehouses"><ComingSoon title="Almacenes" description="Alta de almacenes y ubicaciones, traspasos entre ellos." bullets={['Múltiples almacenes por empresa','Traspasos entre almacenes','Existencia por ubicación']} /></ModuleRoute>} />
-            <Route path="physical-inventory"  element={<ModuleRoute module="physical_inventory"><ComingSoon title="Inventario físico" description="Conteos físicos y ajustes contra el sistema." bullets={['Hojas de conteo','Diferencias físico vs sistema','Ajustes con folio y motivo']} /></ModuleRoute>} />
-            {/* Compras */}
-            <Route path="purchases"       element={<ModuleRoute module="purchases"><ComingSoon title="Compras" description="Registro de compras a proveedores que alimentan el inventario." bullets={['Compras con recepción de mercancía','Costeo automático','Vínculo con proveedores']} /></ModuleRoute>} />
-            <Route path="purchase-orders" element={<ModuleRoute module="purchase_orders"><ComingSoon title="Órdenes de compra" description="Solicitudes de compra y su seguimiento hasta recepción." bullets={['Órdenes con autorización','Seguimiento pendiente/recibida','Conversión a compra']} /></ModuleRoute>} />
-            {/* Tesorería */}
-            <Route path="suppliers-tesoreria" element={<ModuleRoute module="suppliers"><SuppliersPage /></ModuleRoute>} />
-            <Route path="treasury"            element={<ModuleRoute module="treasury"><ComingSoon title="Tesorería" description="Cuentas por pagar, flujo de efectivo y pagos a proveedores." bullets={['Cuentas por pagar','Programación de pagos','Flujo de efectivo']} /></ModuleRoute>} />
+            {/* Catálogos. Inventarios, compras, tesorería y proveedores NO viven
+                aquí: son del producto ALMACEN (repo GDM_ALMACEN). GDM_FAC es solo
+                facturación. SuppliersPage sigue existiendo, pero SOLO para el
+                SUPER_ADMIN de la plataforma (ruta /suppliers, más abajo). */}
+            <Route path="products" element={<ModuleRoute module="products"><ProductsPage /></ModuleRoute>} />
 
             {/* Módulos de plataforma — SOLO SUPER_ADMIN (guard por URL directa) */}
             <Route path="admin/packages"  element={<SuperAdminRoute><AdminPackagesPage /></SuperAdminRoute>} />

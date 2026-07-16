@@ -23,11 +23,6 @@ import {
   DollarSign,
   ShoppingCart,
   Store,
-  Warehouse,
-  ClipboardCheck,
-  ShoppingBag,
-  ClipboardList,
-  Landmark,
 } from 'lucide-react';
 import { canAccess, type ModuleKey } from '@/utils/permissions';
 import { useState, useCallback } from 'react';
@@ -120,19 +115,8 @@ export function Layout() {
                 {show('customers')    && <NavItem to="/customers"    icon={<Users size={20} />}       accent="emerald" label="Clientes"         open={sidebarOpen} />}
                 {show('reports')      && <NavItem to="/reports"      icon={<BarChart3 size={20} />}   accent="violet"  label="Reportes"         open={sidebarOpen} />}
 
-                {/* Almacén */}
-                {show('products')           && <NavItem to="/products"           icon={<Boxes size={20} />}          accent="fuchsia" label="Productos"        open={sidebarOpen} />}
-                {show('inventory')          && <NavItem to="/inventory"          icon={<ClipboardList size={20} />}  accent="sky"     label="Inventarios"      open={sidebarOpen} />}
-                {show('warehouses')         && <NavItem to="/warehouses"         icon={<Warehouse size={20} />}      accent="violet"  label="Almacenes"        open={sidebarOpen} />}
-                {show('physical_inventory') && <NavItem to="/physical-inventory" icon={<ClipboardCheck size={20} />} accent="amber"   label="Inventario físico" open={sidebarOpen} />}
-
-                {/* Compras */}
-                {show('purchases')       && <NavItem to="/purchases"       icon={<ShoppingBag size={20} />}  accent="rose"    label="Compras"           open={sidebarOpen} />}
-                {show('purchase_orders') && <NavItem to="/purchase-orders" icon={<ClipboardList size={20} />} accent="amber"  label="Órdenes de compra" open={sidebarOpen} />}
-
-                {/* Tesorería */}
-                {show('suppliers') && <NavItem to="/suppliers-tesoreria" icon={<Truck size={20} />}    accent="fuchsia" label="Proveedores" open={sidebarOpen} />}
-                {show('treasury')  && <NavItem to="/treasury"            icon={<Landmark size={20} />} accent="emerald" label="Tesorería"   open={sidebarOpen} />}
+                {/* Catálogos */}
+                {show('products') && <NavItem to="/products" icon={<Boxes size={20} />} accent="fuchsia" label="Productos" open={sidebarOpen} />}
               </>
             );
           })()}
