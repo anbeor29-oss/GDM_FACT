@@ -83,12 +83,19 @@ services:
       - key: SW_SAPIEN_TOKEN
         sync: false        # SECRETO: se llena a mano desde Environment tab
 
-      # ─── CORS: URL completa del frontend (con https://) ───────────
+      # ─── CORS: URLs completas de los frontends (con https://) ─────
       # No se puede usar `fromService` porque Render inyecta solo el host sin
       # protocolo (`gdmfac-frontend.onrender.com`) y el middleware CORS del
       # backend compara con el header Origin que SÍ incluye protocolo.
+      #
+      # Son DOS frontends contra este mismo backend:
+      #   · gdmfac-frontend.onrender.com → el estático de Render
+      #   · hcgm.com.mx (/erp)           → el hosting de México (zip a cPanel)
+      # Si falta un origen, el navegador bloquea TODA petición desde él —
+      # incluido el login, que se ve como "ningún usuario funciona".
+      # Se listan con y sin www porque son orígenes distintos para el navegador.
       - key: CORS_ORIGIN
-        value: "https://gdmfac-frontend.onrender.com"
+        value: "https://gdmfac-frontend.onrender.com,https://hcgm.com.mx,https://www.hcgm.com.mx"
       - key: CORS_CREDENTIALS
         value: "true"
 
