@@ -21,6 +21,12 @@ export interface StampResult {
   fecha_timbrado?: string;
   cadena_original_sat?: string;
   qr_code?: string;           // Código QR para el PDF
+  /**
+   * true cuando la factura YA estaba timbrada y esto es un reintento: el
+   * resultado se reconstruyó de lo guardado y NO se consumió un timbre nuevo.
+   * El cliente lo necesita para no reportar un cobro que no ocurrió.
+   */
+  already_stamped?: boolean;
   errors: string[];
 }
 

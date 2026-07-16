@@ -8,7 +8,7 @@
  */
 
 import { query, transaction, transactionQuery } from '../../config/database';
-import { ValidationError, NotFoundError } from '../../middleware/errorHandler';
+import { ValidationError, NotFoundError, ConflictError } from '../../middleware/errorHandler';
 import logger from '../../middleware/logger';
 import {
   IPACProvider,
@@ -76,22 +76,118 @@ function getCredentials(_companyId: string): PACCredentials {
   };
 }
 
+/** Minutos tras los cuales un reclamo de timbrado se considera abandonado. */
+const STAMP_CLAIM_TTL_MIN = 2;
+
 /**
- * TIMBRAR una factura
- * 1. Genera XML CFDI (si no existe)
- * 2. Envía al PAC para timbrado
- * 3. Guarda XML timbrado, UUID, sellos en BD
- * 4. Cambia status a STAMPED
+ * Reconstruye el StampResult de una factura YA timbrada, leyendo lo que se
+ * guardó en su momento. Sirve al reintento idempotente: el cliente recibe
+ * exactamente lo que habría recibido si no se hubiera caído la señal.
+ *
+ * Se lee de `pac_stamps` (el historial) porque ahí viven los sellos y el QR;
+ * la factura solo guarda el UUID y el XML.
+ */
+async function buildResultFromStamped(
+  companyId: string,
+  invoiceId: string,
+  invoice: any
+): Promise<StampResult> {
+  const r = await query<any>(
+    `SELECT uuid, sello_sat, sello_cfd, no_certificado_sat, fecha_timbrado, qr_code
+       FROM pac_stamps
+      WHERE invoice_id = $1 AND company_id = $2
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [invoiceId, companyId]
+  );
+  const s = r.rows[0] || {};
+  return {
+    success: true,
+    uuid: invoice.cfdi_uuid,
+    xml_stamped: invoice.xml_content,
+    sello_sat: s.sello_sat,
+    sello_cfd: s.sello_cfd,
+    no_certificado_sat: s.no_certificado_sat,
+    fecha_timbrado: s.fecha_timbrado || invoice.pac_timestamp,
+    qr_code: s.qr_code,
+    errors: [],
+    // Bandera para que el cliente sepa que NO se consumió un timbre nuevo.
+    already_stamped: true,
+  };
+}
+
+/**
+ * Reclama el timbrado de forma ATÓMICA. Devuelve true si esta petición se
+ * queda con la operación; false si otra la tiene en curso.
+ *
+ * El `WHERE` es el que decide: Postgres resuelve la carrera entre dos
+ * peticiones simultáneas (doble toque, o reintento mientras la primera sigue
+ * en vuelo — cotidiano con datos móviles). Sin esto, ambas leerían DRAFT,
+ * ambas llamarían al PAC y se gastarían DOS timbres en una factura.
+ *
+ * El reclamo caduca a los STAMP_CLAIM_TTL_MIN minutos: si el proceso muere
+ * entre el reclamo y el PAC, la factura no queda bloqueada para siempre.
+ */
+async function claimStamping(companyId: string, invoiceId: string): Promise<boolean> {
+  const r = await query(
+    `UPDATE invoices
+        SET stamping_started_at = NOW()
+      WHERE id = $1
+        AND company_id = $2
+        AND is_stamped = false
+        AND (stamping_started_at IS NULL
+             OR stamping_started_at < NOW() - INTERVAL '${STAMP_CLAIM_TTL_MIN} minutes')`,
+    [invoiceId, companyId]
+  );
+  return (r.rowCount || 0) > 0;
+}
+
+/** Libera el reclamo para que el usuario pueda reintentar tras un fallo. */
+async function releaseStamping(companyId: string, invoiceId: string): Promise<void> {
+  await query(
+    `UPDATE invoices SET stamping_started_at = NULL WHERE id = $1 AND company_id = $2`,
+    [invoiceId, companyId]
+  ).catch(() => { /* liberar es best-effort: el TTL lo cubre igual */ });
+}
+
+/**
+ * TIMBRAR una factura — idempotente.
+ * 1. Si ya está timbrada, devuelve su resultado (no es error: es un reintento)
+ * 2. Reclama la operación de forma atómica (evita gastar dos timbres)
+ * 3. Genera XML CFDI (si no existe)
+ * 4. Envía al PAC para timbrado
+ * 5. Guarda XML timbrado, UUID, sellos en BD y libera el reclamo
  */
 export async function stampInvoice(companyId: string, invoiceId: string): Promise<StampResult> {
   const invoice = await invoicesService.getInvoiceById(companyId, invoiceId);
 
-  // Validar que la factura esté lista para timbrar
-  if (invoice.status === 'STAMPED' || invoice.is_stamped) {
-    throw new ValidationError('La factura ya está timbrada');
-  }
   if (invoice.status === 'CANCELLED') {
     throw new ValidationError('No se puede timbrar una factura cancelada');
+  }
+
+  // ── Reintento idempotente ────────────────────────────────────────────────
+  // Antes esto lanzaba "La factura ya está timbrada". Con datos móviles ese
+  // error es cotidiano y engañoso: el backend timbró bien, la respuesta se
+  // perdió en el camino y el usuario reintentó. La factura EXISTE y está
+  // correcta — devolverle un error lo deja sin su PDF ni su XML creyendo que
+  // falló.
+  //
+  // El invoiceId ya es una clave de idempotencia natural (la factura existe
+  // como DRAFT antes de timbrarse), así que no hace falta que el cliente
+  // invente una: repetir la petición devuelve el mismo resultado. Eso es,
+  // literalmente, ser idempotente.
+  if (invoice.status === 'STAMPED' || invoice.is_stamped) {
+    if (!invoice.cfdi_uuid) {
+      // Marcada como timbrada pero sin UUID: estado inconsistente que NO se
+      // debe presentar como éxito ni resolver retimbrando a ciegas.
+      throw new ValidationError(
+        'La factura figura como timbrada pero no tiene UUID. No se retimbra ' +
+        'automáticamente para no gastar otro timbre: revisa el historial de ' +
+        'timbres o consulta el estado en el PAC.'
+      );
+    }
+    logger.info(`Timbrado idempotente: la factura ${invoiceId} ya estaba timbrada; devolviendo su resultado`);
+    return await buildResultFromStamped(companyId, invoiceId, invoice);
   }
 
   // Validar que la empresa tenga CSD cargado (.cer + .key + contraseña)
@@ -113,6 +209,17 @@ export async function stampInvoice(companyId: string, invoiceId: string): Promis
   // extras se cobran al cierre del mes.
   await billingService.assertCanStamp(companyId);
 
+  // ── Reclamo atómico ──────────────────────────────────────────────────────
+  // A partir de aquí llamamos al PAC, que consume un timbre. Solo UNA petición
+  // puede pasar: la carrera la resuelve Postgres, no un if.
+  if (!(await claimStamping(companyId, invoiceId))) {
+    throw new ConflictError(
+      'Esta factura ya se está timbrando en este momento. Espera unos segundos ' +
+      'y consulta su estado: si la conexión se cortó, el timbre pudo completarse.'
+    );
+  }
+
+  try {
   // Elegir provider y ruta.
   //   · Si el provider soporta stampFromJson (SW Sapien), preferimos JSON:
   //     no manejamos la .key en el backend — SW la trae del vault + sella + timbra.
@@ -155,7 +262,9 @@ export async function stampInvoice(companyId: string, invoiceId: string): Promis
     throw new ValidationError(`Timbrado fallido: ${result.errors.join('; ')}`);
   }
 
-  // Guardar resultado en transacción
+  // Guardar resultado en transacción. El reclamo se limpia AQUÍ, en la misma
+  // transacción que marca is_stamped: si se limpiara aparte y esa segunda
+  // consulta fallara, la factura quedaría timbrada y reclamada a la vez.
   await transaction(async (client) => {
     await transactionQuery(
       client,
@@ -166,6 +275,7 @@ export async function stampInvoice(companyId: string, invoiceId: string): Promis
            status = 'STAMPED',
            pac_timestamp = $3,
            pac_id = $4,
+           stamping_started_at = NULL,
            updated_at = NOW()
        WHERE id = $5 AND company_id = $6`,
       [
@@ -218,6 +328,17 @@ export async function stampInvoice(companyId: string, invoiceId: string): Promis
   logger.info(`Factura ${invoice.serie}-${invoice.folio} timbrada. UUID: ${result.uuid}`);
 
   return result;
+  } catch (e) {
+    // El PAC rechazó, la red falló o reventó el guardado: liberamos el reclamo
+    // para que el usuario pueda reintentar sin esperar los 2 minutos del TTL.
+    //
+    // OJO: si el PAC SÍ timbró y lo que falló fue guardar, el timbre ya se
+    // consumió y esta liberación permite reintentar y gastar otro. Ese caso
+    // (tramo backend→PAC) exige consultar el UUID en el PAC antes de retimbrar
+    // — documentado en READMEAPIFAC §8.2(b) y NO resuelto aquí.
+    await releaseStamping(companyId, invoiceId);
+    throw e;
+  }
 }
 
 /**

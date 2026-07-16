@@ -28,11 +28,19 @@ export async function stamp(req: Request, res: Response) {
   const { active: activeProvider } = pacService.listProviders();
   const isMock = activeProvider === 'MOCK';
 
+  // Reintento idempotente: la factura ya estaba timbrada. Se responde 200 con
+  // su resultado (el cliente necesita el UUID para bajar PDF/XML), pero el
+  // mensaje NO debe decir "timbrada" como si acabara de ocurrir: no se consumió
+  // un timbre y anunciarlo así confundiría al usuario y a quien lea los logs.
+  const message = result.already_stamped
+    ? 'Esta factura ya estaba timbrada; se devuelve su timbre (no se consumió uno nuevo).'
+    : isMock
+      ? 'Factura timbrada (MODO SIMULACIÓN - sin validez fiscal)'
+      : `Factura timbrada con ${activeProvider}`;
+
   res.status(200).json({
     success: true,
-    message: isMock
-      ? 'Factura timbrada (MODO SIMULACIÓN - sin validez fiscal)'
-      : `Factura timbrada con ${activeProvider}`,
+    message,
     data: {
       uuid: result.uuid,
       fecha_timbrado: result.fecha_timbrado,
@@ -40,6 +48,7 @@ export async function stamp(req: Request, res: Response) {
       qr_code: result.qr_code,
       provider: activeProvider,
       is_mock: isMock,
+      already_stamped: result.already_stamped === true,
     },
   });
 }
