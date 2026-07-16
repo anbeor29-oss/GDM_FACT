@@ -316,6 +316,128 @@ function CollectionsReport() {
   );
 }
 
+const MONTHS = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
+const money = (n: any) =>
+  `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Detalle de ventas por mes/año: fecha, cliente, factura, importe, pagado, no pagado. */
+function SalesDetail() {
+  const now = new Date();
+  const [year, setYear] = useState<number>(now.getFullYear());
+  const [month, setMonth] = useState<number>(now.getMonth() + 1); // 0 = todo el año
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['report-sales-detail', year, month],
+    queryFn: () => api.getSalesDetailReport(year, month || undefined),
+  });
+
+  const report = data?.data;
+  const rows: any[] = report?.rows || [];
+  const totals = report?.totals || { total: 0, paid: 0, unpaid: 0, invoice_count: 0 };
+  const years = Array.from({ length: 6 }, (_, i) => now.getFullYear() - i);
+
+  return (
+    <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+      <div className="p-6 pb-4 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-bold text-gray-900">Ventas por periodo</h3>
+          <p className="text-sm text-gray-500">Detalle de facturación y cobranza del periodo seleccionado.</p>
+        </div>
+        <div className="flex items-end gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Mes</label>
+            <select
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+            >
+              <option value={0}>Todo el año</option>
+              {MONTHS.map((m, i) => (
+                <option key={i} value={i + 1}>{m}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Año</label>
+            <select
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Totales del periodo */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 px-6 pb-4">
+        <SummaryCard label="Ventas totales" value={money(totals.total)} highlight />
+        <SummaryCard label="Ventas cobradas" value={money(totals.paid)} />
+        <SummaryCard label="Ventas no cobradas" value={money(totals.unpaid)} />
+      </div>
+
+      {isLoading ? (
+        <div className="p-6"><LoadingState /></div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-y border-gray-200">
+              <tr>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Fecha</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Cliente</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Factura</th>
+                <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">Importe</th>
+                <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">Pagado</th>
+                <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">No pagado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">
+                    Sin ventas en el periodo seleccionado.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((r) => (
+                  <tr key={r.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-3 text-sm text-gray-600 whitespace-nowrap">
+                      {new Date(r.date_issued).toLocaleDateString('es-MX')}
+                    </td>
+                    <td className="px-6 py-3 text-sm font-medium text-gray-900">{r.customer}</td>
+                    <td className="px-6 py-3 text-sm text-gray-600 whitespace-nowrap">{r.invoice}</td>
+                    <td className="px-6 py-3 text-sm text-gray-900 text-right whitespace-nowrap">{money(r.total)}</td>
+                    <td className="px-6 py-3 text-sm text-green-600 text-right whitespace-nowrap">{money(r.paid)}</td>
+                    <td className="px-6 py-3 text-sm text-red-600 text-right whitespace-nowrap">{money(r.unpaid)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            {rows.length > 0 && (
+              <tfoot className="bg-gray-50 border-t-2 border-gray-300 font-semibold">
+                <tr>
+                  <td className="px-6 py-3 text-sm text-gray-900" colSpan={3}>
+                    Totales ({totals.invoice_count} facturas)
+                  </td>
+                  <td className="px-6 py-3 text-sm text-gray-900 text-right whitespace-nowrap">{money(totals.total)}</td>
+                  <td className="px-6 py-3 text-sm text-green-700 text-right whitespace-nowrap">{money(totals.paid)}</td>
+                  <td className="px-6 py-3 text-sm text-red-700 text-right whitespace-nowrap">{money(totals.unpaid)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SalesReport() {
   const { data, isLoading } = useQuery({
     queryKey: ['report-sales'],
@@ -333,6 +455,9 @@ function SalesReport() {
 
   return (
     <div className="space-y-6">
+      {/* Detalle de ventas por periodo (fecha, cliente, factura, importe, pagado, no pagado) */}
+      <SalesDetail />
+
       {/* Resumen */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <SummaryCard label="Facturas" value={report?.summary?.total_invoices || 0} />

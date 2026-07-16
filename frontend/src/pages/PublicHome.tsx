@@ -15,7 +15,7 @@ import {
   FileText, ScanText, FileUp, FileMinus2, Users, Boxes, BarChart3,
   ShieldCheck, LogIn, Wallet, Mail, Ban, QrCode,
   ClipboardCheck, Building2, FileSignature, Send,
-  ChevronDown,
+  ChevronDown, BookOpen,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GdmLogo } from '@/components/GdmLogo';
@@ -221,6 +221,15 @@ export function PublicHomePage() {
             className="inline-flex items-center gap-2 border-2 border-slate-300 hover:border-indigo-400 text-slate-700 px-8 py-3.5 rounded-lg font-semibold text-base transition-colors"
           >
             Ver planes
+          </a>
+          <a
+            href={`${import.meta.env.BASE_URL}manual-usuario.pdf`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Abrir el manual de usuario en PDF"
+            className="inline-flex items-center gap-2 border-2 border-slate-300 hover:border-indigo-400 text-slate-700 px-4 py-3.5 rounded-lg font-semibold text-sm transition-colors"
+          >
+            <BookOpen size={16} /> Manual
           </a>
         </div>
       </section>

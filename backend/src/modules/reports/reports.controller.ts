@@ -43,6 +43,27 @@ export async function getSales(req: Request, res: Response) {
 }
 
 /**
+ * GET /api/v1/reports/sales-detail?year=YYYY&month=MM
+ * Reporte de ventas detallado por periodo (mes obligatorio opcional).
+ */
+export async function getSalesDetail(req: Request, res: Response) {
+  const companyId = getCompanyId(req);
+  const year = parseInt(req.query.year as string, 10);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    throw new ValidationError('Parámetro "year" inválido');
+  }
+  let month: number | undefined;
+  if (req.query.month !== undefined && req.query.month !== '') {
+    month = parseInt(req.query.month as string, 10);
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new ValidationError('Parámetro "month" inválido');
+    }
+  }
+  const report = await reportsService.getSalesDetailReport(companyId, { year, month });
+  res.status(200).json({ success: true, data: report });
+}
+
+/**
  * GET /api/v1/reports/tax
  * Reporte fiscal
  */

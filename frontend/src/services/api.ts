@@ -349,6 +349,14 @@ class APIClient {
     return response.data;
   }
 
+  /** Reporte de ventas detallado por periodo (mes opcional). */
+  async getSalesDetailReport(year: number, month?: number) {
+    const response = await this.client.get('/reports/sales-detail', {
+      params: month ? { year, month } : { year },
+    });
+    return response.data;
+  }
+
   async getTaxReport(dateFrom?: string, dateTo?: string) {
     const response = await this.client.get('/reports/tax', {
       params: { dateFrom, dateTo },

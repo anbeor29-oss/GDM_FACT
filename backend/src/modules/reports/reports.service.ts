@@ -442,9 +442,94 @@ export async function getReceivablesReport(
   };
 }
 
+/**
+ * REPORTE DE VENTAS DETALLADO (por mes/año)
+ * Una fila por factura timbrada del periodo con: fecha, cliente, folio,
+ * importe, pagado (pagos + notas de crédito) y no pagado (saldo).
+ * Totaliza: ventas totales, ventas cobradas y ventas no cobradas.
+ */
+export async function getSalesDetailReport(
+  companyId: string,
+  opts: { year: number; month?: number }
+): Promise<{
+  year: number;
+  month: number | null;
+  rows: Array<{
+    id: string;
+    date_issued: string;
+    customer: string;
+    rfc: string;
+    invoice: string;
+    total: number;
+    paid: number;
+    unpaid: number;
+    status: string;
+  }>;
+  totals: { total: number; paid: number; unpaid: number; invoice_count: number };
+}> {
+  const params: any[] = [companyId, opts.year];
+  let periodClause = `AND EXTRACT(YEAR FROM i.date_issued) = $2`;
+  if (opts.month) {
+    params.push(opts.month);
+    periodClause += ` AND EXTRACT(MONTH FROM i.date_issued) = $3`;
+  }
+
+  const invsR = await query<any>(
+    `SELECT
+       i.id, i.serie, i.folio, i.date_issued, i.status,
+       i.total::numeric AS total,
+       c.rfc, c.business_name,
+       COALESCE((SELECT SUM(payment_amount) FROM payments p
+                  WHERE p.invoice_id = i.id AND p.deleted_at IS NULL
+                    AND p.document_status != 'CANCELLED'), 0)::numeric AS paid,
+       COALESCE((SELECT SUM(total) FROM credit_notes cn
+                  WHERE cn.invoice_id = i.id AND cn.deleted_at IS NULL
+                    AND cn.status != 'CANCELLED'), 0)::numeric AS credited
+     FROM invoices i
+     JOIN customers c ON c.id = i.customer_id
+     WHERE i.company_id = $1
+       AND i.status NOT IN ('CANCELLED', 'DRAFT')
+       AND i.deleted_at IS NULL
+       ${periodClause}
+     ORDER BY i.date_issued, i.folio`,
+    params
+  );
+
+  const rows = invsR.rows.map((r) => {
+    const total = Number(r.total);
+    // "Pagado" = lo que ya liquidó la factura: pagos recibidos + notas de crédito.
+    const paid = Math.round((Number(r.paid) + Number(r.credited)) * 100) / 100;
+    const unpaid = Math.round((total - paid) * 100) / 100;
+    return {
+      id: r.id,
+      date_issued: r.date_issued,
+      customer: r.business_name,
+      rfc: r.rfc,
+      invoice: r.serie ? `${r.serie}-${r.folio}` : String(r.folio ?? ''),
+      total,
+      paid,
+      unpaid,
+      status: r.status,
+    };
+  });
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      total: acc.total + r.total,
+      paid: acc.paid + r.paid,
+      unpaid: acc.unpaid + r.unpaid,
+      invoice_count: acc.invoice_count + 1,
+    }),
+    { total: 0, paid: 0, unpaid: 0, invoice_count: 0 }
+  );
+
+  return { year: opts.year, month: opts.month ?? null, rows, totals };
+}
+
 export default {
   getCollectionsReport,
   getSalesReport,
+  getSalesDetailReport,
   getTaxReport,
   getStatusReport,
   getDashboardMetrics,

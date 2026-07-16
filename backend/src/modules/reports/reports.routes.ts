@@ -13,6 +13,7 @@ router.use(authenticateToken);
 
 router.get('/collections', asyncHandler(reportsController.getCollections));
 router.get('/sales', asyncHandler(reportsController.getSales));
+router.get('/sales-detail', asyncHandler(reportsController.getSalesDetail));
 router.get('/tax', asyncHandler(reportsController.getTax));
 router.get('/status', asyncHandler(reportsController.getStatus));
 router.get('/dashboard', asyncHandler(reportsController.getDashboard));
