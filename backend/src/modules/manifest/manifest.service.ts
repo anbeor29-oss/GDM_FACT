@@ -71,7 +71,7 @@ RFC del firmante: ${opts.rfc}`
 
 /* ─────────────── Utilidades de certificado ─────────────── */
 
-interface CertInfo {
+export interface CertInfo {
   rfc: string | null;
   name: string | null;
   serial: string;
@@ -85,7 +85,12 @@ interface CertInfo {
  * El RFC viaja en el subject como x500UniqueIdentifier (a veces con CURP:
  * "RFC / CURP"). El serial del SAT viene hex-encodeado por pares ASCII.
  */
-function parseCertificate(cerDer: Buffer): CertInfo {
+/**
+ * Primitiva compartida de e.firma. La usa también el módulo de contratos: es
+ * la ÚNICA implementación de lectura de certificados del SAT — si se duplica,
+ * las validaciones divergen (RFC, vigencia, correspondencia .cer/.key).
+ */
+export function parseCertificate(cerDer: Buffer): CertInfo {
   let x509: crypto.X509Certificate;
   try {
     x509 = new crypto.X509Certificate(cerDer);
@@ -129,7 +134,8 @@ function parseCertificate(cerDer: Buffer): CertInfo {
  * Abre la .key del SAT (PKCS#8 DER cifrado) con su contraseña.
  * Node soporta EncryptedPrivateKeyInfo DER nativo con passphrase.
  */
-function openPrivateKey(keyDer: Buffer, password: string): crypto.KeyObject {
+/** Primitiva compartida de e.firma (ver nota en parseCertificate). */
+export function openPrivateKey(keyDer: Buffer, password: string): crypto.KeyObject {
   try {
     return crypto.createPrivateKey({
       key: keyDer,

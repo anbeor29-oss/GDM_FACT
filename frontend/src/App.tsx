@@ -23,6 +23,7 @@ import { AdminPrepaidPage }   from '@/pages/AdminPrepaid';
 import { ImportXMLWizardPage } from '@/pages/ImportXMLWizard';
 import { SuppliersPage }      from '@/pages/Suppliers';
 import { TeamPage }           from '@/pages/Team';
+import { ContractPage }       from '@/pages/Contract';
 import { useAuthStore } from '@/store/auth';
 import { canAccess, type ModuleKey } from '@/utils/permissions';
 
@@ -141,6 +142,9 @@ export function App() {
             <Route path="products" element={<ModuleRoute module="products"><ProductsPage /></ModuleRoute>} />
             {/* Equipo: el ADMIN de la empresa gestiona a sus USER. */}
             <Route path="team" element={<CompanyOnlyRoute><CompanyAdminRoute><TeamPage /></CompanyAdminRoute></CompanyOnlyRoute>} />
+            {/* Contrato: lo lee cualquier usuario de empresa; firmarlo exige ADMIN
+                (el guard real está en el backend). */}
+            <Route path="contract" element={<CompanyOnlyRoute><ContractPage /></CompanyOnlyRoute>} />
 
             {/* Módulos de plataforma — SOLO SUPER_ADMIN (guard por URL directa) */}
             <Route path="admin/packages"  element={<SuperAdminRoute><AdminPackagesPage /></SuperAdminRoute>} />

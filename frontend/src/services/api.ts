@@ -349,6 +349,27 @@ class APIClient {
     return response.data;
   }
 
+  /* ────── Contrato de prestación de servicios (e.firma) ────── */
+
+  async getContract() {
+    const r = await this.client.get('/contract');
+    return r.data;
+  }
+
+  /**
+   * Firma el contrato con la e.firma. Los archivos van en base64: la .key y la
+   * contraseña se usan solo para firmar y el backend nunca las persiste.
+   */
+  async signContract(body: { cerB64: string; keyB64: string; password: string }) {
+    const r = await this.client.post('/contract/sign', body);
+    return r.data;
+  }
+
+  async verifyContract() {
+    const r = await this.client.get('/contract/verify');
+    return r.data;
+  }
+
   /* ────── Equipo: el ADMIN gestiona a los USER de SU empresa ────── */
 
   async getTeam() {
