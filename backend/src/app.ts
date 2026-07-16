@@ -34,6 +34,7 @@ import creditNotesRoutes from './modules/credit-notes/credit-notes.routes';
 import archiveRoutes from './modules/archive/archive.routes';
 import teamRoutes from './modules/team/team.routes';
 import contractsRoutes from './modules/contracts/contracts.routes';
+import activityLog from './middleware/activity-log';
 import adminUsersRoutes     from './modules/admin/admin-users.routes';
 import adminCompaniesRoutes from './modules/admin/admin-companies.routes';
 import adminAuditRoutes     from './modules/admin/admin-audit.routes';
@@ -112,6 +113,11 @@ export function createApp(): Express {
   // import invoiceRoutes from './modules/invoices/invoices.routes';
   // import paymentRoutes from './modules/payments/payments.routes';
   // import reportRoutes from './modules/reports/reports.routes';
+
+  // Bitácora de actividad (cláusula SEXTA del contrato). Va ANTES de las rutas
+  // aunque necesite req.user: registra dentro de res.on('finish'), que corre
+  // cuando el authenticateToken de cada router ya pobló req.user.
+  app.use(`/api/${config.apiVersion}`, activityLog);
 
   app.use(`/api/${config.apiVersion}/auth`, authRoutes);
   // Uploads de CSD + logo (montar ANTES de companiesRoutes para que /:id/csd

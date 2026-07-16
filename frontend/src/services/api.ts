@@ -398,6 +398,21 @@ class APIClient {
     return r.data;
   }
 
+  /**
+   * Activa/desactiva el REPORTE mensual de la bitácora de un usuario.
+   * La actividad se registra siempre; esto solo controla el envío.
+   */
+  async setTeamUserMonitoring(id: string, body: { enabled: boolean; email?: string }) {
+    const r = await this.client.put(`/team/${id}/monitoring`, body);
+    return r.data;
+  }
+
+  /** Bitácora de un usuario (confidencial: solo el ADMIN de su empresa). */
+  async getTeamUserActivity(id: string, limit = 100) {
+    const r = await this.client.get(`/team/${id}/activity`, { params: { limit } });
+    return r.data;
+  }
+
   /** Resumen de ventas por mes y año (venta, cobrada, no cobrada, adeudo). */
   async getSalesSummaryReport() {
     const response = await this.client.get('/reports/sales-summary');

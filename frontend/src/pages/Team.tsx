@@ -8,7 +8,7 @@
  */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { UserPlus, KeyRound, Ban, Check, Copy, Loader2, ShieldCheck } from 'lucide-react';
+import { UserPlus, KeyRound, Ban, Check, Copy, Loader2, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 import api from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 
@@ -22,12 +22,16 @@ interface TeamUser {
   password_change_required: boolean;
   last_login: string | null;
   created_at: string;
+  monitoring_enabled: boolean;
+  monitoring_email: string | null;
+  monitoring_set_at: string | null;
 }
 
 export function TeamPage() {
   const qc = useQueryClient();
   const me = useAuthStore((s) => s.user);
   const [showNew, setShowNew] = useState(false);
+  const [monitorTarget, setMonitorTarget] = useState<TeamUser | null>(null);
   // La contraseña temporal se ve UNA vez: el backend no la vuelve a entregar.
   const [tempPass, setTempPass] = useState<{ email: string; pass: string } | null>(null);
 
@@ -87,6 +91,7 @@ export function TeamPage() {
                 <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Rol</th>
                 <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Estado</th>
                 <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Último acceso</th>
+                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Reporte mensual</th>
                 <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">Acciones</th>
               </tr>
             </thead>
@@ -115,6 +120,32 @@ export function TeamPage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">
                       {u.last_login ? new Date(u.last_login).toLocaleString('es-MX') : 'Nunca'}
+                    </td>
+                    <td className="px-6 py-4">
+                      {isAdmin ? (
+                        <span className="text-xs text-gray-400">—</span>
+                      ) : u.monitoring_enabled ? (
+                        <button
+                          onClick={() => setMonitorTarget(u)}
+                          className="text-left group/m"
+                          title="Cambiar o desactivar el reporte"
+                        >
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold bg-indigo-50 text-indigo-700">
+                            <Eye size={12} /> Activo
+                          </span>
+                          <span className="block text-xs text-gray-500 mt-1 group-hover/m:underline">
+                            {u.monitoring_email}
+                          </span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setMonitorTarget(u)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-gray-500 hover:bg-gray-100"
+                          title="Activar el reporte mensual de este usuario"
+                        >
+                          <EyeOff size={12} /> Desactivado
+                        </button>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-1">
@@ -153,7 +184,7 @@ export function TeamPage() {
               })}
               {users.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">
+                  <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
                     Todavía no hay usuarios. Crea el primero con "Nuevo usuario".
                   </td>
                 </tr>
@@ -169,6 +200,96 @@ export function TeamPage() {
           onCreated={(email, pass) => { setTempPass({ email, pass }); setShowNew(false); invalidate(); }}
         />
       )}
+
+      {monitorTarget && (
+        <MonitoringModal
+          user={monitorTarget}
+          onClose={() => setMonitorTarget(null)}
+          onSaved={() => { setMonitorTarget(null); invalidate(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Activa/desactiva el REPORTE mensual. Deja explícito que la bitácora se
+ * registra siempre: el usuario debe entender qué está prendiendo, o creerá
+ * que apagarlo detiene el registro (y no es así).
+ */
+function MonitoringModal({ user, onClose, onSaved }: { user: TeamUser; onClose: () => void; onSaved: () => void }) {
+  const [enabled, setEnabled] = useState(user.monitoring_enabled);
+  const [email, setEmail] = useState(user.monitoring_email || '');
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = useMutation({
+    mutationFn: () => api.setTeamUserMonitoring(user.id, { enabled, email: email.trim() }),
+    onSuccess: onSaved,
+    onError: (e: any) => setErr(e?.response?.data?.message || 'No se pudo guardar'),
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-xl font-bold text-gray-900">Reporte mensual de actividad</h2>
+          <p className="text-sm text-gray-600 mt-1">{user.first_name} {user.last_name} · {user.email}</p>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">{err}</p>}
+
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-700">
+            La actividad de <b>todos</b> los usuarios se registra siempre, por auditoría y
+            cumplimiento fiscal. Este interruptor solo decide si se <b>envía</b> un resumen
+            mensual y a qué correo.
+          </div>
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+              className="mt-1 w-4 h-4" />
+            <span className="text-sm">
+              <b className="text-gray-900">Enviar el reporte mensual de este usuario</b>
+              <span className="block text-gray-600">
+                Se manda el día 1 de cada mes con la actividad del mes anterior.
+              </span>
+            </span>
+          </label>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Correo que recibirá el reporte</label>
+            <input type="email" value={email} disabled={!enabled}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="supervisor@empresa.com"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100" />
+            <p className="text-xs text-gray-500 mt-1">
+              Confidencial: el reporte llega solo a esta dirección. Al usuario monitoreado no
+              se le envía copia.
+            </p>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
+            Conforme a la cláusula SEXTA del contrato, tu empresa se obliga a informar a sus
+            usuarios de este registro y a cumplir la normatividad laboral y de datos personales
+            aplicable.
+          </div>
+        </div>
+
+        <div className="p-6 pt-0 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50">
+            Cancelar
+          </button>
+          <button
+            onClick={() => { setErr(null); save.mutate(); }}
+            disabled={save.isPending}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50"
+          >
+            {save.isPending && <Loader2 size={16} className="animate-spin" />}
+            Guardar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

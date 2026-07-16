@@ -18,6 +18,7 @@
 
 import cron from 'node-cron';
 import logger from '../middleware/logger';
+import { sendMonthlyReports } from '../modules/team/monitoring.service';
 import { closeMonth, prevMonthStart } from '../modules/billing/close-month.service';
 import { issueAllForPeriod } from '../modules/billing/issue-invoice.service';
 import { checkPrepaidAlerts, sendPaymentReminders } from '../modules/billing/billing-alerts.service';
@@ -76,6 +77,16 @@ export function registerBillingCron(): void {
   cron.schedule('0 9 10 * *', () => {
     sendPaymentReminders().catch((e) =>
       logger.error(`[billing-cron] payment reminders: ${e.message}`)
+    );
+  });
+
+  // Día 1 a las 06:00: reporte mensual de la bitácora a los usuarios que el
+  // ADMIN de cada empresa marcó para monitoreo (cláusula SEXTA del contrato).
+  // Se corre después del cierre de facturación (00:15) para no competir por
+  // el pool de conexiones ni por el SMTP.
+  cron.schedule('0 6 1 * *', () => {
+    sendMonthlyReports().catch((e) =>
+      logger.error(`[billing-cron] monitoring reports: ${e.message}`)
     );
   });
 

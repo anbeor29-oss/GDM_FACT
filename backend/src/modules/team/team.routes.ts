@@ -61,7 +61,8 @@ function validEmail(s: string): boolean {
 router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const r = await query<any>(
     `SELECT id, email, first_name, last_name, role, is_active,
-            password_change_required, last_login, created_at
+            password_change_required, last_login, created_at,
+            monitoring_enabled, monitoring_email, monitoring_set_at
        FROM users
       WHERE company_id = $1
         AND role IN ('ADMIN', 'USER')
@@ -135,6 +136,67 @@ router.post('/:id/enable', asyncHandler(async (req: Request, res: Response) => {
   await audit(req, { action: 'TEAM_USER_ENABLED', targetKind: 'user', targetId: u.id,
     payload: { email: u.email } });
   res.status(200).json({ success: true, message: 'Usuario reactivado' });
+}));
+
+/* ────────────────────────  MONITOREO  ──────────────────────── */
+/**
+ * Activa/desactiva el reporte mensual de la bitácora de un USER.
+ *
+ * OJO con la semántica (cláusula SEXTA del contrato): la actividad de TODOS
+ * los usuarios se registra siempre — eso es auditoría, no es opcional. Este
+ * interruptor solo decide si se ENVÍA el resumen mensual y a qué correo.
+ */
+router.put('/:id/monitoring', asyncHandler(async (req: Request, res: Response) => {
+  const u = await findOwnUser(req, req.params.id);
+  const enabled = req.body?.enabled === true;
+  const email = String(req.body?.email || '').trim();
+
+  // La BD tiene un CHECK equivalente; validamos aquí para dar un mensaje útil
+  // en vez de un error de constraint.
+  if (enabled && !validEmail(email)) {
+    throw new ValidationError('Para activar el monitoreo indica un correo válido de destino');
+  }
+
+  await query(
+    `UPDATE users
+        SET monitoring_enabled = $1,
+            monitoring_email   = $2,
+            monitoring_set_by  = $3,
+            monitoring_set_at  = NOW()
+      WHERE id = $4`,
+    [enabled, enabled ? email.toLowerCase() : null, req.user!.userId, u.id]
+  );
+
+  await audit(req, {
+    action: enabled ? 'TEAM_MONITORING_ENABLED' : 'TEAM_MONITORING_DISABLED',
+    targetKind: 'user', targetId: u.id,
+    payload: { email: u.email, reportTo: enabled ? email : null },
+  });
+
+  res.status(200).json({
+    success: true,
+    message: enabled
+      ? `Reporte mensual activado. Se enviará a ${email}.`
+      : 'Reporte mensual desactivado. La actividad se sigue registrando en la bitácora.',
+  });
+}));
+
+/**
+ * Bitácora de un USER de mi empresa. Confidencial: solo el ADMIN de la propia
+ * empresa (findOwnUser garantiza el aislamiento).
+ */
+router.get('/:id/activity', asyncHandler(async (req: Request, res: Response) => {
+  const u = await findOwnUser(req, req.params.id);
+  const limit = Math.min(500, Math.max(1, parseInt(String(req.query.limit || '100'), 10)));
+  const r = await query<any>(
+    `SELECT ts, action, entity, entity_id, method, path, status_code, ip
+       FROM user_activity_log
+      WHERE user_id = $1 AND company_id = $2
+      ORDER BY ts DESC
+      LIMIT $3`,
+    [u.id, req.user!.companyId, limit]
+  );
+  res.status(200).json({ success: true, data: { user: u.email, rows: r.rows } });
 }));
 
 /* ────────────────────────  RESET PASSWORD  ──────────────────────── */
