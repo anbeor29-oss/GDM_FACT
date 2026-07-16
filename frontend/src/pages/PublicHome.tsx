@@ -15,7 +15,7 @@ import {
   FileText, ScanText, FileUp, FileMinus2, Users, Boxes, BarChart3,
   ShieldCheck, LogIn, Wallet, Mail, Ban, QrCode,
   ClipboardCheck, Building2, FileSignature, Send,
-  ChevronDown, BookOpen,
+  ChevronDown, BookOpen, Stamp,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GdmLogo } from '@/components/GdmLogo';
@@ -73,19 +73,26 @@ const PLANS = [
   },
 ];
 
+/**
+ * Módulos de la landing. El `tint` NO es decorativo al azar: reproduce el color
+ * con el que ese módulo aparece dentro del sistema (acento del menú lateral o
+ * color del icono en el panel de facturas), para que quien entra reconozca lo
+ * que vio aquí. Las clases van completas porque Tailwind no compila strings
+ * construidos en tiempo de ejecución.
+ */
 const MODULES = [
-  { icon: <ScanText size={22}/>,     title: 'Lector CIF',       desc: 'Sube el PDF de la Constancia de Situación Fiscal SAT y el sistema autollena RFC, razón social, régimen y CP.' },
-  { icon: <FileUp size={22}/>,       title: 'Importar XMLs',    desc: 'Al leer un XML recibido, detecta si el emisor es cliente o proveedor y crea el catálogo automáticamente.' },
-  { icon: <FileText size={22}/>,     title: 'Facturación CFDI 4.0', desc: 'Emisión con retenciones RESICO, honorarios, arrendamiento; timbrado real ante el SAT con PAC autorizado.' },
-  { icon: <FileMinus2 size={22}/>,   title: 'Notas de crédito', desc: 'Aplica descuentos o cancelaciones con prorrateo automático de IVA. CFDI tipo E vinculado a la factura origen.' },
-  { icon: <Wallet size={22}/>,       title: 'Complemento de Pago', desc: 'CFDI tipo P para facturas PPD. Descuenta pagos previos y NC en el cálculo del saldo insoluto (Anexo 20).' },
-  { icon: <Mail size={22}/>,         title: 'Envío por correo',  desc: 'Manda al cliente PDF + XML de la factura y de cada NC o complemento de pago vinculado. SMTP con dominio propio.' },
-  { icon: <Ban size={22}/>,          title: 'Cancelación en cascada', desc: 'Cancela primero pagos y NC desde el modal Historia; después la factura padre. Envío directo al PAC + bypass local.' },
-  { icon: <QrCode size={22}/>,       title: 'QR de verificación SAT', desc: 'Los PDFs incluyen QR con la URL oficial del portal SAT. El cliente escanea y valida el CFDI en el momento.' },
-  { icon: <Users size={22}/>,        title: 'Clientes y Proveedores', desc: 'Catálogo con dirección fiscal, régimen, uso CFDI por defecto y saldo de cuenta.' },
-  { icon: <Boxes size={22}/>,        title: 'Productos',        desc: 'Preset fiscal por producto (IVA 16, 8, 0, exento, RESICO, honorarios, IEPS). 52 mil claves SAT indexadas.' },
-  { icon: <BarChart3 size={22}/>,    title: 'Reportes',         desc: 'Cobranza total, cobranza detallada por cliente con saldo > $0.20, ventas por período, fiscal y auditable.' },
-  { icon: <ShieldCheck size={22}/>,  title: 'Compliance SAT',   desc: 'CSD cifrado con pgcrypto, bitácora inmutable 5 años, XML timbrado firmado por el SAT, PDF Anexo 20.' },
+  { icon: <ScanText size={22}/>,     tint: 'bg-sky-50 text-sky-600',         title: 'Lector CIF',       desc: 'Sube el PDF de la Constancia de Situación Fiscal SAT y el sistema autollena RFC, razón social, régimen y CP.' },
+  { icon: <FileUp size={22}/>,       tint: 'bg-amber-50 text-amber-600',     title: 'Importar XMLs',    desc: 'Al leer un XML recibido, detecta si el emisor es cliente o proveedor y crea el catálogo automáticamente.' },
+  { icon: <Stamp size={22}/>,        tint: 'bg-purple-50 text-purple-600',   title: 'Facturación CFDI 4.0', desc: 'Emisión con retenciones RESICO, honorarios, arrendamiento; timbrado real ante el SAT con PAC autorizado.' },
+  { icon: <FileMinus2 size={22}/>,   tint: 'bg-rose-50 text-rose-600',       title: 'Notas de crédito', desc: 'Aplica descuentos o cancelaciones con prorrateo automático de IVA. CFDI tipo E vinculado a la factura origen.' },
+  { icon: <Wallet size={22}/>,       tint: 'bg-green-50 text-green-700',     title: 'Complemento de Pago', desc: 'CFDI tipo P para facturas PPD. Descuenta pagos previos y NC en el cálculo del saldo insoluto (Anexo 20).' },
+  { icon: <Mail size={22}/>,         tint: 'bg-indigo-50 text-indigo-600',   title: 'Envío por correo',  desc: 'Manda al cliente PDF + XML de la factura y de cada NC o complemento de pago vinculado. SMTP con dominio propio.' },
+  { icon: <Ban size={22}/>,          tint: 'bg-orange-50 text-orange-600',   title: 'Cancelación en cascada', desc: 'Cancela primero pagos y NC desde el modal Historia; después la factura padre. Envío directo al PAC + bypass local.' },
+  { icon: <QrCode size={22}/>,       tint: 'bg-blue-50 text-blue-600',       title: 'QR de verificación SAT', desc: 'Los PDFs incluyen QR con la URL oficial del portal SAT. El cliente escanea y valida el CFDI en el momento.' },
+  { icon: <Users size={22}/>,        tint: 'bg-emerald-50 text-emerald-600', title: 'Clientes y Proveedores', desc: 'Catálogo con dirección fiscal, régimen, uso CFDI por defecto y saldo de cuenta.' },
+  { icon: <Boxes size={22}/>,        tint: 'bg-fuchsia-50 text-fuchsia-600', title: 'Productos',        desc: 'Preset fiscal por producto (IVA 16, 8, 0, exento, RESICO, honorarios, IEPS). 52 mil claves SAT indexadas.' },
+  { icon: <BarChart3 size={22}/>,    tint: 'bg-violet-50 text-violet-600',   title: 'Reportes',         desc: 'Cobranza total, cobranza detallada por cliente con saldo > $0.20, ventas por período, fiscal y auditable.' },
+  { icon: <ShieldCheck size={22}/>,  tint: 'bg-teal-50 text-teal-600',       title: 'Compliance SAT',   desc: 'CSD cifrado con pgcrypto, bitácora inmutable 5 años, XML timbrado firmado por el SAT, PDF Anexo 20.' },
 ];
 
 const HOW_STEPS = [
@@ -240,8 +247,11 @@ export function PublicHomePage() {
         <p className="text-slate-600 text-center mb-10">Todo lo que necesita tu empresa en un solo sistema</p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {MODULES.map((m) => (
-            <div key={m.title} className="bg-white border border-slate-200 rounded-xl p-5 hover:shadow-md transition-shadow">
-              <div className="w-11 h-11 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600 mb-3">
+            <div
+              key={m.title}
+              className="group bg-white border border-slate-200 rounded-xl p-5 transition-all duration-200 hover:shadow-lg hover:border-slate-300 hover:-translate-y-0.5"
+            >
+              <div className={`w-11 h-11 ${m.tint} rounded-lg flex items-center justify-center mb-3 transition-transform duration-200 group-hover:scale-110`}>
                 {m.icon}
               </div>
               <h3 className="font-bold text-slate-900 mb-1">{m.title}</h3>

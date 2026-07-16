@@ -17,8 +17,13 @@ export type WorkGroup = 'ADMIN_ALL' | 'VENTAS' | 'ALMACEN' | 'COMPRAS' | 'TESORE
  * Claves de módulo protegibles.
  *
  * GDM_FAC es SOLO facturación: aquí únicamente van módulos que existen y
- * funcionan. Inventarios, compras, tesorería y proveedores pertenecen al
- * producto ALMACEN (repo GDM_ALMACEN) y no se declaran aquí.
+ * funcionan. Punto de Venta, inventarios, compras, tesorería y proveedores
+ * pertenecen al producto ALMACEN (repo GDM_ALMACEN) y no se ofrecen aquí.
+ *
+ * 'pos' sigue declarado como clave porque el módulo backend (modules/pos)
+ * todavía existe y usa requireModule('pos'), pero NO se concede a ningún
+ * grupo: sus endpoints responden 403 y la UI ya no lo expone. Al migrarlo a
+ * ALMACEN se puede borrar el módulo y esta clave.
  */
 export type ModuleKey =
   | 'pos' | 'invoices' | 'credit_notes' | 'customers' | 'reports'
@@ -31,10 +36,10 @@ export type ModuleKey =
  */
 export const GROUP_MODULES: Record<WorkGroup, ModuleKey[]> = {
   ADMIN_ALL: [
-    'pos', 'invoices', 'credit_notes', 'customers', 'reports',
+    'invoices', 'credit_notes', 'customers', 'reports',
     'products',
   ],
-  VENTAS:    ['pos', 'invoices', 'credit_notes', 'customers', 'reports'],
+  VENTAS:    ['invoices', 'credit_notes', 'customers', 'reports'],
   ALMACEN:   ['products'],
   COMPRAS:   [],
   TESORERIA: [],

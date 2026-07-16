@@ -23,7 +23,6 @@ import { AdminPrepaidPage }   from '@/pages/AdminPrepaid';
 import { ImportXMLWizardPage } from '@/pages/ImportXMLWizard';
 import { SuppliersPage }      from '@/pages/Suppliers';
 import { useAuthStore } from '@/store/auth';
-import { PointOfSalePage } from '@/pages/PointOfSale';
 import { canAccess, type ModuleKey } from '@/utils/permissions';
 
 const queryClient = new QueryClient();
@@ -115,8 +114,8 @@ export function App() {
           >
             {/* Operación diaria — gateada por grupo de trabajo (SUPER_ADMIN redirigido) */}
             <Route path="dashboard"    element={<CompanyOnlyRoute><DashboardPage /></CompanyOnlyRoute>} />
-            {/* Ventas */}
-            <Route path="pos"          element={<ModuleRoute module="pos"><PointOfSalePage /></ModuleRoute>} />
+            {/* Facturación. Punto de Venta NO vive aquí: es del producto ALMACEN
+                (repo GDM_ALMACEN), igual que inventarios, compras y tesorería. */}
             <Route path="invoices"     element={<ModuleRoute module="invoices"><InvoicesPage /></ModuleRoute>} />
             <Route path="invoices/new"       element={<ModuleRoute module="invoices"><NewInvoicePage /></ModuleRoute>} />
             <Route path="invoices/:id/edit"  element={<ModuleRoute module="invoices"><NewInvoicePage /></ModuleRoute>} />

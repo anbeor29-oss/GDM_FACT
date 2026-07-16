@@ -22,7 +22,6 @@ import {
   Truck,
   DollarSign,
   ShoppingCart,
-  Store,
 } from 'lucide-react';
 import { canAccess, type ModuleKey } from '@/utils/permissions';
 import { useState, useCallback } from 'react';
@@ -108,8 +107,7 @@ export function Layout() {
               <>
                 <NavItem to="/dashboard" icon={<LayoutGrid size={20} />} accent="sky" label="Dashboard" open={sidebarOpen} />
 
-                {/* Ventas */}
-                {show('pos')          && <NavItem to="/pos"          icon={<Store size={20} />}       accent="emerald" label="Punto de Venta"   open={sidebarOpen} />}
+                {/* Facturación */}
                 {show('invoices')     && <NavItem to="/invoices"     icon={<FileText size={20} />}    accent="amber"   label="Facturas"         open={sidebarOpen} />}
                 {show('credit_notes') && <NavItem to="/credit-notes" icon={<FileMinus2 size={20} />}  accent="rose"    label="Notas de Crédito" open={sidebarOpen} />}
                 {show('customers')    && <NavItem to="/customers"    icon={<Users size={20} />}       accent="emerald" label="Clientes"         open={sidebarOpen} />}

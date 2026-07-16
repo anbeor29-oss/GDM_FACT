@@ -9,16 +9,16 @@
 export type WorkGroup = 'ADMIN_ALL' | 'VENTAS' | 'ALMACEN' | 'COMPRAS' | 'TESORERIA';
 
 export type ModuleKey =
-  | 'dashboard' | 'pos' | 'invoices' | 'credit_notes' | 'customers' | 'reports'
+  | 'dashboard' | 'invoices' | 'credit_notes' | 'customers' | 'reports'
   | 'products';
 
 /**
  * dashboard es común a todos los grupos.
  *
  * GDM_FAC es SOLO facturación: aquí únicamente se listan módulos que existen
- * y funcionan. Inventarios, compras, tesorería y proveedores pertenecen al
- * producto ALMACEN (repo GDM_ALMACEN) y NO se anuncian aquí para no confundir
- * al usuario con módulos que este sistema no opera.
+ * y funcionan. Punto de Venta, inventarios, compras, tesorería y proveedores
+ * pertenecen al producto ALMACEN (repo GDM_ALMACEN) y NO se anuncian aquí
+ * para no confundir al usuario con módulos que este sistema no opera.
  *
  * Los grupos ALMACEN/COMPRAS/TESORERIA se conservan a propósito: si un
  * usuario los tiene guardados en BD y el grupo no existiera en este mapa,
@@ -26,10 +26,10 @@ export type ModuleKey =
  */
 export const GROUP_MODULES: Record<WorkGroup, ModuleKey[]> = {
   ADMIN_ALL: [
-    'dashboard', 'pos', 'invoices', 'credit_notes', 'customers', 'reports',
+    'dashboard', 'invoices', 'credit_notes', 'customers', 'reports',
     'products',
   ],
-  VENTAS:    ['dashboard', 'pos', 'invoices', 'credit_notes', 'customers', 'reports'],
+  VENTAS:    ['dashboard', 'invoices', 'credit_notes', 'customers', 'reports'],
   ALMACEN:   ['dashboard', 'products'],
   COMPRAS:   ['dashboard'],
   TESORERIA: ['dashboard'],
