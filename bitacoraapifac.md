@@ -101,3 +101,42 @@ documentar la API es prerrequisito de construir contra ella.
 Quedan **5 preguntas abiertas** (ver READMEAPIFAC §9): notificaciones push vs
 correo, sesión en móvil, definición de "productos del cliente frecuente",
 factura global sin POS, y publicación en Play Store.
+
+---
+
+## 2026-07-16 (cierre) — Acuerdo: cola de recarga y envío desde el dispositivo
+
+### Contexto
+El usuario planteó el escenario real: se timbra desde el móvil, se cae la señal,
+**el timbre se guardó bien en la nube** pero el PDF no llegó al teléfono. Propuso
+(1) una rutina que al volver los datos recargue lo pendiente en el dispositivo y
+(2) solicitar un correo cargado en el móvil para enviar desde ahí.
+
+### Acordado
+**Cola de pendientes con recarga automática: sí.** El diagnóstico del usuario era
+correcto: todo está en la nube, al teléfono solo le faltan los archivos. Y es
+barato porque **los PDF se regeneran al vuelo** (nunca se persisten): recargar es
+volver a pedirlos, sin estado extra en el servidor.
+
+### Discutido y modificado
+**Se descarta guardar una cuenta de correo con contraseña en el dispositivo:**
+- OWASP A02: una contraseña en un teléfono perdido es una fuga. Hoy ni el CSD ni
+  la e.firma viven en el dispositivo; esto rompería el principio.
+- Gmail/Outlook **bloquean SMTP con contraseña desde 2022** (exigen OAuth).
+- Es innecesario: el teléfono ya tiene su app de correo autenticada.
+
+**En su lugar: compartir nativo** (`@capacitor/share`) — Android abre la app de
+correo/WhatsApp ya autenticada, con los adjuntos. Cero credenciales guardadas.
+
+### Matiz que se le señaló al usuario
+**Enviar también exige conexión.** "Enviar desde el móvil" NO resuelve la falta de
+señal — resuelve inmediatez y flexibilidad. Y tiene un costo: si el operador
+comparte desde su correo personal, el cliente recibe la factura de una dirección
+personal y **no queda constancia** del envío en el sistema.
+
+Por eso se conservan **dos vías**: compartir nativo (atajo de campo, sin
+registro) y el envío del sistema (`sendInvoiceMail`, ya existe: sale del dominio
+de la empresa y queda registrado).
+
+### Consecuencia
+Diseño de la Fase 5 acordado. Sin código todavía: entra con el APK.

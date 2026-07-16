@@ -251,6 +251,44 @@ Es el caso caro, pero **raro**: es red de datacenter, no celular.
 4. **(b)**: al reintentar, consultar primero en el PAC si el UUID ya existe antes
    de volver a timbrar.
 
+### 8.2b Cola de recarga y envío desde el dispositivo (acordado 2026-07-16)
+
+**Escenario:** se timbra desde el móvil, se pierde la señal, el timbre **se
+guardó bien en la nube** pero los archivos no llegaron al teléfono. La factura
+aparece como timbrada y sus iconos de PDF/XML existen — al operador solo le
+faltan los archivos.
+
+**Acordado — cola de pendientes con recarga automática:**
+1. El dispositivo mantiene una cola: *"factura X timbrada, archivos no bajados"*.
+2. Al volver la conexión, descarga PDF y XML (`@capacitor/filesystem`).
+3. Marca resuelto y avisa: *"tus N facturas ya están listas para enviar"*.
+
+Es barato porque **los PDF se regeneran al vuelo** (nunca se persisten): la
+recarga es volver a pedirlos, sin estado extra en el servidor.
+
+**Envío — decisión y su porqué:**
+
+Se **descarta** guardar una cuenta de correo con contraseña en el dispositivo
+para mandar SMTP desde ahí:
+- **Seguridad (OWASP A02):** una contraseña de correo en un teléfono que se
+  pierde es una fuga. Hoy ni el CSD ni la e.firma viven en el dispositivo;
+  meter credenciales rompería ese principio.
+- **Ya no funciona:** Gmail y Outlook bloquean SMTP con contraseña desde 2022
+  (exigen OAuth).
+- **No hace falta:** el teléfono ya tiene su app de correo autenticada.
+
+**En su lugar, dos vías que resuelven cosas distintas:**
+
+| Vía | Sale de | Cuándo | Registro |
+|---|---|---|---|
+| **Compartir nativo** (`@capacitor/share`) | El correo/WhatsApp del **operador** | En la calle, inmediato | ❌ No queda constancia |
+| **Envío del sistema** (`sendInvoiceMail`, ya existe) | El **dominio de la empresa** | Formal | ✅ Registrado |
+
+⚠️ **Enviar también exige conexión**: "enviar desde el móvil" NO resuelve la
+falta de señal — resuelve inmediatez y flexibilidad. Quien elija compartir debe
+saber que el cliente recibirá la factura de un correo personal y que **no
+quedará constancia** del envío en el sistema.
+
 ### 8.3 OWASP — token en un dispositivo perdido
 | Riesgo | Mitigación |
 |---|---|
