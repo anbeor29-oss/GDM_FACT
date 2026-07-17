@@ -725,6 +725,15 @@ class APIClient {
     const r = await this.client.post(`/admin/users/${id}/reset-password`, {});
     return r.data;
   }
+  /**
+   * Borrado DEFINITIVO. Solo procede si el usuario no tiene historial: el
+   * backend rechaza a quien firmó, timbró o subió un CSD, porque su rastro es
+   * evidencia. Exige el correo exacto como confirmación.
+   */
+  async adminDeleteUser(id: string, confirmEmail: string) {
+    const r = await this.client.delete(`/admin/users/${id}`, { params: { confirmEmail } });
+    return r.data;
+  }
   async adminDisableUser(id: string) {
     const r = await this.client.post(`/admin/users/${id}/disable`, {});
     return r.data;

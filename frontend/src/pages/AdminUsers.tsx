@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { UserPlus, KeyRound, UserX, UserCheck, X, Shield, UserCog } from 'lucide-react';
+import { UserPlus, KeyRound, UserX, UserCheck, X, Shield, UserCog, Pencil, Trash2, Save } from 'lucide-react';
 import api from '@/services/api';
 import { useAuthStore } from '@/store/auth';
 
@@ -24,6 +24,7 @@ export function AdminUsersPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [editTarget, setEditTarget] = useState<any>(null);
 
   if (user?.role !== 'SUPER_ADMIN') {
     return (
@@ -58,6 +59,17 @@ export function AdminUsersPage() {
   const enable = useMutation({
     mutationFn: (id: string) => api.adminEnableUser(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
+  });
+
+  const del = useMutation({
+    mutationFn: (u: any) => api.adminDeleteUser(u.id, u.email),
+    onSuccess: (r) => {
+      alert(r.message || 'Usuario borrado');
+      qc.invalidateQueries({ queryKey: ['admin-users'] });
+    },
+    // El backend rechaza con el detalle de QUÉ lo ata (contratos, CSD, ventas…).
+    // Se muestra tal cual: es la explicación que el operador necesita.
+    onError: (e: any) => alert(e?.response?.data?.message || 'No se pudo borrar'),
   });
 
   /** Impersonar: reemplaza el JWT local por el del usuario target y navega al dashboard. */
@@ -144,6 +156,10 @@ export function AdminUsersPage() {
                 </td>
                 <td className="px-4 py-2">
                   <div className="flex items-center justify-center gap-1">
+                    <IconBtn title="Editar rol, grupo y nombre" color="sky"
+                      onClick={() => setEditTarget(u)}>
+                      <Pencil size={16}/>
+                    </IconBtn>
                     <IconBtn title="Resetear password" color="amber"
                       onClick={() => { if (confirm(`Generar nueva contraseña temporal para ${u.email}?`)) reset.mutate(u.id); }}>
                       <KeyRound size={16}/>
@@ -170,6 +186,23 @@ export function AdminUsersPage() {
                         <UserCheck size={16}/>
                       </IconBtn>
                     )}
+                    {/* Borrado definitivo: el backend solo lo permite si el usuario
+                        NO tiene historial (no firmó, no timbró, no subió CSD). Si lo
+                        tiene, responde explicando qué lo ata y sugiriendo dar de baja. */}
+                    {u.id !== user?.userId && (
+                      <IconBtn title="Borrar definitivamente" color="rose"
+                        onClick={() => {
+                          if (!confirm(
+                            `¿Borrar DEFINITIVAMENTE a ${u.email}?\n\n` +
+                            `Esto no se puede deshacer. Si el usuario ya operó (firmó, timbró, ` +
+                            `subió un CSD), el sistema lo rechazará: su rastro es evidencia y ` +
+                            `debe conservarse — en ese caso dalo de baja.`
+                          )) return;
+                          del.mutate(u);
+                        }}>
+                        <Trash2 size={16}/>
+                      </IconBtn>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -188,6 +221,126 @@ export function AdminUsersPage() {
           onDone={() => { setShowCreate(false); qc.invalidateQueries({ queryKey: ['admin-users'] }); }}
         />
       )}
+      {editTarget && (
+        <EditUserModal
+          user={editTarget}
+          companies={companies}
+          onClose={() => setEditTarget(null)}
+          onDone={() => { setEditTarget(null); qc.invalidateQueries({ queryKey: ['admin-users'] }); }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Editar rol, grupo de trabajo, nombre y empresa.
+ *
+ * El rol define AUTORIDAD; el grupo define QUÉ MÓDULOS ve. Son cosas distintas
+ * y por eso se editan por separado (ver permissions.ts).
+ *
+ * Los campos viven en componentes de nivel de módulo (`<input>` directo), no en
+ * un helper definido aquí dentro: si se define dentro, cada tecla remonta el
+ * input y se pierde el foco — el bug que se corrigió en AdminCompanies.
+ */
+function EditUserModal({ user, companies, onClose, onDone }: any) {
+  const [form, setForm] = useState({
+    firstName: user.first_name || '',
+    lastName:  user.last_name || '',
+    role:      user.role || 'USER',
+    workGroup: user.work_group || 'ADMIN_ALL',
+    companyId: user.company_id || '',
+  });
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setBusy(true);
+    try {
+      await api.adminUpdateUser(user.id, {
+        firstName: form.firstName,
+        lastName:  form.lastName,
+        role:      form.role,
+        workGroup: form.workGroup,
+        // El SUPER_ADMIN no pertenece a una empresa: opera la plataforma.
+        companyId: form.role === 'SUPER_ADMIN' ? null : (form.companyId || null),
+      });
+      onDone();
+    } catch (err: any) {
+      setError(err.response?.data?.message || err.message);
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <form onSubmit={submit} className="bg-white rounded-lg shadow-xl w-full max-w-lg">
+        <div className="flex items-center justify-between p-5 border-b">
+          <div>
+            <h2 className="font-bold text-gray-900">Editar usuario</h2>
+            <p className="text-xs text-gray-500 font-mono">{user.email}</p>
+          </div>
+          <button type="button" onClick={onClose} className="p-2 hover:bg-gray-100 rounded"><X size={20}/></button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-medium text-gray-600 block mb-1">Nombre</span>
+              <input className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500"
+                value={form.firstName} onChange={(e)=>setForm({...form, firstName:e.target.value})}/>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-600 block mb-1">Apellido</span>
+              <input className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500"
+                value={form.lastName} onChange={(e)=>setForm({...form, lastName:e.target.value})}/>
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 block mb-1">Rol (define su autoridad)</span>
+            <select className="w-full border border-slate-300 rounded px-3 py-2 text-sm"
+              value={form.role} onChange={(e)=>setForm({...form, role:e.target.value})}>
+              {ROLES.map((r: any) => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600 block mb-1">Grupo de trabajo (define qué módulos ve)</span>
+            <select className="w-full border border-slate-300 rounded px-3 py-2 text-sm"
+              value={form.workGroup} onChange={(e)=>setForm({...form, workGroup:e.target.value})}>
+              {WORK_GROUPS.map((g: any) => <option key={g.value} value={g.value}>{g.label}</option>)}
+            </select>
+          </label>
+
+          {form.role !== 'SUPER_ADMIN' && (
+            <label className="block">
+              <span className="text-xs font-medium text-gray-600 block mb-1">Empresa</span>
+              <select className="w-full border border-slate-300 rounded px-3 py-2 text-sm"
+                value={form.companyId} onChange={(e)=>setForm({...form, companyId:e.target.value})}>
+                <option value="">— sin empresa —</option>
+                {companies.map((c: any) => <option key={c.id} value={c.id}>{c.rfc} · {c.business_name}</option>)}
+              </select>
+            </label>
+          )}
+
+          {form.role === 'SUPER_ADMIN' && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded">
+              El SUPER_ADMIN opera la plataforma, no una empresa: su empresa se deja vacía.
+            </p>
+          )}
+        </div>
+
+        <div className="flex gap-3 p-5 border-t">
+          <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50">Cancelar</button>
+          <button type="submit" disabled={busy}
+            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg disabled:opacity-50">
+            <Save size={16}/> {busy ? 'Guardando…' : 'Guardar cambios'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -208,6 +361,8 @@ function IconBtn({ color, title, onClick, children }: any) {
     red:'text-red-600 hover:bg-red-50',
     green:'text-emerald-600 hover:bg-emerald-50',
     indigo:'text-indigo-600 hover:bg-indigo-50',
+    sky:'text-sky-600 hover:bg-sky-50',
+    rose:'text-rose-600 hover:bg-rose-50',
   };
   return <button type="button" title={title} onClick={onClick} className={`p-1.5 rounded ${map[color]}`}>{children}</button>;
 }

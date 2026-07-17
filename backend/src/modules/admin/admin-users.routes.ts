@@ -172,6 +172,85 @@ router.put('/:id', asyncHandler(async (req: Request, res: Response) => {
   res.json({ success: true, data: r.rows[0] });
 }));
 
+/* ────────────────────────  BORRADO DEFINITIVO  ────────────────────────
+ * DELETE /admin/users/:id?confirmEmail=...
+ *
+ * Solo borra usuarios SIN historial. No es una limitación técnica que haya que
+ * sortear: es la regla correcta.
+ *
+ * Ocho tablas referencian users(id) con ON DELETE NO ACTION —
+ * companies.csd_uploaded_by_user_id, service_contracts.signed_by_user,
+ * sw_manifests.signed_by_user, pos_sales.sold_by, monthly_invoicing.generated_by,
+ * prepaid_stamp_purchases.granted_by, users.created_by_user_id y
+ * users.monitoring_set_by. Borrar a quien firmó un contrato o subió un CSD
+ * destruiría la evidencia de QUIÉN lo hizo, en un sistema que debe conservar
+ * rastro fiscal 5 años.
+ *
+ * Por eso: si el usuario tiene historial, se rechaza con el detalle de qué lo
+ * ata y se sugiere darlo de baja (soft), que preserva la auditoría. El borrado
+ * real queda para el caso legítimo: el usuario capturado por error que nunca
+ * operó.
+ *
+ * audit_log, user_activity_log y xml_imports son ON DELETE SET NULL: conservan
+ * `user_email`, así que el rastro sobrevive al borrado aunque se pierda el id.
+ */
+router.delete('/:id', asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new ValidationError('id inválido');
+
+  const uR = await query<any>('SELECT id, email, role FROM users WHERE id = $1', [id]);
+  if (uR.rows.length === 0) throw new NotFoundError('Usuario no encontrado');
+  const user = uR.rows[0];
+
+  // Confirmación server-side: hay que escribir el email exacto. Mismo patrón
+  // que el borrado de empresa — la fricción es deliberada.
+  const confirmEmail = String(req.query.confirmEmail || req.body?.confirmEmail || '').toLowerCase().trim();
+  if (confirmEmail !== String(user.email).toLowerCase()) {
+    throw new ValidationError(
+      `Para borrar definitivamente escribe el correo exacto del usuario: ${user.email}`
+    );
+  }
+
+  // Nadie se borra a sí mismo: quedarías fuera de tu propia plataforma.
+  if (id === req.user!.userId) {
+    throw new ValidationError('No puedes borrar tu propio usuario');
+  }
+
+  // ¿Qué lo ata? Se consulta ANTES para dar un error útil en vez de un
+  // "violación de llave foránea" que no le dice nada al operador.
+  const blockers: Array<{ que: string; n: number }> = [];
+  const count = async (label: string, sql: string) => {
+    const r = await query<{ n: string }>(sql, [id]);
+    const n = parseInt(r.rows[0]?.n || '0', 10);
+    if (n > 0) blockers.push({ que: label, n });
+  };
+  await count('subió el CSD de una empresa', 'SELECT COUNT(*) n FROM companies WHERE csd_uploaded_by_user_id = $1');
+  await count('firmó el contrato de servicios', 'SELECT COUNT(*) n FROM service_contracts WHERE signed_by_user = $1');
+  await count('firmó un manifiesto del PAC', 'SELECT COUNT(*) n FROM sw_manifests WHERE signed_by_user = $1');
+  await count('registró ventas en el punto de venta', 'SELECT COUNT(*) n FROM pos_sales WHERE sold_by = $1');
+  await count('generó una facturación mensual', 'SELECT COUNT(*) n FROM monthly_invoicing WHERE generated_by = $1');
+  await count('otorgó timbres prepago', 'SELECT COUNT(*) n FROM prepaid_stamp_purchases WHERE granted_by = $1');
+  await count('creó otros usuarios', 'SELECT COUNT(*) n FROM users WHERE created_by_user_id = $1');
+  await count('configuró el monitoreo de otros usuarios', 'SELECT COUNT(*) n FROM users WHERE monitoring_set_by = $1');
+
+  if (blockers.length > 0) {
+    throw new ConflictError(
+      `No se puede borrar a ${user.email}: tiene historial que es evidencia y debe conservarse (` +
+      blockers.map((b) => `${b.que}: ${b.n}`).join('; ') +
+      `). Dalo de baja en vez de borrarlo: deja de poder entrar y se preserva la auditoría.`
+    );
+  }
+
+  await query('DELETE FROM users WHERE id = $1', [id]);
+  await audit(req, {
+    action: 'USER_DELETED', targetKind: 'user', targetId: id,
+    payload: { email: user.email, role: user.role },
+  });
+  logger.warn(`Usuario BORRADO definitivamente: ${user.email} (por ${req.user?.email})`);
+
+  res.json({ success: true, message: `Usuario ${user.email} borrado definitivamente.` });
+}));
+
 /* ────────────────────────  RESET PASSWORD  ──────────────────────── */
 router.post('/:id/reset-password', asyncHandler(async (req: Request, res: Response) => {
   const tempPass = generateTemporaryPassword();
