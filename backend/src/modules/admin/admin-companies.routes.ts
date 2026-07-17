@@ -18,6 +18,7 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import logger from '../../middleware/logger';
 import { authenticateToken } from '../../middleware/authentication';
 import { asyncHandler, ValidationError, NotFoundError, ConflictError } from '../../middleware/errorHandler';
 import { query } from '../../config/database';
@@ -435,6 +436,134 @@ router.post('/:id/reset-operations', asyncHandler(async (req: Request, res: Resp
     company: { id, rfc: company.rfc, business_name: company.business_name },
     deleted: before.rows[0],
     remaining: after.rows[0],
+  });
+}));
+
+/* ────────────────────────  WIPE OPERATIONS v2  ────────────────────────
+ * POST /admin/companies/:id/wipe-operations
+ *
+ * Versión corregida de reset-operations. El original olvidaba stamp_usage,
+ * pos_sales, pos_sale_items y cfdi_validations — con datos reales revienta
+ * con "current transaction is aborted" en el orden equivocado y no dice
+ * qué falló.
+ *
+ * Aquí se hace bien:
+ *   1. Se ejecuta en UNA transacción real (pool.connect + BEGIN/COMMIT).
+ *      Si algo falla, ROLLBACK — nada a medias.
+ *   2. Orden derivado del mapa de FKs, no de la memoria. Cada DELETE se
+ *      loguea individualmente. Si algo falla, el mensaje dice EXACTAMENTE
+ *      qué tabla y cuál FK, no un "current transaction is aborted" opaco.
+ *   3. Confirmación con RFC exacto (server-side).
+ *   4. dryRun devuelve inventario sin tocar nada.
+ *
+ * CONSERVA: la empresa, sus usuarios, CSD, contratos firmados, datos del
+ * emisor y configuración de facturación. Solo borra lo operativo.
+ */
+router.post('/:id/wipe-operations', asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const confirmRfc = String(req.body?.confirmRfc || '').toUpperCase().trim();
+  const dryRun = req.body?.dryRun === true;
+
+  const compR = await query<{ rfc: string; business_name: string }>(
+    `SELECT rfc, business_name FROM companies WHERE id = $1`, [id]
+  );
+  if (compR.rows.length === 0) throw new NotFoundError('Empresa no encontrada');
+  const company = compR.rows[0];
+
+  if (confirmRfc !== company.rfc.toUpperCase()) {
+    throw new ValidationError(
+      `Envía confirmRfc="${company.rfc}" para confirmar el borrado (obligatorio).`
+    );
+  }
+
+  // Inventario. Sirve tanto para dryRun como para el reporte final.
+  const invR = await query<any>(`
+    SELECT
+      (SELECT COUNT(*)::int FROM invoices        WHERE company_id = $1) AS invoices,
+      (SELECT COUNT(*)::int FROM invoice_items   ii JOIN invoices i ON i.id=ii.invoice_id WHERE i.company_id = $1) AS invoice_items,
+      (SELECT COUNT(*)::int FROM payments        WHERE company_id = $1) AS payments,
+      (SELECT COUNT(*)::int FROM credit_notes    WHERE company_id = $1) AS credit_notes,
+      (SELECT COUNT(*)::int FROM customers       WHERE company_id = $1) AS customers,
+      (SELECT COUNT(*)::int FROM products        WHERE company_id = $1) AS products,
+      (SELECT COUNT(*)::int FROM pac_stamps      WHERE company_id = $1) AS pac_stamps,
+      (SELECT COUNT(*)::int FROM stamp_usage     WHERE company_id = $1) AS stamp_usage,
+      (SELECT COUNT(*)::int FROM cfdi_validations cv JOIN invoices i ON i.id=cv.invoice_id WHERE i.company_id = $1) AS cfdi_validations,
+      (SELECT COUNT(*)::int FROM xml_imports     WHERE company_id = $1) AS xml_imports
+  `, [id]);
+  const inventory = invR.rows[0];
+
+  if (dryRun) {
+    res.status(200).json({
+      success: true, dryRun: true,
+      company: { id, rfc: company.rfc, business_name: company.business_name },
+      would_delete: inventory,
+    });
+    return;
+  }
+
+  // TRANSACCIÓN real usando el helper del proyecto: hace BEGIN/COMMIT/
+  // ROLLBACK y libera la conexión. Si CUALQUIER paso falla, la BD queda
+  // idéntica a como estaba (nada a medias) y devolvemos QUÉ tabla falló.
+  const log: Array<{ table: string; deleted: number }> = [];
+  const { transaction } = await import('../../config/database');
+  try {
+    await transaction(async (client) => {
+      const step = async (label: string, sql: string) => {
+        const r = await client.query(sql, [id]);
+        log.push({ table: label, deleted: r.rowCount || 0 });
+      };
+
+      // Orden derivado del mapa de FKs, no de la memoria:
+      // Nivel 1 — dependientes de INVOICES (para que invoices sea borrable)
+      await step('stamp_usage',      `DELETE FROM stamp_usage WHERE invoice_id IN (SELECT id FROM invoices WHERE company_id = $1)`);
+      await step('pac_stamps',       `DELETE FROM pac_stamps  WHERE company_id = $1`);
+      await step('cfdi_validations', `DELETE FROM cfdi_validations WHERE invoice_id IN (SELECT id FROM invoices WHERE company_id = $1)`);
+      await step('pos_sale_items',   `DELETE FROM pos_sale_items WHERE sale_id IN (SELECT id FROM pos_sales WHERE company_id = $1)`);
+      await step('pos_sales',        `DELETE FROM pos_sales WHERE company_id = $1`);
+      await step('payments',         `DELETE FROM payments WHERE company_id = $1`);
+      await step('credit_notes',     `DELETE FROM credit_notes WHERE company_id = $1`);
+      await step('invoice_items',    `DELETE FROM invoice_items WHERE invoice_id IN (SELECT id FROM invoices WHERE company_id = $1)`);
+
+      // Nivel 2 — INVOICES
+      await step('invoices',         `DELETE FROM invoices WHERE company_id = $1`);
+
+      // Nivel 3 — dependientes de CUSTOMERS/PRODUCTS
+      // xml_imports.created_customer_id es SET NULL (no bloquea) pero se
+      // limpia porque son datos operativos también.
+      await step('xml_imports',      `DELETE FROM xml_imports WHERE company_id = $1`);
+      await step('customer_products',`DELETE FROM customer_products WHERE customer_id IN (SELECT id FROM customers WHERE company_id = $1)`);
+
+      // Nivel 4 — CUSTOMERS y PRODUCTS
+      await step('customers',        `DELETE FROM customers WHERE company_id = $1`);
+      await step('products',         `DELETE FROM products WHERE company_id = $1`);
+
+      // Reset del folio para empezar en F-000001
+      await client.query(
+        `UPDATE companies SET next_invoice_folio = 1, updated_at = NOW() WHERE id = $1`, [id]
+      );
+    });
+  } catch (e) {
+    // El error REAL: si falla en la tabla X, el operador sabe qué FK lo
+    // bloqueó, no un "current transaction is aborted" opaco como el
+    // reset:company original.
+    logger.error(`wipe-operations rollback: ${(e as Error).message}`);
+    throw new ValidationError(
+      `El borrado se revirtió (nada cambió en la base). Causa: ${(e as Error).message}. ` +
+      `Lo procesado antes del error: ${JSON.stringify(log)}`
+    );
+  }
+
+  await audit(req, {
+    action: 'company.wipe_operations',
+    targetId: id,
+    payload: { inventory_before: inventory, deleted: log },
+  } as any).catch(() => {});
+
+  res.status(200).json({
+    success: true,
+    company: { id, rfc: company.rfc, business_name: company.business_name },
+    inventory_before: inventory,
+    deleted: log,
   });
 }));
 
