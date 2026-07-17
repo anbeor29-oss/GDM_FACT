@@ -159,6 +159,73 @@ router.put('/:id', asyncHandler(async (req: Request, res: Response) => {
  *
  *  El .cer se guarda como archivo (es público); el .key + password se cifran con pgcrypto.
  */
+/* ────────────────────────  INSPECT CSD  ────────────────────────
+ * POST /:id/csd/inspect  { cerBase64, keyBase64?, keyPassword? }
+ *
+ * Lee el .cer y devuelve sus datos para autollenar el formulario. NO guarda
+ * nada: solo lee.
+ *
+ * Por qué: el operador tecleaba a mano el No. Certificado (20 dígitos) y las
+ * fechas de vigencia. Un dígito mal y el timbrado falla ante el SAT — caro de
+ * diagnosticar y trivial de evitar.
+ *
+ * Malentendido común que conviene dejar escrito: **la vigencia NO está en el
+ * .key**. El .key es solo la llave privada cifrada, sin metadatos. El número
+ * de certificado, la vigencia, el RFC y la razón social viven todos en el
+ * .cer. El .key sirve para otra cosa: comprobar que corresponde al .cer y que
+ * la contraseña es correcta ANTES de guardar.
+ *
+ * Reusa parseCertificate/openPrivateKey del módulo manifest: la única
+ * implementación de lectura de certificados del SAT (duplicarla haría
+ * divergir las validaciones).
+ */
+router.post('/:id/csd/inspect', asyncHandler(async (req: Request, res: Response) => {
+  const { cerBase64, keyBase64, keyPassword } = req.body as any;
+  if (!cerBase64) throw new ValidationError('cerBase64 es requerido');
+
+  const { parseCertificate, openPrivateKey } = await import('../manifest/manifest.service');
+  const cert = parseCertificate(Buffer.from(cerBase64, 'base64'));
+
+  // El CSD debe ser de la empresa: uno ajeno no puede sellar sus CFDI y el SAT
+  // lo rechazaría al timbrar. Mejor avisar aquí que descubrirlo timbrando.
+  const compR = await query<{ rfc: string }>('SELECT rfc FROM companies WHERE id = $1', [req.params.id]);
+  const companyRfc = (compR.rows[0]?.rfc || '').toUpperCase().trim();
+
+  const now = new Date();
+  let keyMatches: boolean | null = null;
+  let keyError: string | null = null;
+  if (keyBase64 && keyPassword) {
+    try {
+      const priv = openPrivateKey(Buffer.from(keyBase64, 'base64'), String(keyPassword));
+      const a = crypto.createPublicKey(priv).export({ format: 'der', type: 'spki' });
+      const b = cert.x509.publicKey.export({ format: 'der', type: 'spki' });
+      keyMatches = a.equals(b);
+      if (!keyMatches) keyError = 'La .key no corresponde al .cer — ¿son del mismo juego de CSD?';
+    } catch (e) {
+      keyMatches = false;
+      keyError = (e as Error).message;
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    data: {
+      no_certificado: cert.serial,
+      rfc: cert.rfc,
+      razon_social: cert.name,
+      valid_from: cert.validFrom.toISOString(),
+      valid_to: cert.validTo.toISOString(),
+      // Avisos para que la UI los muestre ANTES de dejar guardar:
+      rfc_matches: !!cert.rfc && cert.rfc === companyRfc,
+      company_rfc: companyRfc,
+      expired: cert.validTo < now,
+      not_yet_valid: cert.validFrom > now,
+      key_matches: keyMatches,
+      key_error: keyError,
+    },
+  });
+}));
+
 router.post('/:id/csd', asyncHandler(async (req: Request, res: Response) => {
   const { noCertificado, cerBase64, keyBase64, keyPassword, validFrom, validTo } = req.body as any;
   if (!noCertificado || !/^\d{20}$/.test(noCertificado)) {

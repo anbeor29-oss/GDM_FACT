@@ -779,6 +779,15 @@ class APIClient {
     const r = await this.client.post(`/admin/companies/${id}/csd`, data);
     return r.data;
   }
+  /**
+   * Lee el .cer y devuelve No. Certificado, vigencia, RFC y avisos. No guarda
+   * nada. Si se manda también la .key con su contraseña, valida que
+   * correspondan antes de guardar.
+   */
+  async adminInspectCSD(id: string, data: { cerBase64: string; keyBase64?: string; keyPassword?: string }) {
+    const r = await this.client.post(`/admin/companies/${id}/csd/inspect`, data);
+    return r.data;
+  }
   async adminDeleteCSD(id: string) {
     const r = await this.client.delete(`/admin/companies/${id}/csd`);
     return r.data;

@@ -696,12 +696,40 @@ function CSDUploadModal({ company, onClose, onDone }: any) {
   const [cerFile, setCerFile] = useState<File|null>(null);
   const [keyFile, setKeyFile] = useState<File|null>(null);
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  // Datos leídos del .cer: se muestran como avisos, no se teclean.
+  const [cerInfo, setCerInfo] = useState<any|null>(null);
+  const [reading, setReading] = useState(false);
 
   async function fileToB64(f: File): Promise<string> {
     const buf = new Uint8Array(await f.arrayBuffer());
     let s = ''; for (let i=0;i<buf.length;i++) s += String.fromCharCode(buf[i]);
     return btoa(s);
   }
+
+  /**
+   * Al elegir el .cer, el backend lo lee y autollena No. Certificado y
+   * vigencia. Antes se tecleaban a mano: un dígito mal en los 20 del
+   * certificado y el timbrado falla ante el SAT.
+   *
+   * Nota: la vigencia sale del .cer, NO del .key (el .key no tiene metadatos).
+   */
+  const inspectCer = async (f: File) => {
+    setError(''); setCerInfo(null); setReading(true);
+    try {
+      const r = await api.adminInspectCSD(company.id, { cerBase64: await fileToB64(f) });
+      const d = r.data;
+      setCerInfo(d);
+      setForm((prev: any) => ({
+        ...prev,
+        noCertificado: d.no_certificado || prev.noCertificado,
+        // <input type="date"> exige YYYY-MM-DD
+        validFrom: (d.valid_from || '').slice(0, 10) || prev.validFrom,
+        validTo:   (d.valid_to   || '').slice(0, 10) || prev.validTo,
+      }));
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'No se pudo leer el .cer');
+    } finally { setReading(false); }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setError('');
@@ -733,11 +761,40 @@ function CSDUploadModal({ company, onClose, onDone }: any) {
         </div>
         <div className="p-5 space-y-3">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
-          <label className="block"><span className="text-sm font-medium block mb-1">No. Certificado (20 dígitos) *</span>
+          {/* Se llena solo al elegir el .cer. Editable a mano por si el
+              certificado trae un serial en formato inesperado. */}
+          <label className="block"><span className="text-sm font-medium block mb-1">
+            No. Certificado (20 dígitos) *
+            {cerInfo?.no_certificado && <span className="ml-2 text-xs font-normal text-emerald-700">leído del .cer</span>}
+          </span>
             <input required className="input w-full font-mono" maxLength={20} pattern="\d{20}"
+              placeholder="Se llena al elegir el .cer"
               value={form.noCertificado} onChange={(e)=>setForm({...form,noCertificado:e.target.value})}/></label>
           <label className="block"><span className="text-sm font-medium block mb-1">Archivo .cer (público) *</span>
-            <input required type="file" accept=".cer" onChange={(e)=>setCerFile(e.target.files?.[0]||null)}/></label>
+            <input required type="file" accept=".cer" onChange={(e)=>{
+              const f = e.target.files?.[0] || null;
+              setCerFile(f);
+              if (f) inspectCer(f);   // autollena No. Certificado y vigencia
+            }}/>
+            {reading && <span className="text-xs text-gray-500">Leyendo el certificado…</span>}
+          </label>
+          {cerInfo && (
+            <div className={`text-xs px-3 py-2 rounded border ${
+              cerInfo.rfc_matches && !cerInfo.expired
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-red-50 border-red-200 text-red-800'}`}>
+              <p><b>{cerInfo.razon_social || '—'}</b> · RFC {cerInfo.rfc || '—'}</p>
+              {!cerInfo.rfc_matches && (
+                <p className="font-semibold mt-1">
+                  ⚠ Este CSD es del RFC {cerInfo.rfc}, pero la empresa es {cerInfo.company_rfc}.
+                  El SAT rechazaría el timbrado.
+                </p>
+              )}
+              {cerInfo.expired && <p className="font-semibold mt-1">⚠ El certificado está VENCIDO.</p>}
+              {cerInfo.not_yet_valid && <p className="font-semibold mt-1">⚠ El certificado aún no entra en vigencia.</p>}
+              {cerInfo.key_matches === false && <p className="font-semibold mt-1">⚠ {cerInfo.key_error}</p>}
+            </div>
+          )}
           <label className="block"><span className="text-sm font-medium block mb-1">Archivo .key (privado) *</span>
             <input required type="file" accept=".key" onChange={(e)=>setKeyFile(e.target.files?.[0]||null)}/></label>
           <label className="block"><span className="text-sm font-medium block mb-1">Password del .key *</span>
