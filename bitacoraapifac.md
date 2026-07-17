@@ -143,6 +143,55 @@ Diseño de la Fase 5 acordado. Sin código todavía: entra con el APK.
 
 ---
 
+## 2026-07-17 — Estado tras el primer día real. Recordatorio de retomar
+
+### Contexto
+GDM_FAC pasó a producción real con GRUPO HCGM el 2026-07-17. Se timbró el
+primer CFDI 4.0 real (B-000001, UUID `a2a39f86-5fa7-4855-88d9-23a351da1383`).
+El usuario pidió expresamente retomar el trabajo del móvil DESPUÉS de
+estabilizar la operación y recolectar errores reales del uso.
+
+### Estado del proyecto móvil
+
+**Código escrito**: cero. Sigue en cero desde el 2026-07-16.
+
+**Trabajo YA hecho durante el día que beneficia al móvil sin ser código de
+Capacitor**:
+
+- **Timbrado idempotente y a prueba de carreras** (commit `12f6651`): era el
+  requisito bloqueante de la Fase 4. Ya está en producción. Cuando llegue el
+  APK y le pasen los cortes de datos móviles cotidianos, el backend responde
+  correctamente al reintento (devuelve el UUID en vez de "ya está timbrada")
+  y bloquea el doble timbrado por doble toque.
+- **`stamping_started_at` como reclamo atómico**: sin tabla nueva, sin
+  bloqueos globales. Escalable al móvil sin cambios.
+
+### Aprendizaje relevante para el móvil, capturado del uso real
+
+- **`pdfjs` no separa espacios en PDFs mal tokenizados** (bug del extractor
+  de CIF, arreglado con diccionario conservador — commit `1ce0c09`). Si en la
+  app móvil se escanean CIFs con la cámara, el problema puede ser peor
+  (calidad de imagen). Retomar el escaneo con esto en mente.
+- **Los operadores realmente cargan CIFs y no verifican los datos**: hasta el
+  primer CFDI timbrado no se dieron cuenta. En móvil hay que **forzar la
+  revisión** con un aviso destacado antes de guardar.
+
+### Consecuencia y recordatorio
+
+**Retomar cuando**:
+1. Haya un puñado de facturas reales (≥5) timbradas correctamente
+2. El operador haya intentado cargar 2-3 CIFs y visto qué sale
+3. Se hayan detectado los errores reales del uso — más valiosos que cualquier
+   plan de hoy
+
+**Empezar por**: Fase 0 del `READMEAPIFAC.md` (OpenAPI de los 33 routers).
+Nada de código Capacitor hasta que el contrato de API esté formal.
+
+**iOS/Mac**: distribución sigue exigiendo App Store o TestFlight (~$99/año +
+revisión). Sideload solo funciona en Android.
+
+---
+
 ## 2026-07-16 — WhatsApp, almacenamiento y paso al PAC productivo
 
 ### WhatsApp: corrección técnica

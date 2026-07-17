@@ -821,3 +821,152 @@ con reporte mensual opt-in.
 `PLATFORM_COMPANY_RFC` (hoy el contrato saldría con el RFC del prestador en
 blanco), `ENABLE_BILLING_CRON=true` (sin eso el reporte mensual NO se envía) y
 SMTP configurado.
+
+---
+
+## 2026-07-17 — 🟢 Primer timbre real. GDM_FAC operando en producción con GRUPO HCGM
+
+### Contexto
+Día completo: arreglos y ajustes previos, paso al ambiente productivo del SAT
+(vía SW Sapien PRODUCTION), y el **primer CFDI 4.0 real timbrado y validado en
+el portal SAT** — UUID `a2a39f86-5fa7-4855-88d9-23a351da1383`, folio B-000001,
+GRUPO HCGM → cliente CEMJ7902287G3.
+
+### Lo que se puso en producción durante el día
+
+**Timbrado idempotente y a prueba de carreras (`12f6651`)** — el requisito
+bloqueante de la Fase 4 móvil, y que también protege a la web:
+- El reintento tras respuesta perdida devuelve el resultado (con `already_stamped`)
+  en vez del error confuso "ya está timbrada". El operador recibe su PDF y XML.
+- Reclamo atómico contra el doble timbrado por doble toque simultáneo:
+  `UPDATE ... WHERE stamping_started_at IS NULL`. Postgres decide el ganador,
+  no un `if`. Verificado con 2 peticiones EN PARALELO: 1 éxito + 1 conflicto,
+  1 solo timbre consumido.
+- Decisión de diseño: se usó una columna TIMESTAMP y no un status `STAMPING`
+  porque medio sistema filtra con `status NOT IN ('CANCELLED','DRAFT')` y un
+  estado nuevo contaría como venta real en todos los reportes.
+- No se creó tabla `idempotency_keys` (patrón Stripe): el `invoiceId` YA es
+  clave de idempotencia natural (existe como DRAFT antes de timbrarse).
+
+**Autollenado del CSD desde el .cer (`632491e`)** — evita teclear el
+No. Certificado (20 dígitos) a mano. Reusa `parseCertificate` del manifiesto:
+lee serial, RFC, razón social y vigencia; opcionalmente verifica que la `.key`
+corresponda al `.cer` y que la contraseña abra. Avisa ANTES de guardar si el
+RFC no coincide con la empresa, si el certificado vencido, o si la .key no
+corresponde. **Confirmado con el CSD real de HCGM: cert `00001000000717077906`
+vence 2029-07-04**, autollenado correctamente.
+
+**Correción del pedido original**: el usuario pidió leer la vigencia "al poner
+el .key"; se aclaró que **la vigencia NO está en el .key** (es solo llave
+privada cifrada, sin metadatos), vive en el .cer.
+
+**Foco arreglado en Editar empresa (`d630b28`)** — bug clásico de React: se
+definía un componente `F` DENTRO del modal; cada tecla remontaba el input y se
+perdía el foco tras un carácter. Se sacó `Field` a nivel de módulo. Verificado
+tecleando `PROLONGACION` letra por letra: se capturó completo, foco retenido,
+Tab avanza al siguiente campo. Se dejó comentario prominente para que nadie
+vuelva a meter el componente adentro.
+
+**Editar rol/grupo/nombre + borrado protegido (`a9db09b`)** — el SUPER_ADMIN ya
+podía cambiar rol via API pero faltaba UI, y no existía borrado definitivo.
+La base de datos dio una lección: **8 tablas apuntan a users(id) con ON DELETE
+NO ACTION** (companies.csd_uploaded_by_user_id, service_contracts.signed_by_user,
+sw_manifests, pos_sales, monthly_invoicing, prepaid_stamp_purchases,
+users.created_by_user_id, users.monitoring_set_by). Un DELETE ciego reventaría
+con FK violation; pero además esas FK guardan **evidencia fiscal de 5 años**.
+Decisión: se cuenta el historial ANTES de borrar y se responde 409 con la
+explicación útil: *"No se puede borrar a X: creó otros usuarios: 1. Dalo de
+baja en vez de borrarlo."* — no un mensaje opaco de constraint.
+
+**Nuevo endpoint `wipe-operations` (`1370097`)** — reemplaza `reset:company`
+que estaba roto. Ese script y su gemelo `reset-operations` olvidaban 4 tablas
+(stamp_usage, pos_sales, pos_sale_items, cfdi_validations) y fallaban con
+"current transaction is aborted" sin decir por qué. El nuevo:
+- Orden derivado del **mapa REAL de FKs**, no de la memoria
+- Usa `transaction()` del proyecto (BEGIN/COMMIT/ROLLBACK/release)
+- Si algo falla: rollback total + mensaje CONCRETO (qué tabla, qué FK)
+- Confirmación server-side de RFC + `dryRun`
+- Bug atrapado por la prueba: `pos_sale_items.pos_sale_id` no existe; la
+  columna real es `sale_id`. El mensaje del endpoint lo dijo textual y hubo
+  que corregir solo un nombre.
+- Verificado end-to-end contra BD con datos "sucios" (2 facturas timbradas,
+  stamp_usage, pac_stamps): todo a 0, usuarios intactos, folio reseteado.
+
+**Vaciado de la BD productiva de GRUPO HCGM (SQL directo, no endpoint)** — el
+usuario prefirió correr el SQL desde Shell de Render con BEGIN/COMMIT manual y
+verificación de RFC en un DO block. Se guardaron **empresa + usuarios + CSD +
+contrato + datos de emisor**. Se borraron 6 facturas capturadas, 4 clientes,
+7 productos. Folio reseteado a 1. Sin errores.
+
+**Corrección: extractor de CIF partía las palabras concatenadas (`1ce0c09`)** —
+en la PRIMERA factura real timbrada aparecieron `PROLONGACIONADORATRICES`,
+`VILLATERESA`, `RINCONDEROMOS` — datos pegados en la BD. Verificado que NO era
+bug del PDF (concatena bien con `join(' ')`, `join(', ')`) sino del extractor
+de CIF: el PDF del SAT no trae espacios reales entre tokens de vialidad y
+pdfjs los devuelve pegados. Solución con post-procesamiento **conservador**:
+- Diccionario de prefijos de vialidad (PROLONGACION, AVENIDA, BOULEVARD…) y
+  localidad (RINCON, VILLA, SAN, SANTA, LOMAS…) + preposiciones (DEL, DE, LA…)
+- Solo actúa cuando la cadena empieza con prefijo del diccionario
+- Preposiciones LARGAS primero (DEL antes que DE), o `DELCASTILLO` se parte
+  como `DE + LCASTILLO` sin alcanzar DEL
+- NO busca preposiciones EN MEDIO del resto: `RETORNOMORELOS` se partiría
+  como `MOR + EL + OS` con `EL`. Perdemos `LOMASDELCASTILLO` al 100% pero
+  salvamos `RETORNOMORELOS`. Trade-off consciente
+- 22 casos probados incluidos GUADALAJARA, AGUASCALIENTES, TEPATITLAN,
+  MONTERREY — TODOS intactos. Las 3 cadenas reales del incidente — SEPARADAS
+- **LIMITACIÓN documentada**: solo arregla cargas NUEVAS. Los datos ya en BD
+  y la factura B-000001 timbrada quedan como están (CFDI timbrado es
+  inmutable ante el SAT). Se corrigen a mano en el modal o con UPDATE.
+
+### Configuración de producción aplicada por el usuario
+
+Variables de Render en `gdmfac-backend`:
+- `PAC_PROVIDER=SW_SAPIEN` (antes: MOCK)
+- `SW_SAPIEN_ENV=production` (antes: sandbox)
+- `SW_SAPIEN_TOKEN` productivo cargado
+- `PLATFORM_COMPANY_RFC=GHC1707275Y0`
+
+**Arquitectura A + B para operar** (acordada):
+- **Producción real** en `hcgm.com.mx/erp` + backend `gdmfac-backend` con
+  RFC `GHC1707275Y0` y `SW_SAPIEN_ENV=production` → timbres del paquete real
+- **Ambiente de pruebas** en `gdm-almacen-backend` con `SW_SAPIEN_ENV=sandbox`
+  y RFC `EKU9003173C9` (ESCUELA KEMPER URGATE) → timbres sandbox gratis
+- El código YA protege contra RFC equivocado (`pac.service.ts:238`): en
+  sandbox rechaza cualquier RFC que no sea EKU; en production nunca se
+  llamaría al PAC con EKU porque el CSD no correspondería
+
+### El bug del reset:company que se dejó vivo
+
+`reset:company` original (`backend/scripts/reset-company.ts`) y su endpoint
+`reset-operations` siguen rotos. Se agregó `wipe-operations` como reemplazo
+en vez de tocar el viejo, para no romper llamadas existentes. Convendría
+alinearlos en una sesión futura.
+
+### Lo que quedó pendiente y quiénes son las prioridades
+
+**Bugs conocidos con la solución escrita:**
+- Punto 4 documento: respaldo `RFC_DDMMAA_DDMMAA` en Paquetes fiscales — la
+  infraestructura (`/archive/invoices.zip`) ya existe, falta la UI y el
+  nombre partido a 100k XML
+- Punto 5-6 documento: leyenda "emitido desde Grupo HCGM" + logo miniatura
+  en el PDF — cuidado con `PDFKit + emojis` (error nº7 del README)
+- Orden de campos en Cargar CSD: número entre password y vigencia
+- Datos ya pegados en BD de GRUPOHCGM: se corrigen con UPDATE directo
+
+**Aplicación móvil (Android/iOS)** — `READMEAPIFAC.md` y `bitacoraapifac.md`
+mantienen el estado: **cero código**, decisiones tomadas (Capacitor 8.4.2,
+solo facturación, caché de lectura). La Fase 4 móvil ya está desbloqueada
+porque el timbrado idempotente se subió hoy. **El usuario pidió expresamente
+retomar esto** después de operar en real y estabilizar. iOS/Mac exige App
+Store o TestFlight (no sideload como Android).
+
+### Consecuencia
+
+**GDM_FAC operando en producción real ante el SAT con GRUPO HCGM.** Todo el
+código del día pasó por prueba real, no solo compilación. Los bugs que
+salieron —datos pegados del CIF, foco perdido en edición— eran reales pero
+localizados, con arreglos verificados. La base de HCGM quedó limpia para
+recibir clientes reales.
+
+**Cierre del día 2026-07-17: 11 commits, 1 CFDI timbrado y validado en el
+portal SAT.** Descanso hasta mañana con lista clara de prioridades.

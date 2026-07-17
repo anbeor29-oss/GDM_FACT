@@ -2,7 +2,9 @@
 
 Sistema de **facturación electrónica CFDI 4.0** para México. Backend Node/Express + TypeScript, frontend React + Vite, PostgreSQL 15. Integrado con **SW Sapien** como PAC para timbrado real.
 
-**Estado**: 🟢 **Live en producción** (Render.com + `hcgm.com.mx/erp`)
+**Estado**: 🟢 **FACTURANDO EN PRODUCCIÓN REAL** con **GRUPO HCGM** (desde 2026-07-17) ·
+Render.com + `hcgm.com.mx/erp` · SW Sapien production · CFDI 4.0 timbrados y
+validados en el portal SAT.
 
 ---
 
@@ -268,12 +270,24 @@ restringido a sus módulos.
 Al 2026-07-16 el sistema quedó limpio (solo facturación), publicado y con los
 accesos funcionando desde `hcgm.com.mx/erp`. Lo que falta para operar en real:
 
-| # | Pendiente | Quién |
+### ✅ Ya listo (2026-07-17)
+
+| Concepto | Estado |
+|---|---|
+| PAC en producción (`SW_SAPIEN_ENV=production` + token productivo) | ✅ |
+| CSD real de HCGM cargado (cert `00001000000717077906`, vence 2029-07-04) | ✅ |
+| `PLATFORM_COMPANY_RFC=GHC1707275Y0` | ✅ |
+| Base de datos limpia (0 facturas de prueba, 0 clientes, 0 productos) | ✅ |
+| **Primer CFDI 4.0 real timbrado y validado en portal SAT** | ✅ B-000001 |
+| Ambiente A/B para demos (Render sandbox con EKU9003173C9) | ✅ |
+
+### 🔄 Operación diaria
+
+| # | Actividad | Notas |
 |---|---|---|
-| 1 | **Dar de alta los clientes reales** (usar el lector de CIF: sube el PDF de la Constancia y autollena RFC, razón social, régimen y CP) | Operación |
-| 2 | **Verificar el PAC en modo producción**: `PAC_PROVIDER=SW_SAPIEN` + `SW_SAPIEN_ENV=production` + token productivo. En sandbox el SAT solo acepta el RFC de prueba `EKU9003173C9` | Config |
-| 3 | **CSD vigente cargado** por empresa (SUPER_ADMIN → Empresas → CSD) | Operación |
-| 4 | Subir el último ZIP a `public_html/erp` si hay cambios de frontend sin publicar | Deploy |
+| 1 | **Dar de alta clientes reales** (lector de CIF) | El extractor tiene bug conocido con datos pegados (`RINCONDEROMOS`, `VILLATERESA`) — arreglado 2026-07-17; **revisar los campos autollenados ANTES de guardar** |
+| 2 | Emitir facturas contra clientes reales | Timbra directo contra SAT productivo — cada timbre cuenta del paquete |
+| 3 | Validar UUIDs nuevos en portal SAT los primeros días | `verificacfdi.facturaelectronica.sat.gob.mx` — verifica que sale "Vigente" |
 
 ### 🔴 Bloqueantes del contrato y la bitácora
 
@@ -303,6 +317,33 @@ accesos funcionando desde `hcgm.com.mx/erp`. Lo que falta para operar en real:
   limpieza). El texto y la tabla de iconos son correctos; las imágenes del menú
   no reflejan el menú actual (ni los módulos nuevos Usuarios y Contrato).
 - `AdminUsers` describe el grupo "Ventas" mencionando Punto de Venta.
+- **`reset:company` y su endpoint `reset-operations` están rotos** (olvidan 4
+  tablas, fallan con "current transaction is aborted"). Usar el nuevo endpoint
+  `POST /admin/companies/:id/wipe-operations` — mismo alcance, arreglado.
+- **Extractor de CIF partía palabras concatenadas** — arreglado 2026-07-17,
+  pero es conservador. Puede dejar cosas pegadas si la cadena no empieza con
+  prefijo conocido (`FRACCVILLA...` separa `FRACC` pero no el segundo nivel).
+  Revisar campos autollenados antes de guardar.
+- **Datos ya pegados en BD**: emisor GRUPO HCGM tenía `PROLONGACIONADORATRICES`
+  y `VILLATERESA`; cliente CEMJ7902287G3 tenía `RINCONDEROMOS`. Corregibles
+  con UPDATE directo. La factura B-000001 timbrada quedó así (CFDI inmutable
+  ante el SAT).
+
+### 📱 Cliente móvil (Android/iOS) — pendiente prioritario
+
+**Estado**: cero código. Decisiones tomadas y documentadas en
+[READMEAPIFAC.md](READMEAPIFAC.md) y [bitacoraapifac.md](bitacoraapifac.md):
+
+- Tecnología: **Capacitor 8.4.2** (reusa el React actual)
+- Alcance: solo facturación (respeta separación GDM_FAC / GDM_ALMACEN)
+- Offline: caché de lectura; timbrar siempre exige conexión
+- **Fase 4 desbloqueada**: el timbrado idempotente que exige el móvil ya está
+  en producción (commit `12f6651`) y protege también a la web
+- **iOS/Mac ≠ Android para distribución**: Apple no permite descarga desde
+  web. Requiere App Store (~$99 USD/año + revisión) o TestFlight
+
+Retomar después de estabilizar la operación real con GRUPO HCGM y recolectar
+errores reales del uso — esos valen más que cualquier plan hecho hoy.
 
 ---
 
@@ -581,6 +622,8 @@ Suite E2E en `tests/e2e/` con 14 archivos: smoke, auth, productos, facturas, NC 
 12. **Anunciar módulos que no existen** — el menú traía 6 pantallas `ComingSoon`; el usuario creyó que se habían mezclado dos sistemas. Un placeholder en producción es una promesa que confunde: o está, o no se anuncia.
 13. **Palabras reservadas de Postgres como alias** — `SELECT TO_CHAR(ts,'YYYY-MM-DD') day` es error de sintaxis (`day` es reservada); exige `AS day`. Habría explotado el día 1 a las 6 AM **dentro de un cron, en silencio**. Lo atrapó el smoke, no el typecheck: *el compilador no ve el SQL*.
 14. **El typecheck no valida el schema** — `last_login_at` compilaba perfecto y reventaba en runtime (la columna es `last_login`). Igual que el bug nº5. Todo query nuevo necesita ejercitarse contra la BD, aunque el tipo diga que está bien.
+15. **Los PDFs del SAT no traen espacios reales** — el CIF viene con vialidades pegadas (`PROLONGACIONADORATRICES`), `pdfjs` no las separa. Solución: diccionario CONSERVADOR de prefijos conocidos + preposiciones LARGAS PRIMERO (DEL antes que DE) para no partir cadenas mal. Y NUNCA buscar preposición en medio del resto: parte palabras legítimas (`RETORNOMORELOS → MOR + EL + OS`). Documentado en `separarPalabrasCsf`.
+16. **Un DELETE ciego revienta con FK violation, pero además destruye evidencia fiscal** — `users` tiene 8 FK entrantes `ON DELETE NO ACTION` (contratos firmados, CSD subidos, timbres emitidos). No es limitación técnica: es que borrar a quien firmó destruye el rastro. Cuenta el historial ANTES y responde con explicación útil, no un constraint violation opaco.
 
 ### Cómo verificar de verdad (lo aprendido a golpes)
 
