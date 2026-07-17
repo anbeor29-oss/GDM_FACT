@@ -115,6 +115,82 @@ function limpiar(s: string): string {
 }
 
 /**
+ * Separa palabras concatenadas del CIF cuando el patrón es INEQUÍVOCO.
+ *
+ * Por qué existe: el PDF de la Constancia de Situación Fiscal del SAT NO
+ * trae espacios reales entre los tokens de vialidad. `pdfjs` los devuelve
+ * pegados: `PROLONGACIONADORATRICES`, `RINCONDEROMOS`, `VILLATERESA`.
+ *
+ * Este post-procesamiento inserta espacios SOLO cuando la palabra concatenada
+ * empieza con un prefijo de vialidad conocido, o contiene una preposición típica
+ * en medio. NO intenta separar cualquier cadena larga: eso rompería nombres
+ * legítimos como `AGUASCALIENTES` o `TEPATITLAN`.
+ *
+ * Es intencionalmente CONSERVADOR: prefiero dejar algo pegado que separar mal
+ * un nombre correcto (más fácil corregir a mano una omisión que un error).
+ */
+const PREFIJOS_VIALIDAD = [
+  'PROLONGACION', 'PROLONGACIÓN', 'AVENIDA', 'BOULEVARD', 'BULEVAR',
+  'CALZADA', 'CARRETERA', 'CERRADA', 'PRIVADA', 'RETORNO', 'ANDADOR',
+  'CIRCUITO', 'CALLEJON', 'CALLEJÓN', 'CONTINUACION', 'CONTINUACIÓN',
+  'DIAGONAL', 'PEATONAL',
+];
+const PREFIJOS_LOCALIDAD = [
+  'RINCON', 'RINCÓN', 'VILLA', 'VILLAS', 'SAN', 'SANTA', 'SANTO',
+  'FRACC', 'COL', 'BARRIO', 'PUEBLO', 'CIUDAD', 'PUERTO', 'LOMAS',
+  'JARDINES', 'REAL', 'HACIENDA', 'RESIDENCIAL',
+];
+// Preposiciones LARGAS PRIMERO. Si DE va antes que DEL, "DELCASTILLO" se parte
+// como "DE + LCASTILLO" y nunca alcanza a probar DEL.
+const PREPOSICIONES = ['DEL', 'LAS', 'LOS', 'DE', 'LA', 'EL'];
+
+/**
+ * Cuándo se aplica una preposición como separador — la parte delicada:
+ *
+ * "DE" (2 chars, muy corta) genera falsos positivos: GUADALAJARA cumple
+ * "GUADA + LA + JARA" y le meteríamos espacios donde no van. Por eso solo
+ * partimos por preposición cuando la parte ANTES es un PREFIJO conocido
+ * (RINCON, VILLA, SAN, LOMAS...). Así:
+ *   RINCONDEROMOS  → sí (RINCON es prefijo)  → RINCON DE ROMOS
+ *   GUADALAJARA    → no (GUADA no es prefijo) → GUADALAJARA
+ */
+const TODOS_PREFIJOS = [...PREFIJOS_VIALIDAD, ...PREFIJOS_LOCALIDAD];
+
+export function separarPalabrasCsf(input: string): string {
+  if (!input || input.includes(' ')) return input;   // si ya tiene espacios, respeta
+  const original = input.toUpperCase();
+
+  // Busca un prefijo conocido AL INICIO. Sin prefijo -> no tocamos nada
+  // (una cadena pegada sin prefijo puede ser un nombre legítimo).
+  let prefijoActivo: string | null = null;
+  for (const p of TODOS_PREFIJOS) {
+    if (original.startsWith(p) && original.length > p.length) {
+      prefijoActivo = p;
+      break;
+    }
+  }
+  if (!prefijoActivo) return original;
+
+  const resto = original.slice(prefijoActivo.length);
+
+  // Preposición en el resto: RINCON + DEROMOS → DE + ROMOS
+  // Requerimos ≥2 letras después de la preposición para no cortar mal.
+  // Preposición al INICIO del resto: RINCON + DEROMOS → DE + ROMOS
+  // NOTA: descartamos buscar preposiciones EN MEDIO del resto porque parten
+  // palabras legítimas (RETORNOMORELOS → MOR + EL + OS con `EL`). Preferimos
+  // dejar `LOMASDELCASTILLO` a medias que romper `RETORNOMORELOS`: el usuario
+  // corrige a mano una omisión, pero un partido malo es error silencioso.
+  for (const prep of PREPOSICIONES) {
+    if (resto.startsWith(prep) && resto.length >= prep.length + 2) {
+      return `${prefijoActivo} ${prep} ${resto.slice(prep.length)}`;
+    }
+  }
+
+  // No hay preposición: separa solo por el prefijo
+  return `${prefijoActivo} ${resto}`;
+}
+
+/**
  * Extrae el texto en el original que está entre dos etiquetas (ignorando
  * espacios al buscar las etiquetas).
  */
@@ -548,12 +624,15 @@ export async function mapCSFToCustomer(raw: CSFRawData): Promise<CSFMapped> {
     businessName: businessName.toUpperCase(),
     fiscalRegime,
     postalCode: raw.codigo_postal,
-    street: raw.nombre_vialidad.toUpperCase(),
+    // separarPalabrasCsf: inserta espacios en cadenas del CIF que salen
+    // pegadas (PROLONGACIONADORATRICES → PROLONGACION ADORATRICES). Ver la
+    // función para el detalle de cuándo actúa y cuándo no.
+    street: separarPalabrasCsf(raw.nombre_vialidad.toUpperCase()),
     extNumber: raw.numero_exterior,
-    neighborhood: raw.colonia.toUpperCase(),
-    municipality: raw.municipio.toUpperCase(),
+    neighborhood: separarPalabrasCsf(raw.colonia.toUpperCase()),
+    municipality: separarPalabrasCsf(raw.municipio.toUpperCase()),
     state,
-    city: raw.localidad.toUpperCase(),
+    city: separarPalabrasCsf(raw.localidad.toUpperCase()),
     raw,
     unresolvedRegimen: !!raw.regimen && !fiscalRegime,
     unresolvedState: !!raw.estado && !state,
