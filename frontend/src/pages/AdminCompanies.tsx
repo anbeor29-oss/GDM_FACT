@@ -143,6 +143,39 @@ export function AdminCompaniesPage() {
   );
 }
 
+/**
+ * Campo de texto del modal de empresa.
+ *
+ * ⚠️ Vive AQUÍ, a nivel de módulo, a propósito — no dentro de EditCompanyModal.
+ *
+ * Si se define dentro, cada tecla re-renderiza el modal y crea una función de
+ * componente NUEVA. React la ve como un tipo distinto, así que desmonta el
+ * <input> viejo y monta uno nuevo: el campo nace sin foco y el usuario pierde
+ * el cursor tras UN carácter. Es el bug clásico de "componente anidado", y no
+ * se arregla con keys ni con autoFocus: hay que sacar el componente fuera.
+ */
+function Field({
+  label, value, onChange, ph, span2 = false,
+}: {
+  label: string;
+  value: string;
+  onChange: React.ChangeEventHandler<HTMLInputElement>;
+  ph?: string;
+  span2?: boolean;
+}) {
+  return (
+    <label className={`block ${span2 ? 'col-span-2' : ''}`}>
+      <span className="text-xs font-medium text-gray-600 block mb-1">{label}</span>
+      <input
+        value={value}
+        onChange={onChange}
+        placeholder={ph}
+        className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
+      />
+    </label>
+  );
+}
+
 /* ─────────────── Modal: editar empresa (datos + domicilio + contacto) ─────────────── */
 
 function EditCompanyModal({
@@ -191,18 +224,6 @@ function EditCompanyModal({
     }
   };
 
-  const F = ({ label, k, ph, span2 = false }: { label: string; k: keyof typeof form; ph?: string; span2?: boolean }) => (
-    <label className={`block ${span2 ? 'col-span-2' : ''}`}>
-      <span className="text-xs font-medium text-gray-600 block mb-1">{label}</span>
-      <input
-        value={form[k]}
-        onChange={set(k)}
-        placeholder={ph}
-        className="w-full border border-slate-300 rounded px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500"
-      />
-    </label>
-  );
-
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <form onSubmit={submit} className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -230,9 +251,9 @@ function EditCompanyModal({
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-sky-700 mb-2">Datos generales</p>
             <div className="grid grid-cols-2 gap-3">
-              <F label="Razón social *" k="businessName" span2 />
-              <F label="Régimen fiscal (c_RegimenFiscal)" k="fiscalRegime" ph="601" />
-              <F label="Código postal fiscal" k="postalCode" ph="20000" />
+              <Field value={form.businessName} onChange={set('businessName')} label="Razón social *" span2 />
+              <Field value={form.fiscalRegime} onChange={set('fiscalRegime')} label="Régimen fiscal (c_RegimenFiscal)" ph="601" />
+              <Field value={form.postalCode} onChange={set('postalCode')} label="Código postal fiscal" ph="20000" />
             </div>
           </div>
 
@@ -240,12 +261,12 @@ function EditCompanyModal({
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-sky-700 mb-2">Domicilio</p>
             <div className="grid grid-cols-2 gap-3">
-              <F label="Calle" k="street" />
-              <F label="Número exterior" k="extNumber" />
-              <F label="Colonia" k="neighborhood" />
-              <F label="Ciudad / Localidad" k="city" />
-              <F label="Municipio" k="municipality" />
-              <F label="Estado" k="state" />
+              <Field value={form.street} onChange={set('street')} label="Calle" />
+              <Field value={form.extNumber} onChange={set('extNumber')} label="Número exterior" />
+              <Field value={form.neighborhood} onChange={set('neighborhood')} label="Colonia" />
+              <Field value={form.city} onChange={set('city')} label="Ciudad / Localidad" />
+              <Field value={form.municipality} onChange={set('municipality')} label="Municipio" />
+              <Field value={form.state} onChange={set('state')} label="Estado" />
             </div>
           </div>
 
@@ -253,9 +274,9 @@ function EditCompanyModal({
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-sky-700 mb-2">Contacto</p>
             <div className="grid grid-cols-2 gap-3">
-              <F label="Email de contacto (correos del sistema)" k="contactEmail" ph="facturas@empresa.mx" />
-              <F label="Teléfono" k="phone" />
-              <F label="Sitio web" k="website" ph="https://…" span2 />
+              <Field value={form.contactEmail} onChange={set('contactEmail')} label="Email de contacto (correos del sistema)" ph="facturas@empresa.mx" />
+              <Field value={form.phone} onChange={set('phone')} label="Teléfono" />
+              <Field value={form.website} onChange={set('website')} label="Sitio web" ph="https://…" span2 />
             </div>
           </div>
 
