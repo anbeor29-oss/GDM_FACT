@@ -177,3 +177,33 @@ Checklist acordado:
    (el sandbox de SW solo acepta ese; en producción el SAT lo rechaza).
 5. **Timbrar UNA factura real y validarla en el portal del SAT** antes de
    soltarlo a los clientes.
+
+---
+
+## 2026-07-16 — Orden acordado: primero facturar en real, luego el móvil
+
+### Acordado con el usuario
+Mañana se empieza a **timbrar en real con GRUPO HCGM**, se pulen los errores que
+salgan del uso, y **después** se salta al móvil. El código Android sigue en **0
+de 10 fases**: solo hay decisiones y diseño.
+
+Es el orden correcto: facturar en real vale más que un APK, y los errores del
+uso real son los que ningún sandbox muestra. Además, cuando arranque el móvil
+sale barato porque el backend ya es API pura con JWT y permisos.
+
+### ⚠️ iOS/Mac NO se distribuye como Android — descubierto al acordar el plan
+El usuario habló de "cualquier dispositivo Android o Mac". **Apple no permite
+sideloading**: el modelo acordado ("se descargará de la página web") funciona en
+Android pero **no en iOS/Mac**. Las únicas vías son:
+  · **App Store** — cuenta de desarrollador (~$99 USD/año) + revisión
+  · **TestFlight** — pruebas, 90 días por build
+  · **Enterprise** (~$299/año) — solo empleados de la propia empresa
+
+Capacitor **sí compila para iOS** (la decisión técnica aguanta: misma base de
+código), pero la **distribución** exige presupuesto y tiempo de revisión. Hay que
+decidirlo antes de prometer iPhone a un cliente.
+
+### Ya resuelto de las fases del móvil, aunque sea backend
+El requisito bloqueante de la **Fase 4** está en producción: timbrado idempotente
+y a prueba de carreras (`12f6651`). Era el riesgo más caro del móvil y además
+protege a la web hoy.
