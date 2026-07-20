@@ -13,7 +13,7 @@ import { Link } from 'react-router-dom';
 import {
   Zap, Star, Rocket, Coins, Check,
   FileText, ScanText, FileUp, FileMinus2, Users, Boxes, BarChart3,
-  ShieldCheck, LogIn, Wallet, Mail, Ban, QrCode,
+  ShieldCheck, LogIn, Wallet, Mail, Ban, QrCode, Scale,
   ClipboardCheck, Building2, FileSignature, Send,
   ChevronDown, BookOpen, Stamp,
 } from 'lucide-react';
@@ -238,6 +238,7 @@ export function PublicHomePage() {
           >
             <BookOpen size={16} /> Manual
           </a>
+          <LegalDropdown />
         </div>
       </section>
 
@@ -419,6 +420,41 @@ export function PublicHomePage() {
           <p>PAC autorizado: SW Sapien · Anexo 20 SAT</p>
         </div>
       </footer>
+    </div>
+  );
+}
+
+
+function LegalDropdown() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        title="Documentos legales"
+        className="inline-flex items-center gap-2 border-2 border-slate-300 hover:border-indigo-400 text-slate-700 px-4 py-3.5 rounded-lg font-semibold text-sm transition-colors"
+      >
+        <Scale size={16} /> Legal <ChevronDown size={14} className={open ? "rotate-180 transition-transform" : "transition-transform"} />
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-lg shadow-xl overflow-hidden z-20">
+          <Link
+            to="/terminos"
+            className="block px-4 py-3 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 border-b border-slate-100"
+          >
+            <div className="font-semibold">Términos y Condiciones</div>
+            <div className="text-xs text-slate-500 mt-0.5">Contrato de prestación de servicios</div>
+          </Link>
+          <Link
+            to="/privacidad"
+            className="block px-4 py-3 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700"
+          >
+            <div className="font-semibold">Aviso de Privacidad</div>
+            <div className="text-xs text-slate-500 mt-0.5">Tratamiento de datos (LFPDPPP)</div>
+          </Link>
+        </div>
+      )}
     </div>
   );
 }
