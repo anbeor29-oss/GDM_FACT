@@ -71,4 +71,26 @@ router.get('/verify', asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({ success: true, data });
 }));
 
+/* ─── Documentos públicos (Aviso de Privacidad y texto de T&C vigente) ─── */
+export const publicLegalRouter = Router();
+
+publicLegalRouter.get('/privacy-notice', asyncHandler(async (_req: Request, res: Response) => {
+  const { PRIVACY_VERSION, buildPrivacyNoticeText } = await import('./privacy-notice-text');
+  res.type('text/plain; charset=utf-8').set('X-Version', PRIVACY_VERSION).send(buildPrivacyNoticeText());
+}));
+
+publicLegalRouter.get('/terms', asyncHandler(async (_req: Request, res: Response) => {
+  // Texto vigente sin datos de cliente (para consulta pública). El texto con
+  // datos del cliente se sirve solo autenticado en GET /contract.
+  const { CONTRACT_VERSION, buildContractText, PROVIDER } = await import('./contract-text');
+  const text = buildContractText({
+    client: { rfc: '[RFC DEL CLIENTE]', businessName: '[RAZÓN SOCIAL DEL CLIENTE]' },
+    signedAt: new Date('2026-07-20T00:00:00-06:00'),
+  }).replace(/^Fecha de aceptación: .*$/m, 'Fecha de aceptación: [se genera al firmar]');
+  res.type('text/plain; charset=utf-8')
+    .set('X-Version', CONTRACT_VERSION)
+    .set('X-Provider-Rfc', PROVIDER.rfc)
+    .send(text);
+}));
+
 export default router;

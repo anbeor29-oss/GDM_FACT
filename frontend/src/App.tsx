@@ -24,6 +24,7 @@ import { ImportXMLWizardPage } from '@/pages/ImportXMLWizard';
 import { SuppliersPage }      from '@/pages/Suppliers';
 import { TeamPage }           from '@/pages/Team';
 import { ContractPage }       from '@/pages/Contract';
+import { TerminosPage, PrivacidadPage } from '@/pages/LegalDoc';
 import { useAuthStore } from '@/store/auth';
 import { canAccess, type ModuleKey } from '@/utils/permissions';
 
@@ -116,6 +117,8 @@ export function App() {
         <Routes>
           {/* Rutas públicas */}
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/terminos"   element={<TerminosPage />} />
+          <Route path="/privacidad" element={<PrivacidadPage />} />
 
           {/* Layout privado — bajo "/" — pero la ruta index es el landing público */}
           <Route

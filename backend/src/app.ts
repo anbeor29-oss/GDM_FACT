@@ -33,7 +33,7 @@ import paymentsRoutes from './modules/payments/payments.routes';
 import creditNotesRoutes from './modules/credit-notes/credit-notes.routes';
 import archiveRoutes from './modules/archive/archive.routes';
 import teamRoutes from './modules/team/team.routes';
-import contractsRoutes from './modules/contracts/contracts.routes';
+import contractsRoutes, { publicLegalRouter } from './modules/contracts/contracts.routes';
 import activityLog from './middleware/activity-log';
 import adminUsersRoutes     from './modules/admin/admin-users.routes';
 import adminCompaniesRoutes from './modules/admin/admin-companies.routes';
@@ -147,6 +147,8 @@ export function createApp(): Express {
   app.use(`/api/${config.apiVersion}/archive`, archiveRoutes);
   app.use(`/api/${config.apiVersion}/team`, teamRoutes);
   app.use(`/api/${config.apiVersion}/contract`, contractsRoutes);
+  // Documentos legales públicos (sin auth) — para páginas /terminos y /privacidad
+  app.use(`/api/${config.apiVersion}/legal`, publicLegalRouter);
   app.use(`/api/${config.apiVersion}/admin/users`,     adminUsersRoutes);
   app.use(`/api/${config.apiVersion}/admin/companies`, adminCompaniesRoutes);
   app.use(`/api/${config.apiVersion}/admin/audit`,     adminAuditRoutes);
