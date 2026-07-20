@@ -119,6 +119,11 @@ export function createApp(): Express {
   // cuando el authenticateToken de cada router ya pobló req.user.
   app.use(`/api/${config.apiVersion}`, activityLog);
 
+  // Documentos legales públicos (SIN auth) — DEBE ir ANTES de mailerRoutes,
+  // que se monta en /api/v1 (wildcard) con authenticateToken y bloquearía
+  // cualquier request posterior al no encontrar Bearer token.
+  app.use(`/api/${config.apiVersion}/legal`, publicLegalRouter);
+
   app.use(`/api/${config.apiVersion}/auth`, authRoutes);
   // Uploads de CSD + logo (montar ANTES de companiesRoutes para que /:id/csd
   // y /:id/logo se matcheen antes de /:id genérico).
@@ -147,8 +152,6 @@ export function createApp(): Express {
   app.use(`/api/${config.apiVersion}/archive`, archiveRoutes);
   app.use(`/api/${config.apiVersion}/team`, teamRoutes);
   app.use(`/api/${config.apiVersion}/contract`, contractsRoutes);
-  // Documentos legales públicos (sin auth) — para páginas /terminos y /privacidad
-  app.use(`/api/${config.apiVersion}/legal`, publicLegalRouter);
   app.use(`/api/${config.apiVersion}/admin/users`,     adminUsersRoutes);
   app.use(`/api/${config.apiVersion}/admin/companies`, adminCompaniesRoutes);
   app.use(`/api/${config.apiVersion}/admin/audit`,     adminAuditRoutes);
