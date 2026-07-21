@@ -25,6 +25,15 @@ import { SuppliersPage }      from '@/pages/Suppliers';
 import { TeamPage }           from '@/pages/Team';
 import { ContractPage }       from '@/pages/Contract';
 import { TerminosPage, PrivacidadPage } from '@/pages/LegalDoc';
+import { CartaPortePage }             from '@/pages/CartaPorte';
+import { CartaPorteFormPage }         from '@/pages/CartaPorteForm';
+import { CartaPorteLugaresPage }      from '@/pages/CartaPorteLugares';
+import { CartaPorteVehiculosPage }    from '@/pages/CartaPorteVehiculos';
+import { CartaPorteAseguradorasPage } from '@/pages/CartaPorteAseguradoras';
+import { CartaPorteOperadoresPage }   from '@/pages/CartaPorteOperadores';
+import { CartaPorteImportarXmlPage }  from '@/pages/CartaPorteImportarXml';
+import { CartaPorteMercanciasPage }   from '@/pages/CartaPorteMercancias';
+import { SuperXMLImportPage }         from '@/pages/SuperXMLImport';
 import { useAuthStore } from '@/store/auth';
 import { canAccess, type ModuleKey } from '@/utils/permissions';
 
@@ -148,6 +157,16 @@ export function App() {
             {/* Contrato: lo lee cualquier usuario de empresa; firmarlo exige ADMIN
                 (el guard real está en el backend). */}
             <Route path="contract" element={<CompanyOnlyRoute><ContractPage /></CompanyOnlyRoute>} />
+            {/* Carta Porte 3.1 + Super Lector XML — módulos V2 */}
+            <Route path="carta-porte"                     element={<CompanyOnlyRoute><CartaPortePage /></CompanyOnlyRoute>} />
+            <Route path="invoices/:invoiceId/carta-porte" element={<CompanyOnlyRoute><CartaPorteFormPage /></CompanyOnlyRoute>} />
+            <Route path="carta-porte/lugares"             element={<CompanyOnlyRoute><CartaPorteLugaresPage /></CompanyOnlyRoute>} />
+            <Route path="carta-porte/vehiculos"           element={<CompanyOnlyRoute><CartaPorteVehiculosPage /></CompanyOnlyRoute>} />
+            <Route path="carta-porte/aseguradoras"        element={<CompanyOnlyRoute><CartaPorteAseguradorasPage /></CompanyOnlyRoute>} />
+            <Route path="carta-porte/operadores"          element={<CompanyOnlyRoute><CartaPorteOperadoresPage /></CompanyOnlyRoute>} />
+            <Route path="carta-porte/importar-xml"        element={<CompanyOnlyRoute><CartaPorteImportarXmlPage /></CompanyOnlyRoute>} />
+            <Route path="carta-porte/mercancias"          element={<CompanyOnlyRoute><CartaPorteMercanciasPage /></CompanyOnlyRoute>} />
+            <Route path="xml-super-import"                element={<CompanyOnlyRoute><SuperXMLImportPage /></CompanyOnlyRoute>} />
 
             {/* Módulos de plataforma — SOLO SUPER_ADMIN (guard por URL directa) */}
             <Route path="admin/packages"  element={<SuperAdminRoute><AdminPackagesPage /></SuperAdminRoute>} />

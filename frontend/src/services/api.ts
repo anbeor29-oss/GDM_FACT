@@ -5,7 +5,6 @@
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { APIResponse, Invoice, Customer, Product } from '@/types';
-import { getToken, clearSession } from '@/utils/authStorage';
 
 // En dev, Vite hace proxy de /api → localhost:3000 (ver vite.config.ts).
 // En prod (Render), VITE_API_BASE apunta al servicio backend.
@@ -27,7 +26,7 @@ class APIClient {
 
     // Add token to requests
     this.client.interceptors.request.use((config) => {
-      const token = getToken();
+      const token = localStorage.getItem('token');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -42,10 +41,8 @@ class APIClient {
       (response) => response,
       async (error: AxiosError) => {
         if (error.response?.status === 401) {
-          clearSession();
-          // Respeta el base del deploy (/ en Render, /erp/ en hosting).
-          const base = import.meta.env.BASE_URL || '/';
-          window.location.href = `${base.replace(/\/$/, '')}/login`;
+          localStorage.removeItem('token');
+          window.location.href = '/login';
         }
         const r: any = error.response;
         const status = r?.status || 0;
@@ -201,6 +198,235 @@ class APIClient {
   }
 
   /**
+   * Warehouses endpoints (módulo ALMACEN §7)
+   */
+  async getWarehouses(includeInactive = false) {
+    const r = await this.client.get<APIResponse<any>>('/warehouses', {
+      params: { includeInactive },
+    });
+    return r.data;
+  }
+
+  async createWarehouse(data: { code: string; name: string; address?: string }) {
+    const r = await this.client.post<APIResponse<any>>('/warehouses', data);
+    return r.data;
+  }
+
+  async updateWarehouse(
+    id: string,
+    data: { name?: string; address?: string; isActive?: boolean; isDefault?: boolean }
+  ) {
+    const r = await this.client.put<APIResponse<any>>(`/warehouses/${id}`, data);
+    return r.data;
+  }
+
+  async deleteWarehouse(id: string) {
+    return this.client.delete(`/warehouses/${id}`);
+  }
+
+  /**
+   * Inventory endpoints (módulo ALMACEN §1, §2, §7, §10)
+   */
+  async getInventoryStock(params?: {
+    warehouseId?: string;
+    search?: string;
+    belowMin?: boolean;
+    limit?: number;
+    offset?: number;
+  }) {
+    const r = await this.client.get<APIResponse<any>>('/inventory/stock', { params });
+    return r.data;
+  }
+
+  async getKardex(params?: {
+    productId?: string;
+    warehouseId?: string;
+    type?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const r = await this.client.get<APIResponse<any>>('/inventory/kardex', { params });
+    return r.data;
+  }
+
+  async adjustInventory(data: {
+    productId: string;
+    warehouseId: string;
+    direction?: 'IN' | 'OUT';
+    movementType?: 'SHRINKAGE' | 'THEFT' | 'DAMAGED' | 'CUSTOMER_RETURN' | 'SUPPLIER_RETURN';
+    quantity: number;
+    unitCost?: number;
+    reason: string;
+  }) {
+    const r = await this.client.post<APIResponse<any>>('/inventory/adjust', data);
+    return r.data;
+  }
+
+  async transferInventory(data: {
+    productId: string;
+    warehouseFromId: string;
+    warehouseToId: string;
+    quantity: number;
+    reason?: string;
+  }) {
+    const r = await this.client.post<APIResponse<any>>('/inventory/transfer', data);
+    return r.data;
+  }
+
+  async setStockLimits(data: {
+    productId: string;
+    warehouseId: string;
+    stockMinimum: number;
+    stockMaximum: number;
+  }) {
+    const r = await this.client.put<APIResponse<any>>('/inventory/stock-limits', data);
+    return r.data;
+  }
+
+  /**
+   * Inventory reports endpoints (§12 + dashboard)
+   */
+  async getInventoryValue() {
+    const r = await this.client.get<APIResponse<any>>('/inventory/reports/value');
+    return r.data;
+  }
+
+  async getInventoryValueHistory(months = 12, warehouseId?: string) {
+    const r = await this.client.get<APIResponse<any>>('/inventory/reports/value-history', {
+      params: { months, warehouseId },
+    });
+    return r.data;
+  }
+
+  async takeInventorySnapshot() {
+    const r = await this.client.post<APIResponse<any>>('/inventory/reports/snapshot');
+    return r.data;
+  }
+
+  async getInventoryRotation(order: 'rotation' | 'no-movement' = 'rotation', limit = 100) {
+    const r = await this.client.get<APIResponse<any>>('/inventory/reports/rotation', {
+      params: { order, limit },
+    });
+    return r.data;
+  }
+
+  async getInventoryCountDue(all = false) {
+    const r = await this.client.get<APIResponse<any>>('/inventory/reports/count-due', {
+      params: { all },
+    });
+    return r.data;
+  }
+
+  /** Catálogo de reportes exportables (§12). */
+  async getReportCatalog() {
+    const r = await this.client.get<APIResponse<any>>('/inventory/reports/catalog');
+    return r.data;
+  }
+
+  /**
+   * Descarga un reporte de inventario en Excel o PDF. Usa axios (blob) para
+   * que viaje el header de autenticación, y dispara la descarga en el navegador.
+   */
+  async downloadInventoryReport(
+    report: string,
+    format: 'xlsx' | 'pdf',
+    params?: { from?: string; to?: string; warehouseId?: string }
+  ) {
+    const r = await this.client.get('/inventory/reports/export', {
+      params: { report, format, ...params },
+      responseType: 'blob',
+    });
+    const blob = new Blob([r.data], {
+      type: format === 'pdf'
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${report}-${new Date().toISOString().slice(0, 10)}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Purchase orders endpoints (§3 ALMACEN — Fase 4)
+   */
+  async getPurchaseOrders(params?: { status?: string; warehouseId?: string; limit?: number }) {
+    const r = await this.client.get<APIResponse<any>>('/purchase-orders', { params });
+    return r.data;
+  }
+
+  async getPurchaseOrder(id: string) {
+    const r = await this.client.get<APIResponse<any>>(`/purchase-orders/${id}`);
+    return r.data;
+  }
+
+  async runReorderCheck() {
+    const r = await this.client.post<APIResponse<any>>('/purchase-orders/reorder-check');
+    return r.data;
+  }
+
+  async createPurchaseOrder(data: {
+    warehouseId: string;
+    supplierId?: string;
+    neededByDate?: string;
+    notes?: string;
+    items: Array<{ productId: string; quantity: number }>;
+  }) {
+    const r = await this.client.post<APIResponse<any>>('/purchase-orders', data);
+    return r.data;
+  }
+
+  async setPurchaseOrderStatus(id: string, status: string) {
+    const r = await this.client.put<APIResponse<any>>(`/purchase-orders/${id}/status`, { status });
+    return r.data;
+  }
+
+  async receivePurchaseOrder(
+    id: string,
+    receipts: Array<{ itemId: string; quantity: number; unitCost?: number }>,
+    costingMethod?: 'PROMEDIO' | 'ULTIMO' | 'CAPAS'
+  ) {
+    const r = await this.client.post<APIResponse<any>>(`/purchase-orders/${id}/receive`, {
+      receipts,
+      costingMethod,
+    });
+    return r.data;
+  }
+
+  /**
+   * POS endpoints (Fase 5 ALMACEN)
+   */
+  async createPosSale(data: {
+    warehouseId?: string;
+    paymentForm?: string;
+    items: Array<{ productId: string; quantity: number; unitPrice?: number }>;
+  }) {
+    const r = await this.client.post<APIResponse<any>>('/pos/sales', data);
+    return r.data;
+  }
+
+  async getPosSales(date?: string) {
+    const r = await this.client.get<APIResponse<any>>('/pos/sales', { params: { date } });
+    return r.data;
+  }
+
+  async cancelPosSale(id: string) {
+    const r = await this.client.post<APIResponse<any>>(`/pos/sales/${id}/cancel`);
+    return r.data;
+  }
+
+  async closePosDay(date?: string) {
+    const r = await this.client.post<APIResponse<any>>('/pos/close-day', { date });
+    return r.data;
+  }
+
+  /**
    * Envía por correo los archivos seleccionados (PDF y XML de factura, NCs y pagos).
    * El backend usa el `contact_email` de la empresa emisora como remitente si está
    * configurado; si no, cae al MAIL_FROM del env.
@@ -219,9 +445,9 @@ class APIClient {
   /**
    * Products endpoints
    */
-  async getProducts(page: number = 1, limit: number = 10) {
+  async getProducts(page: number = 1, limit: number = 10, search?: string) {
     const response = await this.client.get<APIResponse<any>>('/products', {
-      params: { page, limit },
+      params: { page, limit, search },
     });
     return response.data;
   }
@@ -303,31 +529,6 @@ class APIClient {
     return response.data;
   }
 
-  /* ────── Punto de Venta (POS) ────── */
-
-  async posCatalog(search?: string) {
-    const r = await this.client.get('/pos/catalog', { params: search ? { search } : {} });
-    return r.data;
-  }
-  async posCreateSale(body: {
-    items: { productId: string; quantity: number }[];
-    paymentMethod: 'EFECTIVO' | 'TARJETA';
-    amountTendered?: number;
-    cardRef?: string;
-    customerName?: string;
-  }) {
-    const r = await this.client.post('/pos/sales', body);
-    return r.data;
-  }
-  async posSales(limit = 50) {
-    const r = await this.client.get('/pos/sales', { params: { limit } });
-    return r.data;
-  }
-  async posDailySummary(date?: string) {
-    const r = await this.client.get('/pos/summary', { params: date ? { date } : {} });
-    return r.data;
-  }
-
   /** Reporte de cobranza detallado — facturas por cliente con saldo > 0.20. */
   async getReceivablesReport(customerId?: string) {
     const response = await this.client.get('/reports/receivables', {
@@ -345,100 +546,6 @@ class APIClient {
   async getSalesReport(dateFrom?: string, dateTo?: string) {
     const response = await this.client.get('/reports/sales', {
       params: { dateFrom, dateTo },
-    });
-    return response.data;
-  }
-
-  /* ────── Contrato de prestación de servicios (e.firma) ────── */
-
-  async getContract() {
-    const r = await this.client.get('/contract');
-    return r.data;
-  }
-
-  /**
-   * Firma el contrato con la e.firma. Los archivos van en base64: la .key y la
-   * contraseña se usan solo para firmar y el backend nunca las persiste.
-   */
-  async signContract(body: { cerB64: string; keyB64: string; password: string }) {
-    const r = await this.client.post('/contract/sign', body);
-    return r.data;
-  }
-
-  async verifyContract() {
-    const r = await this.client.get('/contract/verify');
-    return r.data;
-  }
-
-  /* ────── Equipo: el ADMIN gestiona a los USER de SU empresa ────── */
-
-  async getTeam() {
-    const r = await this.client.get('/team');
-    return r.data;
-  }
-
-  /** Alta de USER. La empresa y el rol los fija el backend desde el JWT. */
-  async createTeamUser(body: { email: string; firstName: string; lastName: string }) {
-    const r = await this.client.post('/team', body);
-    return r.data;
-  }
-
-  async disableTeamUser(id: string) {
-    const r = await this.client.post(`/team/${id}/disable`);
-    return r.data;
-  }
-
-  async enableTeamUser(id: string) {
-    const r = await this.client.post(`/team/${id}/enable`);
-    return r.data;
-  }
-
-  async resetTeamUserPassword(id: string) {
-    const r = await this.client.post(`/team/${id}/reset-password`);
-    return r.data;
-  }
-
-  /**
-   * Activa/desactiva el REPORTE mensual de la bitácora de un usuario.
-   * La actividad se registra siempre; esto solo controla el envío.
-   */
-  async setTeamUserMonitoring(id: string, body: { enabled: boolean; email?: string }) {
-    const r = await this.client.put(`/team/${id}/monitoring`, body);
-    return r.data;
-  }
-
-  /** Bitácora de un usuario (confidencial: solo el ADMIN de su empresa). */
-  async getTeamUserActivity(id: string, limit = 100) {
-    const r = await this.client.get(`/team/${id}/activity`, { params: { limit } });
-    return r.data;
-  }
-
-  /** Resumen de ventas por mes y año (venta, cobrada, no cobrada, adeudo). */
-  async getSalesSummaryReport() {
-    const response = await this.client.get('/reports/sales-summary');
-    return response.data;
-  }
-
-  /** PDF del resumen por mes y año (se sirve inline: se ve en el navegador). */
-  salesSummaryPDFUrl(): string {
-    return `${this.client.defaults.baseURL}/reports/sales-summary/pdf`;
-  }
-
-  /** Todas las facturas no pagadas, lista plana sin filtro de antigüedad. */
-  async getUnpaidReport() {
-    const response = await this.client.get('/reports/unpaid');
-    return response.data;
-  }
-
-  /** PDF de facturas no pagadas (inline). */
-  unpaidPDFUrl(): string {
-    return `${this.client.defaults.baseURL}/reports/unpaid/pdf`;
-  }
-
-  /** Reporte de ventas detallado por periodo (mes opcional). */
-  async getSalesDetailReport(year: number, month?: number) {
-    const response = await this.client.get('/reports/sales-detail', {
-      params: month ? { year, month } : { year },
     });
     return response.data;
   }
@@ -725,21 +832,16 @@ class APIClient {
     const r = await this.client.post(`/admin/users/${id}/reset-password`, {});
     return r.data;
   }
-  /**
-   * Borrado DEFINITIVO. Solo procede si el usuario no tiene historial: el
-   * backend rechaza a quien firmó, timbró o subió un CSD, porque su rastro es
-   * evidencia. Exige el correo exacto como confirmación.
-   */
-  async adminDeleteUser(id: string, confirmEmail: string) {
-    const r = await this.client.delete(`/admin/users/${id}`, { params: { confirmEmail } });
-    return r.data;
-  }
   async adminDisableUser(id: string) {
     const r = await this.client.post(`/admin/users/${id}/disable`, {});
     return r.data;
   }
   async adminEnableUser(id: string) {
     const r = await this.client.post(`/admin/users/${id}/enable`, {});
+    return r.data;
+  }
+  async adminEnterCompany(companyId: string) {
+    const r = await this.client.post<{ data: { token: string; user: any; company: any } }>(`/admin/companies/${companyId}/enter`, {});
     return r.data;
   }
   async adminImpersonate(id: string) {
@@ -761,9 +863,115 @@ class APIClient {
     return r.data;
   }
 
+  /* ───────────── Proveedores ───────────── */
+  async updateSupplierCredit(id: string, data: {
+    creditDays?: number;
+    creditLine?: number;
+    paymentConditions?: string;
+    supplierRating?: number;
+    deliveryDaysAvg?: number;
+  }) {
+    const r = await this.client.put<APIResponse<any>>(`/suppliers/${id}/credit`, data);
+    return r.data;
+  }
+
+  /* ───────────── Tesorería (Fase 6 ALMACEN) ───────────── */
+  async getTreasuryPayments(params?: { status?: string; supplierId?: string; from?: string; to?: string }) {
+    const r = await this.client.get<APIResponse<any>>('/treasury/payments', { params });
+    return r.data;
+  }
+  async getTreasurySummary() {
+    const r = await this.client.get<APIResponse<any>>('/treasury/summary');
+    return r.data;
+  }
+  async createTreasuryPayment(data: { supplierId: string; amount: number; dueDate: string; notes?: string }) {
+    const r = await this.client.post<APIResponse<any>>('/treasury/payments', data);
+    return r.data;
+  }
+  async payTreasuryPayment(id: string, data?: { paidAt?: string; notes?: string }) {
+    const r = await this.client.post<APIResponse<any>>(`/treasury/payments/${id}/pay`, data || {});
+    return r.data;
+  }
+  async rescheduleTreasuryPayment(id: string, dueDate: string) {
+    const r = await this.client.put<APIResponse<any>>(`/treasury/payments/${id}/reschedule`, { dueDate });
+    return r.data;
+  }
+  async cancelTreasuryPayment(id: string, motivo?: string) {
+    const r = await this.client.post<APIResponse<any>>(`/treasury/payments/${id}/cancel`, { motivo });
+    return r.data;
+  }
+
+  /* ───────────── Equipo / capacidades (Fase 8 ALMACEN §8) ───────────── */
+  async getTeamCapabilities() {
+    const r = await this.client.get<APIResponse<any>>('/team/capabilities');
+    return r.data;
+  }
+  async getTeamUsers() {
+    const r = await this.client.get<APIResponse<any>>('/team/users');
+    return r.data;
+  }
+  async setUserCapabilities(userId: string, capabilities: string[]) {
+    const r = await this.client.put<APIResponse<any>>(`/team/users/${userId}/capabilities`, { capabilities });
+    return r.data;
+  }
+  async createTeamUser(data: { email: string; password: string; firstName: string; lastName?: string; role: string; workGroup: string; }) {
+    const r = await this.client.post<APIResponse<any>>('/team/users', data);
+    return r.data;
+  }
+  async updateTeamUser(userId: string, data: any) {
+    const r = await this.client.patch<APIResponse<any>>(`/team/users/${userId}`, data);
+    return r.data;
+  }
+  async deleteTeamUser(userId: string) {
+    const r = await this.client.delete<APIResponse<any>>(`/team/users/${userId}`);
+    return r.data;
+  }
+
+  /* ───────────── Inventario físico (Fase 6 ALMACEN §11) ───────────── */
+  async getPhysicalCounts() {
+    const r = await this.client.get<APIResponse<any>>('/physical-counts');
+    return r.data;
+  }
+  async getPhysicalCount(id: string) {
+    const r = await this.client.get<APIResponse<any>>(`/physical-counts/${id}`);
+    return r.data;
+  }
+  async openPhysicalCount(data: { warehouseId: string; category?: string; notes?: string }) {
+    const r = await this.client.post<APIResponse<any>>('/physical-counts', data);
+    return r.data;
+  }
+  async capturePhysicalCount(id: string, items: Array<{ itemId: string; countedQty: number }>) {
+    const r = await this.client.put<APIResponse<any>>(`/physical-counts/${id}/capture`, { items });
+    return r.data;
+  }
+  async closePhysicalCount(id: string) {
+    const r = await this.client.post<APIResponse<any>>(`/physical-counts/${id}/close`);
+    return r.data;
+  }
+  async cancelPhysicalCount(id: string) {
+    const r = await this.client.post<APIResponse<any>>(`/physical-counts/${id}/cancel`);
+    return r.data;
+  }
+
   /* ───────────── Proveedores (read-only) ───────────── */
   async listSuppliers(params: { search?: string; limit?: number } = {}) {
     const r = await this.client.get('/suppliers', { params });
+    return r.data;
+  }
+  async getSupplier(id: string) {
+    const r = await this.client.get(`/suppliers/${id}`);
+    return r.data;
+  }
+  async getSupplierBanks() {
+    const r = await this.client.get('/suppliers/banks');
+    return r.data;
+  }
+  async createSupplier(data: any) {
+    const r = await this.client.post('/suppliers', data);
+    return r.data;
+  }
+  async updateSupplier(id: string, data: any) {
+    const r = await this.client.put(`/suppliers/${id}`, data);
     return r.data;
   }
 
@@ -786,15 +994,6 @@ class APIClient {
                                             keyBase64: string; keyPassword: string;
                                             validFrom?: string; validTo?: string }) {
     const r = await this.client.post(`/admin/companies/${id}/csd`, data);
-    return r.data;
-  }
-  /**
-   * Lee el .cer y devuelve No. Certificado, vigencia, RFC y avisos. No guarda
-   * nada. Si se manda también la .key con su contraseña, valida que
-   * correspondan antes de guardar.
-   */
-  async adminInspectCSD(id: string, data: { cerBase64: string; keyBase64?: string; keyPassword?: string }) {
-    const r = await this.client.post(`/admin/companies/${id}/csd/inspect`, data);
     return r.data;
   }
   async adminDeleteCSD(id: string) {
@@ -897,6 +1096,144 @@ class APIClient {
   async adminAuditLog(params: { userId?: string; action?: string; limit?: number } = {}) {
     const r = await this.client.get('/admin/audit', { params });
     return r.data;
+  }
+
+  /* ─── Carta Porte 3.1 ─── */
+  async searchCartaPorteCatalog(name: string, q: string, limit = 50) {
+    const res = await this.client.get<{ items: Array<{ clave: string; descripcion: string; [k: string]: any }> }>(
+      `/carta-porte/catalogs/${name}`,
+      { params: { q, limit } },
+    );
+    return res.data;
+  }
+  /* ─── Super lector XML (CFDI + CP + Nómina + Pagos + NC) ─── */
+  async xmlSuperDetect(xml: string) {
+    const r = await this.client.post<{ detection: any; duplicates: Record<string, { exists: boolean; id?: string }> }>('/xml-super-import/detect', { xml });
+    return r.data;
+  }
+  async xmlSuperApply(payload: any) {
+    const r = await this.client.post<any>('/xml-super-import/apply', payload);
+    return r.data;
+  }
+  async xmlSuperCheckExisting(payload: any) {
+    const r = await this.client.post<any>('/xml-super-import/check-existing', payload);
+    return r.data;
+  }
+  async xmlSuperApplySelected(payload: any) {
+    const r = await this.client.post<any>('/xml-super-import/apply-selected', payload);
+    return r.data;
+  }
+
+  /* ─── Contrato de servicio con e.firma ─── */
+  async getContract() {
+    const r = await this.client.get('/contract');
+    return r.data;
+  }
+  async signContract(body: { cerB64: string; keyB64: string; password: string }) {
+    const r = await this.client.post('/contract/sign', body);
+    return r.data;
+  }
+  async verifyContract() {
+    const r = await this.client.get('/contract/verify');
+    return r.data;
+  }
+
+  /* ─── Carta Porte: Resolver CP → colonias ─── */
+  async resolveCP(cp: string) {
+    const res = await this.client.get<{ codigoPostal: string; colonias: Array<{ clave: string; descripcion: string; codigo_postal: string }> }>(`/carta-porte/cp/${cp}`);
+    return res.data;
+  }
+
+  /* ─── Mercancías transportadas ─── */
+  async listMercanciasCatalog(params?: { search?: string; clienteRfc?: string }) {
+    const q = new URLSearchParams();
+    if (params?.search) q.set('search', params.search);
+    if (params?.clienteRfc) q.set('clienteRfc', params.clienteRfc);
+    const r = await this.client.get<{ items: any[] }>(`/carta-porte/mercancias?${q}`);
+    return r.data;
+  }
+  async listMercanciasBitacora(params?: { invoiceId?: string; from?: string; to?: string }) {
+    const q = new URLSearchParams();
+    if (params?.invoiceId) q.set('invoiceId', params.invoiceId);
+    if (params?.from) q.set('from', params.from);
+    if (params?.to) q.set('to', params.to);
+    const r = await this.client.get<{ items: any[] }>(`/carta-porte/mercancias/bitacora?${q}`);
+    return r.data;
+  }
+  async deleteMercanciaCatalog(id: string) {
+    await this.client.delete(`/carta-porte/mercancias/${id}`);
+  }
+
+  /* ─── Carta Porte: Lugares frecuentes ─── */
+  async listCPLugares(q?: string, tipo?: string) {
+    const res = await this.client.get<{ items: any[] }>('/carta-porte/lugares', { params: { q, tipo } });
+    return res.data.items || [];
+  }
+  async createCPLugar(data: any) {
+    const res = await this.client.post<any>('/carta-porte/lugares', data);
+    return res.data;
+  }
+  async updateCPLugar(id: string, data: any) {
+    const res = await this.client.patch<any>(`/carta-porte/lugares/${id}`, data);
+    return res.data;
+  }
+  async deleteCPLugar(id: string) {
+    const res = await this.client.delete<{ removed: number }>(`/carta-porte/lugares/${id}`);
+    return res.data;
+  }
+
+  /* ─── CP: Importador XML ─── */
+  async cpImportPreview(xml: string) {
+    const r = await this.client.post<any>('/carta-porte/importar-xml/preview', { xml });
+    return r.data;
+  }
+  async cpImportApply(payload: any) {
+    const r = await this.client.post<any>('/carta-porte/importar-xml/apply', payload);
+    return r.data;
+  }
+
+  /* ─── CP: Vehículos ─── */
+  async listCPVehiculos(q?: string) {
+    const r = await this.client.get<{ items: any[] }>('/carta-porte/vehiculos', { params: { q } });
+    return r.data.items || [];
+  }
+  async createCPVehiculo(data: any) { return (await this.client.post<any>('/carta-porte/vehiculos', data)).data; }
+  async updateCPVehiculo(id: string, data: any) { return (await this.client.patch<any>(`/carta-porte/vehiculos/${id}`, data)).data; }
+  async deleteCPVehiculo(id: string) { return (await this.client.delete<any>(`/carta-porte/vehiculos/${id}`)).data; }
+
+  /* ─── CP: Aseguradoras ─── */
+  async listCPAseguradoras(q?: string, tipo?: string) {
+    const r = await this.client.get<{ items: any[] }>('/carta-porte/aseguradoras', { params: { q, tipo } });
+    return r.data.items || [];
+  }
+  async createCPAseguradora(data: any) { return (await this.client.post<any>('/carta-porte/aseguradoras', data)).data; }
+  async updateCPAseguradora(id: string, data: any) { return (await this.client.patch<any>(`/carta-porte/aseguradoras/${id}`, data)).data; }
+  async deleteCPAseguradora(id: string) { return (await this.client.delete<any>(`/carta-porte/aseguradoras/${id}`)).data; }
+
+  /* ─── CP: Operadores ─── */
+  async listCPOperadores(q?: string, tipo?: string) {
+    const r = await this.client.get<{ items: any[] }>('/carta-porte/operadores', { params: { q, tipo } });
+    return r.data.items || [];
+  }
+  async createCPOperador(data: any) { return (await this.client.post<any>('/carta-porte/operadores', data)).data; }
+  async updateCPOperador(id: string, data: any) { return (await this.client.patch<any>(`/carta-porte/operadores/${id}`, data)).data; }
+  async deleteCPOperador(id: string) { return (await this.client.delete<any>(`/carta-porte/operadores/${id}`)).data; }
+
+  async listCartaPorte() {
+    const res = await this.client.get<{ items: any[] }>(`/carta-porte/list`);
+    return res.data;
+  }
+  async getCartaPorte(invoiceId: string) {
+    const res = await this.client.get<{ cartaPorte: any }>(`/invoices/${invoiceId}/carta-porte`);
+    return res.data.cartaPorte;
+  }
+  async saveCartaPorte(invoiceId: string, data: any) {
+    const res = await this.client.put<{ id: number }>(`/invoices/${invoiceId}/carta-porte`, data);
+    return res.data;
+  }
+  async deleteCartaPorte(invoiceId: string) {
+    const res = await this.client.delete<{ removed: number }>(`/invoices/${invoiceId}/carta-porte`);
+    return res.data;
   }
 
   /**

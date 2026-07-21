@@ -118,6 +118,11 @@ export function Layout() {
                 {/* Catálogos */}
                 {show('products') && <NavItem to="/products" icon={<Boxes size={20} />} accent="fuchsia" label="Productos" open={sidebarOpen} />}
 
+                {/* Carta Porte 3.1 + Super Lector XML (V2) */}
+                {show('invoices') && <NavItem to="/carta-porte"        icon={<span className="text-xl leading-none">🚚</span>} accent="amber"  label="Carta Porte"       open={sidebarOpen} />}
+                {show('invoices') && <NavItem to="/carta-porte/mercancias" icon={<span className="text-xl leading-none">📦</span>} accent="rose"   label="Mercancías CP"    open={sidebarOpen} />}
+                {show('invoices') && <NavItem to="/xml-super-import"   icon={<span className="text-xl leading-none">🧠</span>} accent="violet" label="Super Lector XML" open={sidebarOpen} />}
+
                 {/* Equipo — por ROL, no por grupo de trabajo: gestionar usuarios
                     es autoridad del ADMIN de la empresa, no un módulo más. */}
                 {user?.role === 'ADMIN' && (
