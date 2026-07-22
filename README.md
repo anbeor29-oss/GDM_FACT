@@ -1,10 +1,155 @@
-# GDM_FAC — Facturación CFDI 4.0 México
+# GDM_FAC V2 — Facturación CFDI 4.0 + Complemento Carta Porte 3.1
 
-Sistema de **facturación electrónica CFDI 4.0** para México. Backend Node/Express + TypeScript, frontend React + Vite, PostgreSQL 15. Integrado con **SW Sapien** como PAC para timbrado real.
+Sistema de **facturación electrónica CFDI 4.0** para México **con Complemento Carta Porte 3.1**.
+Backend Node/Express + TypeScript, frontend React + Vite, PostgreSQL 16. Integrado con
+**SW Sapien** como PAC para timbrado real.
 
-**Estado**: 🟢 **FACTURANDO EN PRODUCCIÓN REAL** con **GRUPO HCGM** (desde 2026-07-17) ·
-Render.com + `hcgm.com.mx/erp` · SW Sapien production · CFDI 4.0 timbrados y
-validados en el portal SAT.
+**Estado**:
+- 🟢 **V1 (`origin/main`)** — FACTURANDO EN PRODUCCIÓN REAL con **GRUPO HCGM** (desde 2026-07-17) en `hcgm.com.mx/erp` · SW Sapien production.
+- 🟡 **V2 (`v2-carta-porte`)** — En pruebas locales (dev en Windows), incorpora Complemento Carta Porte 3.1 + Super Lector XML + Mercancías. Pendiente de deploy a Render como nuevo par de servicios (V1 sigue intacta durante la validación).
+
+---
+
+## 🆕 Novedades de V2 (rama `v2-carta-porte`, 2026-07-22)
+
+Todo lo de V1 sigue igual (facturación, NC, clientes, productos, reportes, contrato, importador CFDI, admin). Se **agregan** los siguientes módulos y arreglos:
+
+### Complemento Carta Porte 3.1 (Anexo 20 SAT)
+- **Página `/carta-porte`** — dashboard con lista de facturas con CP y accesos rápidos.
+- **`/carta-porte/lugares`** — catálogo de ubicaciones frecuentes (Origen/Destino) con CP-autofill de colonia/municipio/localidad desde catálogos SAT.
+- **`/carta-porte/vehiculos`** — catálogo de vehículos con placa, config vehicular, permiso SCT, año, peso bruto, aseguradoras.
+- **`/carta-porte/aseguradoras`** — catálogo de pólizas por tipo (RespCivil / MedAmbiente / Carga).
+- **`/carta-porte/operadores`** — catálogo de figuras de transporte (operador, propietario, arrendador, notificado).
+- **`/carta-porte/mercancias`** — módulo SEPARADO de Productos: catálogo (plantilla reusable) + bitácora por viaje para inspecciones SAT.
+- **`/invoices/:id/carta-porte`** — formulario completo del CP: ubicaciones, mercancías, autotransporte, figuras. Con "Cargar plantilla" en cada bloque.
+- **Builder XML CP 3.1** + validator (Matriz de Errores SAT) + timbrado sandbox.
+- **Sección CP en el PDF** — hoja 2 con QR y datos del complemento, hoja 3 con las 14 cláusulas del contrato de transporte.
+
+### Super Lector XML (`/xml-super-import`)
+Reemplaza el importador CFDI clásico. Un solo lector que detecta y procesa:
+- CFDI 4.0 puro
+- CFDI + Complemento Carta Porte 3.1
+- CFDI + Complemento Nómina 1.2 (solo detecta + guarda metadata)
+- CFDI + Complemento de Pagos 2.0 (detecta)
+- Notas de Crédito
+
+**Modo lote**: acepta hasta 5 XMLs. Analiza todos, dedup entre archivos y contra la BD, muestra preview consolidado por tipo de entidad (👥 parties · 📄 productos · 📦 mercancías · 📍 lugares · 🚚 vehículos · 🛡️ aseguradoras · 👤 operadores) con checkbox por ítem, marca en verde los que ya existen y pre-desmarca. Un solo click "Importar lo seleccionado" ejecuta la creación de todos los ítems marcados.
+
+### Catálogos SAT cargados (bug del seed original corregido)
+`sat_cp_colonia` (144,718), `sat_cp_municipio` (2,453), `sat_cp_localidad` (661), `sat_cp_config_autotransporte` (33), más los ya existentes de CFDI 4.0. **Fix crítico**: el seed original de gdmalmacen intercambiaba las columnas `codigo_postal ↔ descripcion` en `sat_cp_colonia` y `estado ↔ descripcion` en `sat_cp_municipio`/`sat_cp_localidad`. Se aplicó SWAP en las 3 tablas (ver `scratchpad/fix_colonia.sql` y `fix_muni_loc.sql`).
+
+### Endpoints nuevos
+- `GET /carta-porte/cp/:codigoPostal` — devuelve colonias + estado inferido + municipios + localidades del catálogo SAT.
+- `POST /xml-super-import/detect` · `/apply` · `/apply-selected` · `/check-existing`.
+- `GET /carta-porte/mercancias` · `/bitacora` · `DELETE`.
+- Todas las rutas de `carta-porte/*` (lugares, vehículos, aseguradoras, operadores, importar-xml, catalogos-empresa).
+
+### PDF mejorado
+- **Página 2 Carta Porte** con layout SAT: QR, IdCCP, Folio fiscal, RFC PAC, fecha timbrado, lugar expedición, barras oscuras con secciones (Autotransporte, Aseguradora, Vehículo, Figuras, Ubicaciones, Mercancías).
+- **Página 3** con las 14 cláusulas completas del contrato de transporte que ampara la Carta Porte.
+- **Ubicaciones con lookup automático** `(clave) Nombre` — clave SAT + descripción resuelta contra catálogo.
+- **Sellos íntegros** en el TIMBRE FISCAL — antes se truncaban a 60 caracteres. Ahora wrap multilínea según Anexo 20 §III.A. Cadena original de certificación con formato correcto `||1.1|UUID|Fecha|PAC||SelloCFD|NoCertSAT||`.
+
+### Sidebar reorganizado (más limpio, iconos 3D emoji)
+Orden: 🏠 Dashboard · 🧾 Facturas · 🚚 Carta Porte (colapsable con Lugares/Vehículos/Aseguradoras/Operadores/Mercancías) · 📉 Notas de Crédito · 📦 Productos · 👥 Clientes · 📥 Lector de XML · 📊 Reportes · 📜 Contrato.
+- Iconos con `drop-shadow` CSS para look 3D.
+- "Datos de la empresa" NO va en sidebar — vive en el top bar (botón *DATOS DE MI EMPRESA*) para no duplicar.
+- Módulo "Usuarios" oculto en V2 (V2 se enfoca en facturación + CP, no gestiona equipos de empresa).
+
+### Formulario CP mejorado (UX)
+- **Fecha/hora salida-llegada** — split en 2 inputs (fecha calendario + hora reloj) porque `datetime-local` se cortaba visualmente en Chrome.
+- **CP autofill** — al escribir CP 5 dígitos, colonia/municipio/localidad se convierten en combos con opciones del catálogo SAT. Estado se auto-infiere por rango de CP (mapa oficial 2 primeros dígitos). Debajo de cada combo aparece `Clave SAT: XXX` en rojo pequeño.
+- **Pickers de plantilla** — "Cargar plantilla" en Mercancías, Autotransporte (vehículo), Aseguradora, Figura. Los pickers muestran ítems del catálogo con búsqueda, poblado por lo que se ha importado con el Super Lector.
+- **Verde suave** en campos vacíos que el XML no trajo, con leyenda "verde = falta capturar".
+- **Auto-numeración** OR000001/DE000001 al agregar ubicaciones.
+- **Split time input** — evita corte visual del `datetime-local`.
+
+### Manifiesto ante el PAC
+- Sección **ManifestSigner** en el modal "DATOS DE MI EMPRESA" (top bar): firmar con e.firma FIEL una sola vez para autorizar a SW Sapien como PAC certificador. Backend rechaza timbrado si no está firmado (`428 Precondition Required`).
+
+### Productos: fix silencioso del update
+- El controller de update de productos ignoraba `basePrice` (mandaba camelCase pero el service esperaba `base_price`). Ahora normaliza camelCase→snake_case para 12 campos.
+- Descripción SAT visible: al abrir un producto, "Clave Producto/Servicio" muestra `78101800 — Servicios de transporte de carga por carretera` en vez de `78101800 — 78101800`. Backend hace `LEFT JOIN` a `sat_catalogs` c_ClaveProdServ + `sat_cp_clave_prod_serv` y devuelve `clave_sat_description`.
+- Preset fiscal `auto_carga` — al importar por Super Lector conceptos con SAT `78101xxx` o retIva>0, se crean con IVA 16% + Ret. IVA 4% automático (Autotransporte de carga).
+
+### Ancho de columna corregido en Figuras del PDF
+La columna "Datos" tenía 25pt (rompía "Licencia: LFD01120038" letra por letra). Ahora 95pt.
+
+---
+
+## Setup local V2 (Windows)
+
+Requisitos:
+- Node.js 18+ (probado con v24)
+- PostgreSQL 16 instalado como servicio (usuario `postgres` con password conocida)
+- Puerto 3001 (backend) y 5173 (frontend) libres
+
+Pasos:
+
+```bash
+# 1) Clonar (o si ya está clonado, cambiar a la rama V2)
+cd /e/Obsidian/GDM_FAC_2
+git checkout v2-carta-porte
+
+# 2) Crear BD vacía
+export PGPASSWORD='tu_password'
+psql -h localhost -U postgres -d postgres -c "CREATE DATABASE gdmfac_v2;"
+psql -h localhost -U postgres -d gdmfac_v2 -c "CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+
+# 3) Configurar .env (ver backend/.env y frontend/.env de referencia)
+#    DATABASE_URL=postgresql://postgres:tu_password@localhost:5432/gdmfac_v2
+#    PAC_PROVIDER=MOCK   (o SW_SAPIEN + token para timbrar real)
+#    BOOTSTRAP_ADMIN_EMAIL=admin@tudominio.local
+#    BOOTSTRAP_ADMIN_PASSWORD=xxxx
+#    VITE_API_BASE=http://localhost:3001
+
+# 4) Aplicar migraciones y catálogos SAT
+cd backend
+DATABASE_URL='postgresql://postgres:tu_password@localhost:5432/gdmfac_v2' \
+  node scripts/migrate-up.js
+DATABASE_URL='postgresql://postgres:tu_password@localhost:5432/gdmfac_v2' \
+  node scripts/apply-cp-seed.js
+# ⚠ El apply-cp-seed carga 200K sentencias — tarda ~30 seg. Si falla por
+# "valor demasiado largo", correr primero el widen (ver widen-sat-cp.js).
+
+# 5) FIX crítico del seed CP (columnas invertidas)
+psql -h localhost -U postgres -d gdmfac_v2 \
+  -c "BEGIN; ALTER TABLE sat_cp_colonia ADD COLUMN _tmp TEXT;
+      UPDATE sat_cp_colonia SET _tmp = codigo_postal;
+      UPDATE sat_cp_colonia SET codigo_postal = descripcion, descripcion = _tmp;
+      ALTER TABLE sat_cp_colonia DROP COLUMN _tmp;
+      ALTER TABLE sat_cp_municipio ADD COLUMN _tmp TEXT;
+      UPDATE sat_cp_municipio SET _tmp = estado;
+      UPDATE sat_cp_municipio SET estado = descripcion, descripcion = _tmp;
+      ALTER TABLE sat_cp_municipio DROP COLUMN _tmp;
+      ALTER TABLE sat_cp_localidad ADD COLUMN _tmp TEXT;
+      UPDATE sat_cp_localidad SET _tmp = estado;
+      UPDATE sat_cp_localidad SET estado = descripcion, descripcion = _tmp;
+      ALTER TABLE sat_cp_localidad DROP COLUMN _tmp;
+      COMMIT;"
+
+# 6) Bootstrap admin/empresa demo
+DATABASE_URL='postgresql://postgres:tu_password@localhost:5432/gdmfac_v2' \
+  BOOTSTRAP_ADMIN_EMAIL=... BOOTSTRAP_ADMIN_PASSWORD=... \
+  node scripts/bootstrap-env.js
+
+# 7) Arrancar backend + frontend en 2 terminales
+cd backend && npm run dev     # localhost:3001
+cd frontend && npm run dev    # localhost:5173
+```
+
+Login: `admin@gdmfac2.local` / `admin1234` (o los que hayas puesto en el bootstrap).
+
+## Antes de desplegar V2 a Render
+
+1. Correr el mismo SWAP fix en la BD Postgres de producción V2.
+2. Verificar que `PAC_PROVIDER=SW_SAPIEN` + token real esté en env vars.
+3. Correr el `apply-cp-seed.js` en el startCommand (ya está en `package.json` como `npm run cp:seed`).
+4. Firmar el manifiesto SW Sapien desde el modal DATOS DE MI EMPRESA con la e.firma FIEL de HCGM (o del contribuyente).
+
+---
+
+## Estado histórico V1 (sin cambios)
 
 ---
 

@@ -26,7 +26,7 @@ class APIClient {
 
     // Add token to requests
     this.client.interceptors.request.use((config) => {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -1140,7 +1140,14 @@ class APIClient {
 
   /* ─── Carta Porte: Resolver CP → colonias ─── */
   async resolveCP(cp: string) {
-    const res = await this.client.get<{ codigoPostal: string; colonias: Array<{ clave: string; descripcion: string; codigo_postal: string }> }>(`/carta-porte/cp/${cp}`);
+    const res = await this.client.get<{
+      codigoPostal: string;
+      colonias: Array<{ clave: string; descripcion: string; codigo_postal: string }>;
+      estado: string | null;
+      estadoDescripcion: string | null;
+      municipios: Array<{ clave: string; descripcion: string }>;
+      localidades: Array<{ clave: string; descripcion: string }>;
+    }>(`/carta-porte/cp/${cp}`);
     return res.data;
   }
 

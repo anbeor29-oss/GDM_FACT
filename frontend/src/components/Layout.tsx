@@ -3,27 +3,21 @@
  * Sidebar + top bar + outlet de la página activa
  */
 
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { GdmLogo } from './GdmLogo';
 import {
-  FileText,
-  Users,
-  Boxes,
-  LayoutGrid,
-  BarChart3,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   Building2,
-  FileMinus2,
+  ChevronDown,
+  ChevronRight,
   ShieldCheck,
   Wallet,
   FileInput,
   Truck,
   DollarSign,
   ShoppingCart,
-  Users2,
-  FileSignature,
 } from 'lucide-react';
 import { canAccess, type ModuleKey } from '@/utils/permissions';
 import { useState, useCallback } from 'react';
@@ -105,32 +99,51 @@ export function Layout() {
             const show = (m: ModuleKey) => canAccess(g, m);
             // Cada entrada se muestra solo si el grupo de trabajo la permite.
             // El dashboard es común a todos.
+            const emoji3D = (e: string) => (
+              <span
+                className="text-xl leading-none"
+                style={{
+                  filter: 'drop-shadow(0 1.5px 1px rgba(0,0,0,0.15)) drop-shadow(0 0 1px rgba(0,0,0,0.1))',
+                  display: 'inline-block',
+                  transform: 'translateZ(0)',
+                }}
+              >{e}</span>
+            );
             return (
               <>
-                <NavItem to="/dashboard" icon={<LayoutGrid size={20} />} accent="sky" label="Dashboard" open={sidebarOpen} />
-
-                {/* Facturación */}
-                {show('invoices')     && <NavItem to="/invoices"     icon={<FileText size={20} />}    accent="amber"   label="Facturas"         open={sidebarOpen} />}
-                {show('credit_notes') && <NavItem to="/credit-notes" icon={<FileMinus2 size={20} />}  accent="rose"    label="Notas de Crédito" open={sidebarOpen} />}
-                {show('customers')    && <NavItem to="/customers"    icon={<Users size={20} />}       accent="emerald" label="Clientes"         open={sidebarOpen} />}
-                {show('reports')      && <NavItem to="/reports"      icon={<BarChart3 size={20} />}   accent="violet"  label="Reportes"         open={sidebarOpen} />}
-
-                {/* Catálogos */}
-                {show('products') && <NavItem to="/products" icon={<Boxes size={20} />} accent="fuchsia" label="Productos" open={sidebarOpen} />}
-
-                {/* Carta Porte 3.1 + Super Lector XML (V2) */}
-                {show('invoices') && <NavItem to="/carta-porte"        icon={<span className="text-xl leading-none">🚚</span>} accent="amber"  label="Carta Porte"       open={sidebarOpen} />}
-                {show('invoices') && <NavItem to="/carta-porte/mercancias" icon={<span className="text-xl leading-none">📦</span>} accent="rose"   label="Mercancías CP"    open={sidebarOpen} />}
-                {show('invoices') && <NavItem to="/xml-super-import"   icon={<span className="text-xl leading-none">🧠</span>} accent="violet" label="Super Lector XML" open={sidebarOpen} />}
-
-                {/* Equipo — por ROL, no por grupo de trabajo: gestionar usuarios
-                    es autoridad del ADMIN de la empresa, no un módulo más. */}
-                {user?.role === 'ADMIN' && (
-                  <>
-                    <NavItem to="/team" icon={<Users2 size={20} />} accent="violet" label="Usuarios" open={sidebarOpen} />
-                    <NavItem to="/contract" icon={<FileSignature size={20} />} accent="sky" label="Contrato" open={sidebarOpen} />
-                  </>
+                {/* Orden solicitado (V2): 1 Dashboard, 2 Facturas, 3 Carta Porte,
+                    4 Notas de Crédito, 5 Productos, 6 Lector de XML, 7 Reportes,
+                    8 Contrato, y al final Datos de la Empresa. Iconos emoji 3D
+                    con drop-shadow para look moderno. Usuarios queda oculto en
+                    esta versión (V2 se enfoca en facturación + CP). */}
+                <NavItem to="/dashboard"    icon={emoji3D('🏠')} accent="sky"     label="Dashboard"        open={sidebarOpen} />
+                {show('invoices')     && <NavItem to="/invoices"     icon={emoji3D('🧾')} accent="amber"   label="Facturas"         open={sidebarOpen} />}
+                {show('invoices') && (
+                  <NavGroup
+                    to="/carta-porte"
+                    icon={emoji3D('🚚')}
+                    label="Carta Porte"
+                    accent="amber"
+                    open={sidebarOpen}
+                    pathPrefix="/carta-porte"
+                    children={[
+                      { to: '/carta-porte/lugares',      icon: emoji3D('📍'), label: 'Lugares frecuentes' },
+                      { to: '/carta-porte/vehiculos',    icon: emoji3D('🚛'), label: 'Vehículos' },
+                      { to: '/carta-porte/aseguradoras', icon: emoji3D('🛡️'), label: 'Aseguradoras' },
+                      { to: '/carta-porte/operadores',   icon: emoji3D('👨‍✈️'), label: 'Operadores' },
+                      { to: '/carta-porte/mercancias',   icon: emoji3D('📦'), label: 'Mercancías' },
+                    ]}
+                  />
                 )}
+                {show('credit_notes') && <NavItem to="/credit-notes" icon={emoji3D('📉')} accent="rose"    label="Notas de Crédito" open={sidebarOpen} />}
+                {show('products')     && <NavItem to="/products"     icon={emoji3D('📦')} accent="fuchsia" label="Productos"        open={sidebarOpen} />}
+                {show('customers')    && <NavItem to="/customers"    icon={emoji3D('👥')} accent="emerald" label="Clientes"         open={sidebarOpen} />}
+                {show('invoices')     && <NavItem to="/xml-super-import" icon={emoji3D('📥')} accent="violet"  label="Lector de XML"    open={sidebarOpen} />}
+                {show('reports')      && <NavItem to="/reports"      icon={emoji3D('📊')} accent="violet"  label="Reportes"         open={sidebarOpen} />}
+                {user?.role === 'ADMIN' && <NavItem to="/contract"   icon={emoji3D('📜')} accent="sky"     label="Contrato"         open={sidebarOpen} />}
+                {/* "Datos de la empresa" ya vive en el modal del emisor
+                    (top bar → botón DATOS DE MI EMPRESA), incluye el
+                    ManifestSigner. Se retira del sidebar para no duplicar. */}
               </>
             );
           })()}
@@ -235,6 +248,68 @@ const ACCENT_MAP: Record<AccentColor, { activeBg: string; activeText: string; ic
   fuchsia: { activeBg: 'bg-fuchsia-50', activeText: 'text-fuchsia-700', iconActive: 'text-fuchsia-600', iconIdle: 'text-slate-400 group-hover:text-fuchsia-600', bar: 'bg-fuchsia-500' },
   violet:  { activeBg: 'bg-violet-50',  activeText: 'text-violet-700',  iconActive: 'text-violet-600',  iconIdle: 'text-slate-400 group-hover:text-violet-600',  bar: 'bg-violet-500' },
 };
+
+interface NavChild { to: string; icon: React.ReactNode; label: string; }
+
+/** NavGroup — item con submenú expandible; el header linkea al padre y a la vez
+ *  hace toggle. Se autoexpande si la ruta activa cae bajo pathPrefix. */
+function NavGroup({
+  to, icon, label, open, accent, pathPrefix, children,
+}: {
+  to: string; icon: React.ReactNode; label: string; open: boolean;
+  accent: AccentColor; pathPrefix: string; children: NavChild[];
+}) {
+  const c = ACCENT_MAP[accent];
+  const location = useLocation();
+  const isUnderGroup = location.pathname === to || location.pathname.startsWith(pathPrefix + '/');
+  const [expanded, setExpanded] = useState<boolean>(isUnderGroup);
+  const parentActive = location.pathname === to;
+
+  return (
+    <div>
+      <div className={`flex items-center rounded-lg transition-all group relative ${
+        parentActive ? `${c.activeBg} ${c.activeText} font-medium` : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+      }`}>
+        {parentActive && (
+          <span className={`absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 ${c.bar} rounded-r`} />
+        )}
+        <NavLink to={to} title={!open ? label : undefined} className="flex-1 flex items-center gap-3 px-3 py-2.5">
+          <span className={parentActive ? c.iconActive : c.iconIdle}>{icon}</span>
+          {open && <span className="text-sm">{label}</span>}
+        </NavLink>
+        {open && (
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="p-2 text-slate-400 hover:text-slate-700"
+            title={expanded ? 'Colapsar' : 'Expandir'}
+          >
+            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+        )}
+      </div>
+      {open && expanded && (
+        <div className="ml-6 mt-0.5 space-y-0.5 border-l border-slate-200 pl-3">
+          {children.map(ch => (
+            <NavLink
+              key={ch.to}
+              to={ch.to}
+              className={({ isActive }) =>
+                `flex items-center gap-2 px-2 py-1.5 rounded text-xs transition-colors ${
+                  isActive
+                    ? `${c.activeBg} ${c.activeText} font-medium`
+                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                }`
+              }
+            >
+              <span className="text-slate-400">{ch.icon}</span>
+              <span>{ch.label}</span>
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function NavItem({
   to,

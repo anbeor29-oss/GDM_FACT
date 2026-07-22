@@ -37,7 +37,13 @@ interface UbicacionRow {
   distanciaRecorrida?: string;
   calle: string;
   numExterior: string;
+  numInterior: string;
+  colonia: string;
+  localidad: string;
+  referencia: string;
+  municipio: string;
   estado: string;
+  pais: string;
   codigoPostal: string;
   guardarEnCatalogo?: boolean;   // ← el usuario marca para guardar como plantilla
   aliasCatalogo?: string;         // ← alias opcional; si vacío se autogenera
@@ -87,7 +93,13 @@ function blankUbicacion(tipo: 'Origen' | 'Destino', existentes: UbicacionRow[] =
     distanciaRecorrida: tipo === 'Destino' ? '' : undefined,
     calle: '',
     numExterior: '',
+    numInterior: '',
+    colonia: '',
+    localidad: '',
+    referencia: '',
+    municipio: '',
     estado: '',
+    pais: 'MEX',
     codigoPostal: '',
     guardarEnCatalogo: false,
     aliasCatalogo: '',
@@ -105,7 +117,13 @@ function ubicacionDesdeLugar(l: any, tipo: 'Origen' | 'Destino', existentes: Ubi
     distanciaRecorrida: tipo === 'Destino' ? '' : undefined,
     calle: l.calle || '',
     numExterior: l.num_exterior || '',
+    numInterior: l.num_interior || '',
+    colonia: l.colonia || '',
+    localidad: l.localidad || '',
+    referencia: l.referencia || '',
+    municipio: l.municipio || '',
     estado: l.estado || '',
+    pais: l.pais || 'MEX',
     codigoPostal: l.codigo_postal || '',
     guardarEnCatalogo: false,     // ya está en el catálogo
     aliasCatalogo: l.alias,
@@ -138,6 +156,7 @@ export function CartaPorteFormPage() {
   const [lugarPicker, setLugarPicker] = useState<{ index: number; tipo: 'Origen' | 'Destino' } | null>(null);
   const [mercPicker, setMercPicker] = useState<number | null>(null);
   const [autoPickerOpen, setAutoPickerOpen] = useState(false);
+  const [asegPickerOpen, setAsegPickerOpen] = useState(false);
   const [figPicker, setFigPicker] = useState<number | null>(null);
   const [mercancias, setMercancias] = useState<MercanciaRow[]>([blankMercancia()]);
   const [figuras, setFiguras] = useState<FiguraRow[]>([blankFigura()]);
@@ -178,7 +197,14 @@ export function CartaPorteFormPage() {
         fechaHoraSalidaLlegada: u.fecha_hora_salida_llegada?.slice(0, 16) || '',
         distanciaRecorrida: u.distancia_recorrida != null ? String(u.distancia_recorrida) : '',
         calle: u.calle || '', numExterior: u.num_exterior || '',
-        estado: u.estado, codigoPostal: u.codigo_postal,
+        numInterior: u.num_interior || '',
+        colonia: u.colonia || '',
+        localidad: u.localidad || '',
+        referencia: u.referencia || '',
+        municipio: u.municipio || '',
+        estado: u.estado,
+        pais: u.pais || 'MEX',
+        codigoPostal: u.codigo_postal,
       })));
     }
     if (existing.mercancias?.length) {
@@ -224,7 +250,13 @@ export function CartaPorteFormPage() {
           distanciaRecorrida: u.distanciaRecorrida ? Number(u.distanciaRecorrida) : undefined,
           calle: u.calle || undefined,
           numExterior: u.numExterior || undefined,
+          numInterior: u.numInterior || undefined,
+          colonia: u.colonia || undefined,
+          localidad: u.localidad || undefined,
+          referencia: u.referencia || undefined,
+          municipio: u.municipio || undefined,
           estado: u.estado,
+          pais: u.pais || 'MEX',
           codigoPostal: u.codigoPostal,
         })),
         mercancias: mercancias.map(m => ({
@@ -408,8 +440,28 @@ export function CartaPorteFormPage() {
                 <Field label="Nombre" span={2}>
                   <input value={u.nombreRemitenteDestinatario} onChange={e => updateUbi(i, { nombreRemitenteDestinatario: e.target.value })} className="input" />
                 </Field>
-                <Field label="Fecha/hora salida-llegada">
-                  <input type="datetime-local" value={u.fechaHoraSalidaLlegada} onChange={e => updateUbi(i, { fechaHoraSalidaLlegada: e.target.value })} className="input" />
+                <Field label="Fecha y hora salida-llegada" span={2}>
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={(u.fechaHoraSalidaLlegada || '').slice(0, 10)}
+                      onChange={e => {
+                        const time = (u.fechaHoraSalidaLlegada || '').slice(11, 16) || '08:00';
+                        updateUbi(i, { fechaHoraSalidaLlegada: e.target.value ? `${e.target.value}T${time}` : '' });
+                      }}
+                      className="input flex-1"
+                    />
+                    <input
+                      type="time"
+                      value={(u.fechaHoraSalidaLlegada || '').slice(11, 16)}
+                      onChange={e => {
+                        const date = (u.fechaHoraSalidaLlegada || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+                        updateUbi(i, { fechaHoraSalidaLlegada: e.target.value ? `${date}T${e.target.value}` : date });
+                      }}
+                      className="input w-28"
+                      step={60}
+                    />
+                  </div>
                 </Field>
                 <Field label="Calle" span={2}>
                   <input value={u.calle} onChange={e => updateUbi(i, { calle: e.target.value })} className="input" />
@@ -417,11 +469,18 @@ export function CartaPorteFormPage() {
                 <Field label="No. exterior">
                   <input value={u.numExterior} onChange={e => updateUbi(i, { numExterior: e.target.value })} className="input" />
                 </Field>
-                <Field label="Estado (3)">
-                  <input value={u.estado} onChange={e => updateUbi(i, { estado: e.target.value.toUpperCase() })} maxLength={3} className="input font-mono" />
+                <Field label="No. interior">
+                  <input value={u.numInterior} onChange={e => updateUbi(i, { numInterior: e.target.value })} className="input" />
                 </Field>
-                <Field label="CP">
-                  <input value={u.codigoPostal} onChange={e => updateUbi(i, { codigoPostal: e.target.value })} maxLength={5} className="input font-mono" />
+                <CPGeoBlock
+                  ubi={u}
+                  onChange={(patch) => updateUbi(i, patch)}
+                />
+                <Field label="País (3)">
+                  <input value={u.pais} onChange={e => updateUbi(i, { pais: e.target.value.toUpperCase() })} maxLength={3} className="input font-mono" />
+                </Field>
+                <Field label="Referencia" span={4}>
+                  <input value={u.referencia} onChange={e => updateUbi(i, { referencia: e.target.value })} maxLength={500} className="input" placeholder="Entre calles, entrada, etc." />
                 </Field>
                 {u.tipoUbicacion === 'Destino' && (
                   <Field label="Distancia (km)">
@@ -536,12 +595,27 @@ export function CartaPorteFormPage() {
               <Field label="Año modelo">
                 <input type="number" value={auto.anioModeloVm} onChange={e => setAuto({ ...auto, anioModeloVm: e.target.value })} className="input" />
               </Field>
-              <Field label="Aseguradora resp. civil" span={2}>
-                <input value={auto.aseguraRespCivil} onChange={e => setAuto({ ...auto, aseguraRespCivil: e.target.value })} className="input" />
-              </Field>
-              <Field label="Póliza resp. civil">
-                <input value={auto.polizaRespCivil} onChange={e => setAuto({ ...auto, polizaRespCivil: e.target.value })} className="input" />
-              </Field>
+            </div>
+            {/* Aseguradora Resp. Civil — plantilla independiente */}
+            <div className="pt-3 border-t border-slate-200">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium text-slate-700">Aseguradora Responsabilidad Civil</p>
+                <button
+                  type="button"
+                  onClick={() => setAsegPickerOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs bg-sky-50 text-sky-700 rounded border border-sky-200 hover:bg-sky-100"
+                >
+                  <BookMarked size={12} /> Cargar plantilla de aseguradora
+                </button>
+              </div>
+              <div className="grid grid-cols-4 gap-3">
+                <Field label="Aseguradora resp. civil" span={2}>
+                  <input value={auto.aseguraRespCivil} onChange={e => setAuto({ ...auto, aseguraRespCivil: e.target.value })} className="input" />
+                </Field>
+                <Field label="No. Póliza resp. civil" span={2}>
+                  <input value={auto.polizaRespCivil} onChange={e => setAuto({ ...auto, polizaRespCivil: e.target.value })} className="input font-mono" />
+                </Field>
+              </div>
             </div>
             {/* Remolques */}
             <div className="pt-3 border-t border-slate-200">
@@ -691,6 +765,29 @@ export function CartaPorteFormPage() {
           }}
         />
       )}
+      {asegPickerOpen && (
+        <TemplatePicker
+          title="Aseguradoras de Responsabilidad Civil"
+          color="sky"
+          fetchFn={(q) => api.listCPAseguradoras(q || undefined, 'RespCivil')}
+          renderItem={(a: any) => (
+            <div>
+              <p className="text-sm font-medium">{a.nombre_aseguradora}</p>
+              <p className="text-xs text-slate-500 font-mono">Póliza {a.num_poliza}</p>
+              <p className="text-[10px] text-slate-400">Tipo {a.tipo} · {a.alias || ''}</p>
+            </div>
+          )}
+          onClose={() => setAsegPickerOpen(false)}
+          onSelect={(a: any) => {
+            setAuto({
+              ...auto,
+              aseguraRespCivil: a.nombre_aseguradora || '',
+              polizaRespCivil: a.num_poliza || '',
+            });
+            setAsegPickerOpen(false);
+          }}
+        />
+      )}
       {figPicker !== null && (
         <TemplatePicker
           title="Operadores / Figuras de transporte"
@@ -800,6 +897,160 @@ function TemplatePicker<T extends { id: string }>({
 }
 
 /* ─── UI helpers ───────────────────────────────────────────────────── */
+
+/**
+ * CPGeoBlock — bloque de captura geográfica dependiente del CP.
+ *
+ * Al escribir CP de 5 dígitos, consulta /carta-porte/cp/:CP y precarga:
+ *   · lista de colonias del CP → dropdown
+ *   · estado inferido (por rango de CP oficial SAT) → auto-set
+ *   · municipios del estado → dropdown
+ *   · localidades del estado → dropdown
+ * El usuario elige de listas en lugar de teclear claves. Si el CP no está
+ * en catálogo, cae a captura manual (text input).
+ */
+function CPGeoBlock({ ubi, onChange }: {
+  ubi: UbicacionRow;
+  onChange: (patch: Partial<UbicacionRow>) => void;
+}) {
+  const [data, setData] = useState<{
+    colonias: Array<{ clave: string; descripcion: string }>;
+    municipios: Array<{ clave: string; descripcion: string }>;
+    localidades: Array<{ clave: string; descripcion: string }>;
+    estado: string | null;
+    estadoDescripcion: string | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    const cp = String(ubi.codigoPostal || '').trim();
+    if (!/^\d{5}$/.test(cp)) { setData(null); setNotFound(false); return; }
+    let cancelled = false;
+    setLoading(true); setNotFound(false);
+    api.resolveCP(cp).then(r => {
+      if (cancelled) return;
+      setData(r);
+      // Auto-set estado si viene vacío o distinto
+      if (r.estado && r.estado !== ubi.estado) onChange({ estado: r.estado });
+      if ((!r.colonias || r.colonias.length === 0)) setNotFound(true);
+    }).catch(() => { if (!cancelled) setNotFound(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [ubi.codigoPostal]);
+
+  return (
+    <>
+      <Field label="CP (5)">
+        <input
+          value={ubi.codigoPostal}
+          onChange={e => onChange({ codigoPostal: e.target.value.replace(/\D/g, '').slice(0, 5) })}
+          maxLength={5}
+          className="input font-mono"
+          placeholder="20126"
+        />
+      </Field>
+      {/* Colonia — combo con descripción; clave SAT en badge chiquito abajo */}
+      <Field label={`Colonia ${loading ? '(cargando…)' : data?.colonias?.length ? `(${data.colonias.length})` : ''}`} span={2}>
+        {data?.colonias && data.colonias.length > 0 ? (
+          <div>
+            <select
+              value={data.colonias.some(c => c.clave === ubi.colonia) ? ubi.colonia : (ubi.colonia ? '__OTRA__' : '')}
+              onChange={e => onChange({ colonia: e.target.value === '__OTRA__' ? ' ' : e.target.value })}
+              className="input"
+            >
+              <option value="">— elige colonia —</option>
+              {data.colonias.map(c => (
+                <option key={c.clave} value={c.clave}>{c.descripcion}</option>
+              ))}
+              <option value="__OTRA__">✎ Otra no especificada…</option>
+            </select>
+            {ubi.colonia && data.colonias.some(c => c.clave === ubi.colonia) && (
+              <p className="text-[10px] text-red-600 mt-0.5 font-mono">Clave SAT: {ubi.colonia}</p>
+            )}
+          </div>
+        ) : (
+          <input
+            value={ubi.colonia}
+            onChange={e => onChange({ colonia: e.target.value })}
+            maxLength={60}
+            className={`input ${notFound ? 'bg-emerald-50 border-emerald-300' : ''}`}
+            placeholder={notFound ? 'CP no en catálogo — captura manual' : 'Colonia'}
+          />
+        )}
+      </Field>
+      {/* Municipio */}
+      <Field label={`Municipio ${data?.estado ? `de ${data.estado}` : ''}`}>
+        {data?.municipios && data.municipios.length > 0 ? (
+          <div>
+            <select
+              value={data.municipios.some(m => m.clave === ubi.municipio) ? ubi.municipio : (ubi.municipio ? '__OTRO__' : '')}
+              onChange={e => onChange({ municipio: e.target.value === '__OTRO__' ? ' ' : e.target.value })}
+              className="input"
+            >
+              <option value="">— municipio —</option>
+              {data.municipios.map(m => (
+                <option key={m.clave} value={m.clave}>{m.descripcion}</option>
+              ))}
+              <option value="__OTRO__">✎ Otro…</option>
+            </select>
+            {ubi.municipio && data.municipios.some(m => m.clave === ubi.municipio) && (
+              <p className="text-[10px] text-red-600 mt-0.5 font-mono">Clave SAT: {ubi.municipio}</p>
+            )}
+          </div>
+        ) : (
+          <input value={ubi.municipio} onChange={e => onChange({ municipio: e.target.value })} maxLength={60} className="input" />
+        )}
+      </Field>
+      {/* Localidad */}
+      <Field label="Localidad">
+        {data?.localidades && data.localidades.length > 0 ? (
+          <div>
+            <select
+              value={data.localidades.some(l => l.clave === ubi.localidad) ? ubi.localidad : (ubi.localidad ? '__OTRA__' : '')}
+              onChange={e => onChange({ localidad: e.target.value === '__OTRA__' ? ' ' : e.target.value })}
+              className="input"
+            >
+              <option value="">— localidad —</option>
+              {data.localidades.map(l => (
+                <option key={l.clave} value={l.clave}>{l.descripcion}</option>
+              ))}
+              <option value="__OTRA__">✎ Otra…</option>
+            </select>
+            {ubi.localidad && data.localidades.some(l => l.clave === ubi.localidad) && (
+              <p className="text-[10px] text-red-600 mt-0.5 font-mono">Clave SAT: {ubi.localidad}</p>
+            )}
+          </div>
+        ) : (
+          <input value={ubi.localidad} onChange={e => onChange({ localidad: e.target.value })} maxLength={60} className="input" />
+        )}
+      </Field>
+      <Field label="Estado">
+        <div>
+          {data?.estadoDescripcion ? (
+            <input
+              value={data.estadoDescripcion}
+              readOnly
+              className="input bg-slate-50 text-slate-700"
+              title={`Auto-inferido del CP · Clave SAT ${ubi.estado}`}
+            />
+          ) : (
+            <input
+              value={ubi.estado}
+              onChange={e => onChange({ estado: e.target.value.toUpperCase() })}
+              maxLength={3}
+              className="input font-mono"
+              placeholder="AGU"
+            />
+          )}
+          {ubi.estado && (
+            <p className="text-[10px] text-red-600 mt-0.5 font-mono">Clave SAT: {ubi.estado}</p>
+          )}
+        </div>
+      </Field>
+    </>
+  );
+}
 
 function Section({ title, icon, action, children }: { title: string; icon?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (

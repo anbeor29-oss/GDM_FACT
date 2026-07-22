@@ -98,13 +98,64 @@ router.get(
         LIMIT 100`,
       [cp],
     );
-    // El municipio y estado son consistentes entre colonias del mismo CP —
-    // los inferimos con las primeras filas del catálogo general de CFDI si
-    // están cargadas; por ahora regresamos solo colonias y dejamos que el
-    // usuario capture municipio/estado si falta.
+
+    // Estado inferido por rango de CP (Anexo 20 SAT — mapeo oficial 2 primeros
+    // dígitos del CP → clave de estado). Se usa para pre-cargar municipios y
+    // localidades del estado para autocompletar el formulario de ubicación.
+    const CP_TO_ESTADO: Record<string, string> = {
+      '01': 'CDMX','02': 'CDMX','03': 'CDMX','04': 'CDMX','05': 'CDMX','06': 'CDMX','07': 'CDMX','08': 'CDMX','09': 'CDMX','10': 'CDMX','11': 'CDMX','12': 'CDMX','13': 'CDMX','14': 'CDMX','15': 'CDMX','16': 'CDMX','17': 'CDMX',
+      '20': 'AGU',
+      '21': 'PUE','22': 'PUE','23': 'PUE','24': 'PUE',
+      '25': 'COA','26': 'COA','27': 'COA',
+      '28': 'COL',
+      '29': 'CHP','30': 'CHP',
+      '31': 'CAM',
+      '32': 'DUR','33': 'DUR','34': 'DUR','35': 'DUR',
+      '36': 'GUA','37': 'GUA','38': 'GUA',
+      '39': 'GRO','40': 'GRO','41': 'GRO',
+      '42': 'HID','43': 'HID',
+      '44': 'JAL','45': 'JAL','46': 'JAL','47': 'JAL','48': 'JAL','49': 'JAL',
+      '50': 'MEX','51': 'MEX','52': 'MEX','53': 'MEX','54': 'MEX','55': 'MEX','56': 'MEX','57': 'MEX',
+      '58': 'MIC','59': 'MIC','60': 'MIC','61': 'MIC',
+      '62': 'MOR',
+      '63': 'NAY',
+      '64': 'NLE','65': 'NLE','66': 'NLE','67': 'NLE',
+      '68': 'OAX','69': 'OAX','70': 'OAX','71': 'OAX',
+      '72': 'PUE','73': 'PUE','74': 'PUE','75': 'PUE',
+      '76': 'QUE',
+      '77': 'ROO',
+      '78': 'SLP','79': 'SLP',
+      '80': 'SIN','81': 'SIN','82': 'SIN',
+      '83': 'SON','84': 'SON','85': 'SON',
+      '86': 'TAB',
+      '87': 'TAM','88': 'TAM','89': 'TAM',
+      '90': 'TLA',
+      '91': 'VER','92': 'VER','93': 'VER','94': 'VER','95': 'VER','96': 'VER',
+      '97': 'YUC',
+      '98': 'ZAC','99': 'ZAC',
+    };
+    const estadoClave = CP_TO_ESTADO[cp.slice(0, 2)] || null;
+    let municipios: any[] = [];
+    let localidades: any[] = [];
+    let estadoDescripcion: string | null = null;
+    if (estadoClave) {
+      const [mResp, lResp, eResp] = await Promise.all([
+        pool.query(`SELECT clave, descripcion FROM sat_cp_municipio WHERE estado=$1 ORDER BY descripcion LIMIT 300`, [estadoClave]),
+        pool.query(`SELECT clave, descripcion FROM sat_cp_localidad WHERE estado=$1 ORDER BY descripcion LIMIT 300`, [estadoClave]),
+        pool.query(`SELECT description FROM sat_catalogs WHERE catalog_name='c_Estado' AND catalog_key=$1 LIMIT 1`, [estadoClave]),
+      ]);
+      municipios = mResp.rows;
+      localidades = lResp.rows;
+      estadoDescripcion = eResp.rows[0]?.description || null;
+    }
+
     res.json({
       codigoPostal: cp,
       colonias: r.rows,
+      estado: estadoClave,
+      estadoDescripcion,
+      municipios,
+      localidades,
     });
   }),
 );

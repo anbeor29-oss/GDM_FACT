@@ -34,6 +34,7 @@ import { CartaPorteOperadoresPage }   from '@/pages/CartaPorteOperadores';
 import { CartaPorteImportarXmlPage }  from '@/pages/CartaPorteImportarXml';
 import { CartaPorteMercanciasPage }   from '@/pages/CartaPorteMercancias';
 import { SuperXMLImportPage }         from '@/pages/SuperXMLImport';
+import { CompanyProfilePage }         from '@/pages/CompanyProfile';
 import { useAuthStore } from '@/store/auth';
 import { canAccess, type ModuleKey } from '@/utils/permissions';
 
@@ -167,6 +168,7 @@ export function App() {
             <Route path="carta-porte/importar-xml"        element={<CompanyOnlyRoute><CartaPorteImportarXmlPage /></CompanyOnlyRoute>} />
             <Route path="carta-porte/mercancias"          element={<CompanyOnlyRoute><CartaPorteMercanciasPage /></CompanyOnlyRoute>} />
             <Route path="xml-super-import"                element={<CompanyOnlyRoute><SuperXMLImportPage /></CompanyOnlyRoute>} />
+            <Route path="company"                         element={<CompanyOnlyRoute><CompanyProfilePage /></CompanyOnlyRoute>} />
 
             {/* Módulos de plataforma — SOLO SUPER_ADMIN (guard por URL directa) */}
             <Route path="admin/packages"  element={<SuperAdminRoute><AdminPackagesPage /></SuperAdminRoute>} />

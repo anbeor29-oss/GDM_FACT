@@ -228,7 +228,14 @@ export async function generateInvoicePDF(data: PDFGenerationData): Promise<Buffe
 
   // Complemento Carta Porte 3.1 — cargar si la factura lo tiene + descripciones SAT
   const cp = await cartaPorteService.getByInvoiceId(data.invoiceId).catch(() => null);
-  let cpSat: { permiso?: string; config?: string } = {};
+  let cpSat: {
+    permiso?: string;
+    config?: string;
+    colonias: Record<string, string>;        // "CP|clave" → descripcion
+    municipios: Record<string, string>;      // "estado|clave" → descripcion
+    localidades: Record<string, string>;     // "estado|clave" → descripcion
+    estados: Record<string, string>;         // "clave" → descripcion
+  } = { colonias: {}, municipios: {}, localidades: {}, estados: {} };
   if (cp?.autotransporte) {
     const auto = cp.autotransporte;
     try {
@@ -242,6 +249,70 @@ export async function generateInvoicePDF(data: PDFGenerationData): Promise<Buffe
         cpSat.config = `${cr.descripcion}${cr.numero_ejes && cr.numero_llantas ? ` (${cr.numero_ejes} ejes, ${cr.numero_llantas} llantas)` : ''}`;
       }
     } catch { /* si falla el lookup usamos solo la clave */ }
+  }
+  // Pre-cargar descripciones SAT de todas las ubicaciones para el PDF —
+  // colonia/municipio/localidad/estado se guardan como CLAVE (4-8 chars) y
+  // en el PDF se muestran como "(clave) Nombre". Batch en una sola query.
+  if (cp?.ubicaciones?.length) {
+    try {
+      const isKey = (v: any) => typeof v === 'string' && /^\d{1,4}$/.test(v);
+      const isEstadoKey = (v: any) => typeof v === 'string' && /^[A-Z]{2,3}$/.test(v);
+      const colClaves = new Set<string>();  // "CP|clave"
+      const munClaves = new Set<string>();  // "estado|clave"
+      const locClaves = new Set<string>();  // "estado|clave"
+      const edoClaves = new Set<string>();
+      for (const u of cp.ubicaciones) {
+        if (isKey(u.colonia) && u.codigo_postal) colClaves.add(`${u.codigo_postal}|${u.colonia}`);
+        if (isKey(u.municipio) && u.estado)      munClaves.add(`${u.estado}|${u.municipio}`);
+        if (isKey(u.localidad) && u.estado)      locClaves.add(`${u.estado}|${u.localidad}`);
+        if (isEstadoKey(u.estado))                edoClaves.add(u.estado);
+      }
+      const runLookup = async (
+        set: Set<string>, sql: (arr: string[]) => string, params: (arr: string[]) => any[],
+        target: Record<string, string>, keyFn: (r: any) => string,
+      ) => {
+        if (!set.size) return;
+        const arr = Array.from(set);
+        const r = await query<any>(sql(arr), params(arr));
+        for (const row of r.rows) target[keyFn(row)] = row.descripcion;
+      };
+      // Colonias: batch por CP+clave
+      if (colClaves.size) {
+        const cps = Array.from(new Set(Array.from(colClaves).map(k => k.split('|')[0])));
+        const claves = Array.from(new Set(Array.from(colClaves).map(k => k.split('|')[1].padStart(4, '0'))));
+        const r = await query<any>(
+          `SELECT clave, codigo_postal, descripcion FROM sat_cp_colonia WHERE codigo_postal = ANY($1) AND clave = ANY($2)`,
+          [cps, claves],
+        );
+        for (const row of r.rows) cpSat.colonias[`${row.codigo_postal}|${String(row.clave).replace(/^0+/, '')}`] = row.descripcion;
+      }
+      // Municipios: batch por estado+clave (clave es 3 dígitos padded)
+      await runLookup(
+        munClaves,
+        () => `SELECT clave, estado, descripcion FROM sat_cp_municipio WHERE (estado, clave) IN (${Array.from(munClaves).map((_, i) => `($${i*2+1}, $${i*2+2})`).join(',')})`,
+        (arr) => arr.flatMap(k => { const [e, c] = k.split('|'); return [e, c.padStart(3, '0')]; }),
+        cpSat.municipios,
+        (row: any) => `${row.estado}|${String(row.clave).replace(/^0+/, '')}`,
+      );
+      // Localidades
+      await runLookup(
+        locClaves,
+        () => `SELECT clave, estado, descripcion FROM sat_cp_localidad WHERE (estado, clave) IN (${Array.from(locClaves).map((_, i) => `($${i*2+1}, $${i*2+2})`).join(',')})`,
+        (arr) => arr.flatMap(k => { const [e, c] = k.split('|'); return [e, c.padStart(2, '0')]; }),
+        cpSat.localidades,
+        (row: any) => `${row.estado}|${String(row.clave).replace(/^0+/, '')}`,
+      );
+      // Estados — usa sat_catalogs c_Estado
+      if (edoClaves.size) {
+        const r = await query<any>(
+          `SELECT catalog_key AS clave, description AS descripcion FROM sat_catalogs WHERE catalog_name='c_Estado' AND catalog_key = ANY($1)`,
+          [Array.from(edoClaves)],
+        );
+        for (const row of r.rows) cpSat.estados[row.clave] = row.descripcion;
+      }
+    } catch (e: any) {
+      logger.warn(`CP PDF: fallo lookup SAT (${e?.message || 'unknown'}) — se muestran claves sin resolver`);
+    }
   }
 
   generateHeader(doc, company, invoice, cat.regE, logoBuf);
@@ -660,7 +731,14 @@ function generateTotals(doc: PDFDoc, invoice: any) {
  *   │ ▓ Código │ Desc │ Peligroso │ Cant │ Unidad │ Peso │ Valor │
  *   └────────────────────────────────────────────────────────────┘
  */
-function generateCartaPorteSection(doc: PDFDoc, cp: any, invoice: any, company: any, qrPng: Buffer | null, cpSat: { permiso?: string; config?: string }) {
+function generateCartaPorteSection(doc: PDFDoc, cp: any, invoice: any, company: any, qrPng: Buffer | null, cpSat: {
+  permiso?: string;
+  config?: string;
+  colonias: Record<string, string>;
+  municipios: Record<string, string>;
+  localidades: Record<string, string>;
+  estados: Record<string, string>;
+}) {
   doc.addPage();                                      // ── Hoja #2 ──
   const W    = PAGE_RIGHT - PAGE_LEFT;
   const DARK = '#0f172a';                             // barras oscuras
@@ -756,12 +834,14 @@ function generateCartaPorteSection(doc: PDFDoc, cp: any, invoice: any, company: 
 
   // ─── Figuras ──────────────────────────────────────────────────
   y = sectionTitle('Figuras', y);
+  // Anchos ajustados: la última columna (Datos) recibe el remanente del
+  // ancho total W para que la Licencia no se rompa letra por letra.
   const figHeader = [
-    { label: 'Tipo',            w: 110, align: 'left' as const, val: '' },
-    { label: 'RFC / IdTributario', w: 120, align: 'left' as const, val: '' },
-    { label: 'Nombre',          w: 200, align: 'left' as const, val: '' },
-    { label: 'Residencia',      w: 60,  align: 'left' as const, val: '' },
-    { label: 'Datos',           w: W - 490, align: 'left' as const, val: '' },
+    { label: 'Tipo',            w: 85,  align: 'left' as const, val: '' },
+    { label: 'RFC / IdTrib',    w: 105, align: 'left' as const, val: '' },
+    { label: 'Nombre',          w: 175, align: 'left' as const, val: '' },
+    { label: 'Residencia',      w: 55,  align: 'left' as const, val: '' },
+    { label: 'Datos',           w: W - 85 - 105 - 175 - 55, align: 'left' as const, val: '' },
   ];
   y = renderDarkHeaderRow(doc, figHeader, y, PAGE_LEFT, DARK, TXT_WHITE);
   for (const f of cp.figuras || []) {
@@ -800,8 +880,44 @@ function generateCartaPorteSection(doc: PDFDoc, cp: any, invoice: any, company: 
       { ...ubiHeader[3], val: dist },
       { ...ubiHeader[4], val: fecha },
     ], y, PAGE_LEFT, DARK, { boldFirst: true });
-    // Domicilio expandido debajo (formato "(colonia) municipio-descriptor. estado, país")
-    const dom = `. ${u.colonia ? `(${u.colonia}) ` : ''}${[u.municipio, u.localidad].filter(Boolean).join(', ')}${u.codigo_postal ? ` C.P. ${u.codigo_postal}` : ''}. ${u.estado ? `(${u.estado}) Estado` : ''}${u.pais ? `, (${u.pais}) ${u.pais === 'MEX' ? 'México' : ''}` : ''}`;
+    // Domicilio expandido — resuelve claves SAT a "(clave) Nombre" cuando
+    // es posible (colonia por CP+clave, municipio/localidad por estado+clave,
+    // estado por clave 2-3 letras). Si no está en catálogo, muestra el valor
+    // literal (nombre libre o clave sin match).
+    const fmt = (v: string | undefined, nombre?: string) =>
+      v ? (nombre ? `(${v}) ${nombre}` : (/^\d+$/.test(v) ? `(${v})` : v)) : '';
+    const colNombre = u.colonia && u.codigo_postal
+      ? cpSat.colonias[`${u.codigo_postal}|${String(u.colonia).replace(/^0+/, '')}`]
+      : undefined;
+    const munNombre = u.municipio && u.estado
+      ? cpSat.municipios[`${u.estado}|${String(u.municipio).replace(/^0+/, '')}`]
+      : undefined;
+    const locNombre = u.localidad && u.estado
+      ? cpSat.localidades[`${u.estado}|${String(u.localidad).replace(/^0+/, '')}`]
+      : undefined;
+    const edoNombre = u.estado ? cpSat.estados[u.estado] : undefined;
+
+    // Formato final tipo imagen SAT:
+    //   "Calle #ext int-Y, (2954) Ciénega de Flores Centro (012) Guadalupe
+    //    (12) Ciénega de Flores, C.P. 65550, (NLE) Nuevo León, (MEX) México
+    //    — Ref: Entre calles X"
+    const parteCalle = [
+      u.calle,
+      u.num_exterior ? `#${u.num_exterior}` : '',
+      u.num_interior ? `int ${u.num_interior}` : '',
+    ].filter(Boolean).join(' ');
+    const parteGeo = [
+      fmt(u.colonia, colNombre),
+      fmt(u.municipio, munNombre),
+      fmt(u.localidad, locNombre),
+    ].filter(Boolean).join(' ');
+    const parteCP = u.codigo_postal ? `C.P. ${u.codigo_postal}` : '';
+    const parteEdoPais = [
+      fmt(u.estado, edoNombre),
+      u.pais ? (u.pais === 'MEX' ? '(MEX) México' : `(${u.pais})`) : '',
+    ].filter(Boolean).join(', ');
+    const parteRef = u.referencia ? ` — Ref: ${u.referencia}` : '';
+    const dom = [parteCalle, parteGeo, parteCP, parteEdoPais].filter(Boolean).join(', ') + parteRef;
     doc.font('Helvetica').fontSize(7.5).fillColor('#475569')
       .text(dom.replace(/\s+/g, ' ').trim(), PAGE_LEFT + 6, y, { width: W - 12 });
     y += 12;

@@ -639,22 +639,25 @@ export function drawTimbreFiscal(
   const pacRfc    = t.rfcProvCertif || data.pacRfc || 'SAT970701NN3';
   const noCertSat = t.noCertificadoSat || '00001000000506430009';
 
-  // Sello CFDI/SAT: si viene del XML lo mostramos abreviado; si no, marcamos
-  // "no disponible" en vez de fabricar uno fake que confunde al usuario.
-  const abbrev = (s: string | null) =>
-    s ? `${s.slice(0, 60)}…${s.slice(-20)}` : '— no disponible en XML —';
-  const selloCfdiTxt = abbrev(t.selloCfd);
-  const selloSatTxt  = abbrev(t.selloSat);
+  // Sello CFDI/SAT ÍNTEGROS — el Anexo 20 §III.A exige mostrarlos completos.
+  // Si el PAC devolvió el XML sin sellos (caso MOCK), señalamos el placeholder.
+  const notAvailable = '— pendiente: PAC en modo MOCK devuelve XML sin sellos —';
+  const selloCfdiTxt = t.selloCfd || notAvailable;
+  const selloSatTxt  = t.selloSat || notAvailable;
 
-  const cadenaOrig = `||1.1|${uuidStr}|${fechaT}|${pacRfc}|${noCertSat}||`;
+  // Cadena original de certificación del SAT según Anexo 20 §III.B:
+  //   || Version | UUID | FechaTimbrado | RfcProvCertif | Leyenda? | SelloCFD | NoCertificadoSAT ||
+  // La "Leyenda" solo aparece en cancelaciones. En certificación normal se omite
+  // (queda un | doble). Cuando el PAC no entrega SelloCFD real, queda vacío.
+  const cadenaOrig = `||1.1|${uuidStr}|${fechaT}|${pacRfc}|${t.selloCfd || ''}|${noCertSat}||`;
 
   // QR ocupa 90x90 pt a la derecha; el bloque de texto queda a la izquierda.
   const QR_SIZE = 90;
   const hasQr = !!data.qrPng;
 
-  // Pre-cálculo: bloque necesita ~100pt (6+10+7*10 + margen). Con QR mismo alto
-  // porque el QR se dibuja a la derecha del kv stack.
-  const BLOCK_H = 100;
+  // Pre-cálculo: con los 2 sellos completos + cadena original en wrap, el
+  // bloque puede llegar a ~180pt. Nos aseguramos de tener espacio suficiente.
+  const BLOCK_H = 180;
   const FOOTER_RESERVED = 40;
   const pageH = doc.page.height;
   if (startY + BLOCK_H > pageH - FOOTER_RESERVED) {
@@ -678,16 +681,26 @@ export function drawTimbreFiscal(
   const kvW = PAGE_RIGHT - PAGE_LEFT - rightMargin;
   const labelW = 110;
 
-  function kv(label: string, value: string, opts?: { mono?: boolean; size?: number }) {
+  function kv(label: string, value: string, opts?: { mono?: boolean; size?: number; wrap?: boolean }) {
     const size = opts?.size ?? 6.5;
     const font = opts?.mono ? 'Courier' : 'Helvetica';
+    const wrap = opts?.wrap === true;
     doc.font('Helvetica-Bold').fontSize(6.5).fillColor('#64748b')
       .text(label, PAGE_LEFT, y, { width: labelW, lineBreak: false });
-    doc.font(font).fontSize(size).fillColor('#0f172a')
-      .text(value, PAGE_LEFT + labelW, y, {
+    doc.font(font).fontSize(size).fillColor('#0f172a');
+    if (wrap) {
+      // Wrap multilínea (para sellos que no caben en 1 línea, Anexo 20 §III.A).
+      doc.text(value, PAGE_LEFT + labelW, y, {
+        width: kvW - labelW,
+        lineGap: 0,
+      });
+      y = doc.y + 1;
+    } else {
+      doc.text(value, PAGE_LEFT + labelW, y, {
         width: kvW - labelW, lineBreak: false, ellipsis: true,
       });
-    y += 10;
+      y += 10;
+    }
   }
 
   const kvStartY = y;
@@ -695,9 +708,9 @@ export function drawTimbreFiscal(
   kv('Fecha timbrado',         fechaT);
   kv('RFC del PAC',            pacRfc);
   kv('No. Cert. SAT',          noCertSat, { mono: true });
-  kv('Sello digital del CFDI', selloCfdiTxt, { mono: true, size: 6 });
-  kv('Sello del SAT',          selloSatTxt,  { mono: true, size: 6 });
-  kv('Cadena original del complemento', cadenaOrig, { mono: true, size: 6 });
+  kv('Sello digital del CFDI', selloCfdiTxt, { mono: true, size: 5.5, wrap: true });
+  kv('Sello del SAT',          selloSatTxt,  { mono: true, size: 5.5, wrap: true });
+  kv('Cadena original del complemento', cadenaOrig, { mono: true, size: 5.5, wrap: true });
 
   // QR alineado al bloque kv, con leyenda "Verificar en SAT" debajo.
   if (hasQr) {
