@@ -1,0 +1,149 @@
+# ============================================================================
+# render-v2.yaml — Blueprint V2 (Facturación + Carta Porte 3.1 + Super Lector)
+#
+# 3 servicios aislados de V1:
+#   1) gdmfac2-postgres  → PostgreSQL 16 nuevo (BD `gdmfac_v2`)
+#   2) gdmfac2-backend   → Node/Express con startCommand extendido:
+#                          migrate → seed CP → SWAP fix → bootstrap → node dist
+#   3) gdmfac2-frontend  → estático Vite
+#
+# Uso desde Render:
+#   Dashboard → Blueprints → New Blueprint → conecta el repo GDM_FACT_V2 →
+#     Branch: main   ·   Blueprint File Path: render-v2.yaml   → Apply.
+#
+# Después del primer deploy:
+#   · En gdmfac2-backend → Environment → añadir SW_SAPIEN_TOKEN.
+#   · En gdmfac2-backend → Environment → añadir BOOTSTRAP_ADMIN_EMAIL,
+#     BOOTSTRAP_ADMIN_PASSWORD y demás BOOTSTRAP_COMPANY_* (opcionales).
+#   · Manual → suspender/redeploy para que arranque el startCommand con el
+#     nuevo env — se aplican migraciones + seed CP (2 min) + SWAP + bootstrap.
+# ============================================================================
+
+databases:
+  - name: gdmfac2-postgres
+    plan: basic-256mb              # $7/mes — con 90 días de retención de backups
+    databaseName: gdmfac_v2
+    user: gdmfac2_app
+    postgresMajorVersion: 16
+    ipAllowList: []                # solo servicios internos de Render
+
+services:
+  # ─── Backend Node/Express ──────────────────────────────────────────────
+  - type: web
+    name: gdmfac2-backend
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    rootDir: backend
+    buildCommand: npm ci --include=dev && npm run build
+    # startCommand V2: aplica migraciones + seed CP 200K sentencias + SWAP fix
+    # + bootstrap admin. Es idempotente: el seed skip si ya cargó y el swap
+    # detecta si ya está aplicado. Tarda ~2 min en el primer arranque; después
+    # ~5 seg cada deploy.
+    startCommand: npm run start:prod:v2
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_VERSION
+        value: v1
+      - key: LOG_LEVEL
+        value: info
+      - key: APP_NAME
+        value: "GDM Facturas V2"
+
+      # ─── Conexión BD ─────────────────────────────────────────────────
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gdmfac2-postgres
+          property: connectionString
+      - key: DB_SSL
+        value: "true"
+
+      # ─── Redis: opcional ─────────────────────────────────────────────
+      - key: REDIS_HOST
+        value: ""
+
+      # ─── Secretos ────────────────────────────────────────────────────
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: CSD_MASTER_KEY
+        generateValue: true
+      - key: JWT_EXPIRATION
+        value: 8h
+      - key: JWT_REFRESH_EXPIRATION
+        value: 7d
+
+      # ─── PAC SW Sapien: pegar token del panel a mano ──────────────
+      - key: PAC_PROVIDER
+        value: SW_SAPIEN
+      - key: SW_SAPIEN_ENV
+        value: sandbox            # cambiar a "production" cuando timbrado real
+      - key: SW_SAPIEN_TOKEN
+        sync: false
+
+      # ─── CORS ──────────────────────────────────────────────────────
+      - key: CORS_ORIGIN
+        value: "https://gdmfac2-frontend.onrender.com,https://hcgm.com.mx,https://www.hcgm.com.mx"
+      - key: CORS_CREDENTIALS
+        value: "true"
+
+      # ─── Rate limit ────────────────────────────────────────────────
+      - key: RATE_LIMIT_WINDOW_MS
+        value: "900000"
+      - key: RATE_LIMIT_MAX_REQUESTS
+        value: "1000"
+
+      # ─── Feature flags ─────────────────────────────────────────────
+      - key: FEATURE_PAC_INTEGRATION
+        value: "true"
+      - key: MOCK_PAC
+        value: "false"
+
+      # ─── Bootstrap admin/empresa (llenar antes del primer arranque) ─
+      # Si están vacíos, no se crea admin (comportamiento de V1). Recomendado
+      # para el primer deploy: llenar los 3 primeros, redeploy manual.
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: BOOTSTRAP_COMPANY_RFC
+        sync: false
+      - key: BOOTSTRAP_SEED_EXAMPLES
+        value: "false"            # V2 no siembra ferretería genérica
+
+  # ─── Frontend React/Vite estático ──────────────────────────────────────
+  - type: web
+    name: gdmfac2-frontend
+    runtime: static
+    branch: main
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    autoDeploy: true
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE
+        fromService:
+          name: gdmfac2-backend
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin

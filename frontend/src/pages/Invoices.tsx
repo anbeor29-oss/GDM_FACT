@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Download, FileDown, CheckCircle, Eye, Stamp, X, Ban, Loader2, Wallet, Coins, History,
-  Mail, Send, FileText, FileMinus2, Pencil,
+  Mail, Send, FileText, FileMinus2, Pencil, Ship,
 } from 'lucide-react';
 import api from '@/services/api';
 import { Invoice } from '@/types';
@@ -59,6 +59,7 @@ export function InvoicesPage() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [stampingId, setStampingId] = useState<string | null>(null);
+  const [mailTarget, setMailTarget] = useState<Invoice | null>(null);
 
   // estado de modales
   const [previewBlob, setPreviewBlob] = useState<{ url: string; filename: string } | null>(null);
@@ -246,6 +247,12 @@ export function InvoicesPage() {
                         <IconBtn color="red"    title="Descargar PDF"     onClick={() => handleDownloadPDF(invoice)}><FileDown size={18} /></IconBtn>
                         <IconBtn color="green"  title="Descargar XML"     onClick={() => handleDownloadXML(invoice)}><Download size={18} /></IconBtn>
                         <IconBtn color="blue"   title="Vista previa"      onClick={() => handlePreviewPDF(invoice)}><Eye size={18} /></IconBtn>
+                        <IconBtn
+                          color="amber"
+                          title={invoice.is_stamped ? 'Carta Porte no disponible — las facturas timbradas ya no pueden anexar Carta Porte. Debe crearse antes del timbrado.' : 'Carta Porte'}
+                          disabled={invoice.is_stamped}
+                          onClick={() => !invoice.is_stamped && navigate(`/invoices/${invoice.id}/carta-porte`)}
+                        ><Ship size={18} /></IconBtn>
                         {canEdit && (
                           <IconBtn color="sky" title="Editar factura (solo DRAFT)"
                             onClick={() => navigate(`/invoices/${invoice.id}/edit`)}>
@@ -269,6 +276,12 @@ export function InvoicesPage() {
                           <IconBtn color="amber" title="Ver abonos, notas de crédito y saldo"
                             onClick={() => setBalanceTarget(invoice)}>
                             <Coins size={18} />
+                          </IconBtn>
+                        )}
+                        {invoice.is_stamped && (
+                          <IconBtn color="indigo" title="Enviar por correo (PDF + XML al cliente)"
+                            onClick={() => setMailTarget(invoice)}>
+                            <Mail size={18} />
                           </IconBtn>
                         )}
                         {invoice.is_stamped && (
@@ -329,6 +342,10 @@ export function InvoicesPage() {
 
       {timbresTarget && (
         <TimbresModal invoice={timbresTarget} onClose={() => setTimbresTarget(null)} />
+      )}
+
+      {mailTarget && (
+        <MailWrapper invoice={mailTarget} onClose={() => setMailTarget(null)} />
       )}
 
       {paymentTarget && (
@@ -705,6 +722,18 @@ function BalanceModal({ invoice, onClose }: { invoice: Invoice; onClose: () => v
  * Recibe el balance ya cargado (factura + NCs + pagos) para mostrar
  * todos los documentos como checkboxes seleccionables.
  */
+/** Wrapper que carga balance/NCs/pagos antes de abrir el modal de correo.
+ *  Se usa desde el botón Mail de la tabla — no depende de otro modal. */
+function MailWrapper({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
+  const balanceQ = useQuery({
+    queryKey: ['invoice-balance', invoice.id],
+    queryFn: () => api.getInvoiceBalance(invoice.id),
+  });
+  const stub = { creditNotes: [], payments: [], totals: {} };
+  const balance = balanceQ.data?.data || stub;
+  return <SendMailModal invoice={invoice} balance={balance} onClose={onClose} />;
+}
+
 function SendMailModal({
   invoice, balance, onClose,
 }: {

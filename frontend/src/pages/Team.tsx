@@ -1,403 +1,384 @@
 /**
- * Usuarios (equipo) — el ADMIN de la empresa da de alta y de baja a sus USER.
+ * Equipo — el ADMIN de la empresa gestiona su personal (§8):
+ *   · Alta de usuarios (rol + grupo de trabajo)
+ *   · Edición inline de rol, grupo de trabajo, nombre y estado activo
+ *   · Capacidades finas para USER (plantillas de un clic)
  *
- * Alcance deliberadamente chico: aquí solo se crean usuarios con rol USER de
- * la propia empresa. Los ADMIN y el SUPER_ADMIN los administra la plataforma
- * (HCGM) desde /admin/users. El backend no acepta rol ni empresa del body: los
- * fija desde el JWT.
+ * Grupos de trabajo (define qué módulos ve el usuario en el sidebar):
+ *   · ADMIN_ALL   — todo
+ *   · VENTAS      — POS, Facturas, Clientes, NC, **Carta Porte**
+ *   · INVENTARIOS — Productos, Inventario, Almacenes, Físico
+ *   · COMPRAS     — Compras XML, Órdenes de compra
+ *   · TESORERIA   — Tesorería, Proveedores
  */
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { UserPlus, KeyRound, Ban, Check, Copy, Loader2, ShieldCheck, Eye, EyeOff } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Users, ShieldCheck, Lock, Check, Plus, Pencil, Trash2, X, Save } from 'lucide-react';
 import api from '@/services/api';
-import { useAuthStore } from '@/store/auth';
 
-interface TeamUser {
-  id: string;
-  email: string;
-  first_name: string;
-  last_name: string;
-  role: string;
-  is_active: boolean;
-  password_change_required: boolean;
-  last_login: string | null;
-  created_at: string;
-  monitoring_enabled: boolean;
-  monitoring_email: string | null;
-  monitoring_set_at: string | null;
-}
+const ROLE_BADGE: Record<string, { label: string; cls: string }> = {
+  ADMIN:   { label: 'Administrador', cls: 'bg-indigo-100 text-indigo-700' },
+  MANAGER: { label: 'Gerente',       cls: 'bg-sky-100 text-sky-700' },
+  USER:    { label: 'Operativo',     cls: 'bg-gray-100 text-gray-700' },
+};
+
+const GROUP_BADGE: Record<string, { label: string; cls: string }> = {
+  ADMIN_ALL:   { label: 'Acceso total',    cls: 'bg-emerald-100 text-emerald-700' },
+  VENTAS:      { label: 'Ventas + CP',     cls: 'bg-amber-100 text-amber-700' },
+  INVENTARIOS: { label: 'Inventarios',     cls: 'bg-fuchsia-100 text-fuchsia-700' },
+  COMPRAS:     { label: 'Compras',         cls: 'bg-orange-100 text-orange-700' },
+  TESORERIA:   { label: 'Tesorería',       cls: 'bg-rose-100 text-rose-700' },
+};
+
+const GROUP_DESCR: Record<string, string> = {
+  ADMIN_ALL:   'Todos los módulos',
+  VENTAS:      'Punto de venta, facturas, clientes, notas de crédito, Carta Porte',
+  INVENTARIOS: 'Productos, inventario, almacenes, inventario físico',
+  COMPRAS:     'Compras XML, órdenes de compra',
+  TESORERIA:   'Tesorería, proveedores',
+};
 
 export function TeamPage() {
   const qc = useQueryClient();
-  const me = useAuthStore((s) => s.user);
-  const [showNew, setShowNew] = useState(false);
-  const [monitorTarget, setMonitorTarget] = useState<TeamUser | null>(null);
-  // La contraseña temporal se ve UNA vez: el backend no la vuelve a entregar.
-  const [tempPass, setTempPass] = useState<{ email: string; pass: string } | null>(null);
+  const [editUser, setEditUser] = useState<any | null>(null);   // modal capacidades
+  const [userModal, setUserModal] = useState<{ open: boolean; user: any | null }>({ open: false, user: null });
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['team'],
-    queryFn: () => api.getTeam(),
-  });
-  const users: TeamUser[] = data?.data || [];
+  const usersQ = useQuery({ queryKey: ['team-users'], queryFn: () => api.getTeamUsers() });
+  const users: any[] = usersQ.data?.data?.users || [];
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['team'] });
-
-  const toggle = useMutation({
-    mutationFn: (u: TeamUser) => (u.is_active ? api.disableTeamUser(u.id) : api.enableTeamUser(u.id)),
-    onSuccess: invalidate,
-    onError: (e: any) => alert(e?.response?.data?.message || 'No se pudo cambiar el estado'),
-  });
-
-  const reset = useMutation({
-    mutationFn: (u: TeamUser) => api.resetTeamUserPassword(u.id),
-    onSuccess: (r, u) => {
-      setTempPass({ email: u.email, pass: r.data.temporary_password });
-      invalidate();
-    },
-    onError: (e: any) => alert(e?.response?.data?.message || 'No se pudo generar la contraseña'),
-  });
-
-  if (isLoading) {
-    return <div className="flex justify-center py-12"><Loader2 className="animate-spin text-blue-600" size={32} /></div>;
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-bold text-gray-900">Usuarios</h1>
-          <p className="text-gray-600 mt-2">Da de alta y de baja a los usuarios de tu empresa.</p>
-        </div>
-        <button
-          onClick={() => setShowNew(true)}
-          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg font-semibold"
-        >
-          <UserPlus size={18} /> Nuevo usuario
-        </button>
-      </div>
-
-      {tempPass && (
-        <TempPasswordBanner data={tempPass} onClose={() => setTempPass(null)} />
-      )}
-
-      <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Usuario</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Correo</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Rol</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Estado</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Último acceso</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Reporte mensual</th>
-                <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {users.map((u) => {
-                const isMe = u.id === me?.userId;
-                const isAdmin = u.role === 'ADMIN';
-                return (
-                  <tr key={u.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      {u.first_name} {u.last_name}
-                      {isMe && <span className="ml-2 text-xs text-gray-500">(tú)</span>}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{u.email}</td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold ${
-                        isAdmin ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
-                        {isAdmin && <ShieldCheck size={12} />} {u.role}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                        u.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
-                        {u.is_active ? 'Activo' : 'Dado de baja'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {u.last_login ? new Date(u.last_login).toLocaleString('es-MX') : 'Nunca'}
-                    </td>
-                    <td className="px-6 py-4">
-                      {isAdmin ? (
-                        <span className="text-xs text-gray-400">—</span>
-                      ) : u.monitoring_enabled ? (
-                        <button
-                          onClick={() => setMonitorTarget(u)}
-                          className="text-left group/m"
-                          title="Cambiar o desactivar el reporte"
-                        >
-                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold bg-indigo-50 text-indigo-700">
-                            <Eye size={12} /> Activo
-                          </span>
-                          <span className="block text-xs text-gray-500 mt-1 group-hover/m:underline">
-                            {u.monitoring_email}
-                          </span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => setMonitorTarget(u)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium text-gray-500 hover:bg-gray-100"
-                          title="Activar el reporte mensual de este usuario"
-                        >
-                          <EyeOff size={12} /> Desactivado
-                        </button>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-end gap-1">
-                        {/* Un ADMIN no se administra a sí mismo ni a otros ADMIN:
-                            eso lo hace la plataforma, para no quedar sin acceso. */}
-                        {isAdmin ? (
-                          <span className="text-xs text-gray-400 italic">Lo administra HCGM</span>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => reset.mutate(u)}
-                              disabled={reset.isPending}
-                              title="Generar contraseña temporal"
-                              className="p-2 rounded text-sky-600 hover:bg-sky-50 disabled:opacity-40"
-                            >
-                              <KeyRound size={18} />
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (u.is_active && !confirm(`¿Dar de baja a ${u.email}? Dejará de poder entrar.`)) return;
-                                toggle.mutate(u);
-                              }}
-                              disabled={toggle.isPending}
-                              title={u.is_active ? 'Dar de baja' : 'Reactivar'}
-                              className={`p-2 rounded disabled:opacity-40 ${
-                                u.is_active ? 'text-orange-600 hover:bg-orange-50' : 'text-emerald-600 hover:bg-emerald-50'}`}
-                            >
-                              {u.is_active ? <Ban size={18} /> : <Check size={18} />}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {users.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
-                    Todavía no hay usuarios. Crea el primero con "Nuevo usuario".
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {showNew && (
-        <NewUserModal
-          onClose={() => setShowNew(false)}
-          onCreated={(email, pass) => { setTempPass({ email, pass }); setShowNew(false); invalidate(); }}
-        />
-      )}
-
-      {monitorTarget && (
-        <MonitoringModal
-          user={monitorTarget}
-          onClose={() => setMonitorTarget(null)}
-          onSaved={() => { setMonitorTarget(null); invalidate(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-/**
- * Activa/desactiva el REPORTE mensual. Deja explícito que la bitácora se
- * registra siempre: el usuario debe entender qué está prendiendo, o creerá
- * que apagarlo detiene el registro (y no es así).
- */
-function MonitoringModal({ user, onClose, onSaved }: { user: TeamUser; onClose: () => void; onSaved: () => void }) {
-  const [enabled, setEnabled] = useState(user.monitoring_enabled);
-  const [email, setEmail] = useState(user.monitoring_email || '');
-  const [err, setErr] = useState<string | null>(null);
-
-  const save = useMutation({
-    mutationFn: () => api.setTeamUserMonitoring(user.id, { enabled, email: email.trim() }),
-    onSuccess: onSaved,
-    onError: (e: any) => setErr(e?.response?.data?.message || 'No se pudo guardar'),
-  });
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg">
-        <div className="p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">Reporte mensual de actividad</h2>
-          <p className="text-sm text-gray-600 mt-1">{user.first_name} {user.last_name} · {user.email}</p>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {err && <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-3">{err}</p>}
-
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm text-slate-700">
-            La actividad de <b>todos</b> los usuarios se registra siempre, por auditoría y
-            cumplimiento fiscal. Este interruptor solo decide si se <b>envía</b> un resumen
-            mensual y a qué correo.
-          </div>
-
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input type="checkbox" checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-              className="mt-1 w-4 h-4" />
-            <span className="text-sm">
-              <b className="text-gray-900">Enviar el reporte mensual de este usuario</b>
-              <span className="block text-gray-600">
-                Se manda el día 1 de cada mes con la actividad del mes anterior.
-              </span>
-            </span>
-          </label>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Correo que recibirá el reporte</label>
-            <input type="email" value={email} disabled={!enabled}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="supervisor@empresa.com"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100" />
-            <p className="text-xs text-gray-500 mt-1">
-              Confidencial: el reporte llega solo a esta dirección. Al usuario monitoreado no
-              se le envía copia.
-            </p>
-          </div>
-
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900">
-            Conforme a la cláusula SEXTA del contrato, tu empresa se obliga a informar a sus
-            usuarios de este registro y a cumplir la normatividad laboral y de datos personales
-            aplicable.
-          </div>
-        </div>
-
-        <div className="p-6 pt-0 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50">
-            Cancelar
-          </button>
-          <button
-            onClick={() => { setErr(null); save.mutate(); }}
-            disabled={save.isPending}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50"
-          >
-            {save.isPending && <Loader2 size={16} className="animate-spin" />}
-            Guardar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** La contraseña temporal solo se muestra una vez; hay que copiarla ahora. */
-function TempPasswordBanner({ data, onClose }: { data: { email: string; pass: string }; onClose: () => void }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="font-bold text-amber-900">Contraseña temporal de {data.email}</p>
-          <p className="text-sm text-amber-800">
-            Cópiala y compártela ahora: por seguridad no se guarda y no se puede volver a consultar.
-            Se le pedirá cambiarla al entrar.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <code className="px-3 py-2 bg-white border border-amber-300 rounded font-mono font-bold text-lg">{data.pass}</code>
-          <button
-            onClick={() => { navigator.clipboard.writeText(data.pass); setCopied(true); }}
-            className="inline-flex items-center gap-1 px-3 py-2 rounded bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700"
-          >
-            <Copy size={14} /> {copied ? 'Copiada' : 'Copiar'}
-          </button>
-          <button onClick={onClose} className="px-3 py-2 text-sm text-amber-900 hover:underline">Cerrar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function NewUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: (email: string, pass: string) => void }) {
-  const [form, setForm] = useState({ firstName: '', lastName: '', email: '' });
-  const [err, setErr] = useState<string | null>(null);
-
-  const create = useMutation({
-    mutationFn: () => api.createTeamUser(form),
-    onSuccess: (r) => onCreated(form.email, r.data.temporary_password),
-    onError: (e: any) => setErr(e?.response?.data?.message || 'No se pudo crear el usuario'),
-  });
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setErr(null);
-    if (!form.firstName || !form.lastName || !form.email) {
-      setErr('Todos los campos son obligatorios');
-      return;
+  const handleDelete = async (u: any) => {
+    if (!confirm(`¿Eliminar a ${u.first_name} ${u.last_name || ''}? Su acceso se desactiva.`)) return;
+    try {
+      await api.deleteTeamUser(u.id);
+      qc.invalidateQueries({ queryKey: ['team-users'] });
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'No se pudo eliminar');
     }
-    create.mutate();
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-        <div className="p-6 border-b border-gray-200">
-          <h2 className="text-xl font-bold text-gray-900">Nuevo usuario</h2>
-          <p className="text-sm text-gray-600 mt-1">
-            Se creará con rol <b>USER</b> en tu empresa y una contraseña temporal.
+    <div className="space-y-6">
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-4xl font-bold text-gray-900 flex items-center gap-3">
+            <Users className="text-indigo-600" size={36} /> Equipo y permisos
+          </h1>
+          <p className="text-gray-600 mt-1">
+            Da de alta a tu personal y asígnales <b>grupo de trabajo</b> — Ventas ve facturas y Carta Porte,
+            Inventarios ve almacenes, Tesorería ve pagos, etc.
           </p>
         </div>
-        <form onSubmit={submit} className="p-6 space-y-4">
-          {err && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">{err}</p>}
+        <button
+          onClick={() => setUserModal({ open: true, user: null })}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium"
+        >
+          <Plus size={18} /> Nuevo usuario
+        </button>
+      </div>
+
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Usuario</th>
+              <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Rol</th>
+              <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Grupo de trabajo</th>
+              <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">Capacidades</th>
+              <th className="px-4 py-2 text-center text-xs font-semibold text-gray-600">Acciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {usersQ.isLoading && (
+              <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-500">Cargando…</td></tr>
+            )}
+            {!usersQ.isLoading && users.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500 italic">
+                Sin usuarios en tu empresa todavía. Click en "Nuevo usuario" arriba.
+              </td></tr>
+            )}
+            {users.map((u) => {
+              const roleBadge = ROLE_BADGE[u.role] || { label: u.role, cls: 'bg-gray-100 text-gray-600' };
+              const wg = u.work_group || 'ADMIN_ALL';
+              const wgBadge = GROUP_BADGE[wg] || { label: wg, cls: 'bg-gray-100 text-gray-600' };
+              return (
+                <tr key={u.id} className={`hover:bg-gray-50 ${!u.is_active ? 'opacity-50' : ''}`}>
+                  <td className="px-4 py-2">
+                    <p className="font-medium text-sm">{u.first_name} {u.last_name || ''}</p>
+                    <p className="text-xs text-gray-500">{u.email}</p>
+                    {!u.is_active && <span className="text-[10px] text-red-600 font-semibold">DESACTIVADO</span>}
+                  </td>
+                  <td className="px-4 py-2">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${roleBadge.cls}`}>{roleBadge.label}</span>
+                  </td>
+                  <td className="px-4 py-2">
+                    <span className={`text-xs px-2 py-0.5 rounded font-medium ${wgBadge.cls}`}>{wgBadge.label}</span>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{GROUP_DESCR[wg]}</p>
+                  </td>
+                  <td className="px-4 py-2">
+                    {u.editable ? (
+                      <span className="text-xs text-gray-600">{u.capabilities.length} capacidad(es)</span>
+                    ) : (
+                      <span className="text-xs text-emerald-700 inline-flex items-center gap-1">
+                        <ShieldCheck size={13} /> Acceso completo
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-center">
+                    <div className="inline-flex gap-1">
+                      <button
+                        onClick={() => setUserModal({ open: true, user: u })}
+                        className="p-1.5 text-sky-600 hover:bg-sky-50 rounded"
+                        title="Editar datos, rol y grupo"
+                      ><Pencil size={14} /></button>
+                      {u.editable ? (
+                        <button
+                          onClick={() => setEditUser(u)}
+                          className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded"
+                          title="Capacidades finas"
+                        ><ShieldCheck size={14} /></button>
+                      ) : (
+                        <span className="p-1.5"><Lock size={14} className="text-gray-300" /></span>
+                      )}
+                      <button
+                        onClick={() => handleDelete(u)}
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                        title="Desactivar"
+                      ><Trash2 size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {editUser && (
+        <CapabilitiesModal user={editUser} onClose={() => setEditUser(null)} />
+      )}
+      {userModal.open && (
+        <UserModal
+          user={userModal.user}
+          onClose={() => setUserModal({ open: false, user: null })}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['team-users'] })}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─── Alta / edición de usuario ─── */
+
+function UserModal({ user, onClose, onSaved }: { user: any | null; onClose: () => void; onSaved: () => void }) {
+  const isEdit = !!user;
+  const [form, setForm] = useState({
+    email:     user?.email || '',
+    password:  '',
+    firstName: user?.first_name || '',
+    lastName:  user?.last_name || '',
+    role:      user?.role || 'USER',
+    workGroup: user?.work_group || 'ADMIN_ALL',
+    isActive:  user ? user.is_active : true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    setSaving(true); setError('');
+    try {
+      if (isEdit) {
+        await api.updateTeamUser(user.id, {
+          firstName: form.firstName,
+          lastName:  form.lastName,
+          role:      form.role,
+          workGroup: form.workGroup,
+          isActive:  form.isActive,
+        });
+      } else {
+        await api.createTeamUser({
+          email:     form.email,
+          password:  form.password,
+          firstName: form.firstName,
+          lastName:  form.lastName,
+          role:      form.role,
+          workGroup: form.workGroup,
+        });
+      }
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'No se pudo guardar');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white">
+          <h2 className="font-bold text-lg">{isEdit ? `Editar ${user.first_name}` : 'Nuevo usuario'}</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded"><X size={18} /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 rounded text-sm">{error}</div>}
+
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-              <input
-                value={form.firstName}
-                onChange={(e) => setForm({ ...form, firstName: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Apellido</label>
-              <input
-                value={form.lastName}
-                onChange={(e) => setForm({ ...form, lastName: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            <F label="Nombre" required>
+              <input value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} className="input" maxLength={80} />
+            </F>
+            <F label="Apellido">
+              <input value={form.lastName} onChange={e => setForm({ ...form, lastName: e.target.value })} className="input" maxLength={80} />
+            </F>
+            <F label="Email" required span={2}>
+              <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value.toLowerCase() })} disabled={isEdit}
+                     className={`input ${isEdit ? 'bg-slate-100 cursor-not-allowed' : ''}`} />
+              {isEdit && <p className="text-[10px] text-slate-400 mt-1">El email no se puede cambiar</p>}
+            </F>
+            {!isEdit && (
+              <F label="Contraseña temporal" required span={2}>
+                <input type="text" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })}
+                       placeholder="Mín 8 caracteres. Pídele que la cambie al primer login." className="input font-mono" />
+              </F>
+            )}
+            <F label="Rol" required>
+              <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="input">
+                <option value="USER">Operativo (capacidades finas)</option>
+                <option value="MANAGER">Gerente (acceso completo)</option>
+                <option value="ADMIN">Administrador (gestiona el equipo)</option>
+              </select>
+            </F>
+            <F label="Grupo de trabajo" required>
+              <select value={form.workGroup} onChange={e => setForm({ ...form, workGroup: e.target.value })} className="input">
+                <option value="ADMIN_ALL">Acceso total — ve todo</option>
+                <option value="VENTAS">Ventas — facturas + Carta Porte</option>
+                <option value="INVENTARIOS">Inventarios — almacenes y stock</option>
+                <option value="COMPRAS">Compras — OC y compras XML</option>
+                <option value="TESORERIA">Tesorería — pagos y proveedores</option>
+              </select>
+              <p className="text-[10px] text-slate-500 mt-1">{GROUP_DESCR[form.workGroup]}</p>
+            </F>
+            {isEdit && (
+              <F label="Estado" span={2}>
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={form.isActive} onChange={e => setForm({ ...form, isActive: e.target.checked })} />
+                  <span className="text-sm">Usuario activo (puede iniciar sesión)</span>
+                </label>
+              </F>
+            )}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Correo</label>
-            <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
-              placeholder="usuario@empresa.com"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50">
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={create.isPending}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50"
-            >
-              {create.isPending ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
-              Crear usuario
-            </button>
-          </div>
-        </form>
+        </div>
+
+        <div className="flex justify-end gap-3 p-5 border-t bg-gray-50 sticky bottom-0">
+          <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+          <button
+            onClick={save}
+            disabled={saving || !form.firstName || !form.email || (!isEdit && form.password.length < 8)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Save size={16} /> {saving ? 'Guardando…' : isEdit ? 'Guardar cambios' : 'Crear usuario'}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-export default TeamPage;
+function F({ label, children, required, span = 1 }: { label: string; children: React.ReactNode; required?: boolean; span?: number }) {
+  const cls = span === 2 ? 'col-span-2' : '';
+  return (
+    <label className={`block ${cls}`}>
+      <span className="block text-xs text-slate-500 mb-1">{label} {required && <span className="text-red-500">*</span>}</span>
+      {children}
+    </label>
+  );
+}
+
+/* ─── Modal de capacidades (§8) ─── */
+
+function CapabilitiesModal({ user, onClose }: { user: any; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [selected, setSelected] = useState<Set<string>>(new Set(user.capabilities));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const catQ = useQuery({ queryKey: ['team-capabilities'], queryFn: () => api.getTeamCapabilities() });
+  const capabilities: Array<{ key: string; label: string }> = catQ.data?.data?.capabilities || [];
+  const templates: Array<{ key: string; label: string; caps: string[] }> = catQ.data?.data?.templates || [];
+
+  const toggle = (cap: string) => {
+    const next = new Set(selected);
+    next.has(cap) ? next.delete(cap) : next.add(cap);
+    setSelected(next);
+  };
+  const applyTemplate = (caps: string[]) => setSelected(new Set(caps));
+
+  const handleSave = async () => {
+    setSaving(true); setError('');
+    try {
+      await api.setUserCapabilities(user.id, Array.from(selected));
+      qc.invalidateQueries({ queryKey: ['team-users'] });
+      onClose();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'No se pudo guardar');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white">
+          <div>
+            <h2 className="font-bold">Capacidades de {user.first_name} {user.last_name}</h2>
+            <p className="text-xs text-gray-500">{user.email}</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded">✕</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 px-3 py-2 rounded text-sm">{error}</div>}
+
+          <div>
+            <p className="text-sm font-medium text-gray-700 mb-2">Aplicar rol predefinido:</p>
+            <div className="flex flex-wrap gap-2">
+              {templates.map((t) => (
+                <button key={t.key} onClick={() => applyTemplate(t.caps)}
+                  className="text-xs px-3 py-1.5 border border-gray-200 rounded-full hover:border-indigo-400 hover:bg-indigo-50">
+                  {t.label}
+                </button>
+              ))}
+              <button onClick={() => setSelected(new Set())}
+                className="text-xs px-3 py-1.5 border border-gray-200 rounded-full hover:bg-gray-50 text-gray-500">
+                Ninguna
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-medium text-gray-700 mb-2">Capacidades:</p>
+            <div className="space-y-1">
+              {capabilities.map((c) => (
+                <label key={c.key}
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                  <input type="checkbox" checked={selected.has(c.key)} onChange={() => toggle(c.key)} />
+                  <div className="flex-1">
+                    <span className="text-sm text-gray-800">{c.label}</span>
+                    <span className="ml-2 text-xs text-gray-400 font-mono">{c.key}</span>
+                  </div>
+                  {selected.has(c.key) && <Check size={16} className="text-emerald-600" />}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 p-5 border-t bg-gray-50 sticky bottom-0">
+          <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+          <button onClick={handleSave} disabled={saving}
+            className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
+            {saving ? 'Guardando…' : `Guardar (${selected.size})`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

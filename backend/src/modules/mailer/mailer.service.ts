@@ -32,10 +32,77 @@ export interface MailAttachmentSpec {
   id: string;
 }
 
-let transporter: Transporter | null = null;
+let envTransporter: Transporter | null = null;
+const companyTransporterCache = new Map<string, { t: Transporter; user: string; from?: string }>();
 
-function getTransporter(): Transporter {
-  if (transporter) return transporter;
+/** Descifra la password SMTP guardada con ENCRYPTION_KEY (AES-256-GCM). */
+function decryptPass(enc: string): string {
+  const crypto = require('crypto') as typeof import('crypto');
+  const key = (process.env.ENCRYPTION_KEY || '').slice(0, 32).padEnd(32, '0');
+  const buf = Buffer.from(enc, 'base64');
+  const iv = buf.subarray(0, 12);
+  const tag = buf.subarray(12, 28);
+  const data = buf.subarray(28);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(key), iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
+}
+
+/** Cifra la password SMTP para guardar en DB. Exportada para el companies controller. */
+export function encryptPass(plain: string): string {
+  const crypto = require('crypto') as typeof import('crypto');
+  const key = (process.env.ENCRYPTION_KEY || '').slice(0, 32).padEnd(32, '0');
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', Buffer.from(key), iv);
+  const enc = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, enc]).toString('base64');
+}
+
+/**
+ * Devuelve el transportador SMTP a usar para una empresa dada.
+ * Preferencia: SMTP configurado en la empresa → SMTP de env como fallback.
+ * Cada empresa se cachea en memoria — si cambia la config, invalida cache
+ * borrando `companyTransporterCache.delete(companyId)`.
+ */
+async function getTransporterForCompany(companyId: string): Promise<{ t: Transporter; user: string; from?: string }> {
+  const cached = companyTransporterCache.get(companyId);
+  if (cached) return cached;
+
+  // 1) SMTP propio de la empresa
+  const r = await query<{ mail_host: string; mail_port: number; mail_secure: boolean; mail_user: string; mail_pass_enc: string; mail_from: string }>(
+    `SELECT mail_host, mail_port, mail_secure, mail_user, mail_pass_enc, mail_from
+       FROM companies WHERE id = $1
+        AND mail_host IS NOT NULL AND mail_user IS NOT NULL AND mail_pass_enc IS NOT NULL`,
+    [companyId],
+  );
+  if (r.rows[0]) {
+    const row = r.rows[0];
+    let pass: string;
+    try { pass = decryptPass(row.mail_pass_enc); }
+    catch (e: any) {
+      logger.warn(`SMTP empresa ${companyId}: falla descifrado (${e.message}). Cayendo a SMTP central.`);
+      return getEnvTransporter();
+    }
+    const t = nodemailer.createTransport({
+      host: row.mail_host,
+      port: row.mail_port || 587,
+      secure: row.mail_secure === true || row.mail_port === 465,
+      auth: { user: row.mail_user, pass },
+      connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 30_000,
+    });
+    const entry = { t, user: row.mail_user, from: row.mail_from || row.mail_user };
+    companyTransporterCache.set(companyId, entry);
+    logger.info(`SMTP empresa ${companyId} configurado: ${row.mail_host}:${row.mail_port} (${row.mail_user})`);
+    return entry;
+  }
+
+  // 2) Fallback a SMTP central del env
+  return getEnvTransporter();
+}
+
+function getEnvTransporter(): { t: Transporter; user: string; from?: string } {
+  if (envTransporter) return { t: envTransporter, user: process.env.MAIL_USER || '', from: process.env.MAIL_FROM };
 
   const host = process.env.MAIL_HOST;
   const port = parseInt(process.env.MAIL_PORT || '587', 10);
@@ -44,23 +111,48 @@ function getTransporter(): Transporter {
 
   if (!host || !user || !pass) {
     throw new ValidationError(
-      'Servicio de correo no configurado. Solicita al SUPER_ADMIN que configure ' +
-      'MAIL_HOST, MAIL_PORT, MAIL_USER y MAIL_PASS en el servidor.'
+      'Servicio de correo no configurado. Configúralo en Datos de mi empresa → Servidor de correo (SMTP), ' +
+      'o solicita al SUPER_ADMIN que configure MAIL_HOST, MAIL_PORT, MAIL_USER y MAIL_PASS en el servidor.'
     );
   }
 
-  transporter = nodemailer.createTransport({
+  envTransporter = nodemailer.createTransport({
     host,
     port,
     secure: port === 465,
     auth: { user, pass },
-    // Timeouts razonables — Render suele tardar más que local en el handshake.
     connectionTimeout: 15_000,
     greetingTimeout:   15_000,
     socketTimeout:     30_000,
   });
-  logger.info(`Mailer configurado: ${host}:${port} (secure=${port === 465})`);
-  return transporter;
+  logger.info(`Mailer central configurado: ${host}:${port} (secure=${port === 465})`);
+  return { t: envTransporter, user, from: process.env.MAIL_FROM };
+}
+
+/** Invalidar cache cuando se actualiza SMTP de una empresa. */
+export function invalidateSMTPCache(companyId: string): void {
+  companyTransporterCache.delete(companyId);
+}
+
+/** Legacy — usado por caminos que no tienen companyId a la mano. Usa env. */
+function getTransporter(): Transporter {
+  return getEnvTransporter().t;
+}
+
+/**
+ * sendTestMail — envío ligero SIN adjuntos ni validaciones estrictas para
+ * probar credenciales SMTP de una empresa. Falla con el error real de
+ * nodemailer si las credenciales están mal (útil para debugging).
+ */
+export async function sendTestMail(companyId: string, to: string): Promise<void> {
+  const { t, from } = await getTransporterForCompany(companyId);
+  await t.sendMail({
+    from: from || process.env.MAIL_FROM || process.env.MAIL_USER!,
+    to,
+    subject: 'Prueba SMTP · GDM_FAC V2',
+    text: 'Este correo confirma que la configuración SMTP de tu empresa quedó lista para enviar facturas.\n\n— GDM Facturación V2',
+    html: '<p>Este correo confirma que la configuración SMTP de tu empresa quedó lista para enviar facturas.</p><p>— <b>GDM Facturación V2</b></p>',
+  });
 }
 
 /**
@@ -218,9 +310,11 @@ export async function sendInvoiceMail(input: {
     );
   }
 
-  const tx = getTransporter();
+  // Transportador: SMTP propio de la empresa si está configurado, si no env.
+  const { t: tx, from: smtpFrom } = await getTransporterForCompany(input.companyId);
+  const effectiveFrom = smtpFrom || fromAddress;
   const info = await tx.sendMail({
-    from: `"${company.business_name}" <${fromAddress}>`,
+    from: `"${company.business_name}" <${effectiveFrom}>`,
     replyTo: fromAddress,
     to: input.to.trim(),
     cc: input.cc?.trim() || undefined,

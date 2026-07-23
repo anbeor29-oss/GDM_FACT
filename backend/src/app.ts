@@ -44,6 +44,13 @@ import manifestRoutes       from './modules/manifest/manifest.routes';
 import posRoutes            from './modules/pos/pos.routes';
 import cfdiImportRoutes     from './modules/cfdi-import/cfdi-import.routes';
 import suppliersRoutes      from './modules/suppliers/suppliers.routes';
+import cartaPorteRoutes     from './modules/carta-porte/carta-porte.routes';
+import cartaPorteCatalogsRoutes from './modules/carta-porte/carta-porte-catalogs.routes';
+import cartaPorteLugaresRoutes from './modules/carta-porte/lugares.routes';
+import cartaPorteCatalogosEmpresaRoutes from './modules/carta-porte/catalogos-empresa.routes';
+import cartaPorteImportarXmlRoutes from './modules/carta-porte/importar-xml.routes';
+import cartaPorteMercanciasRoutes from './modules/carta-porte/mercancias.routes';
+import xmlSuperImportRoutes from './modules/xml-super-import/xml-super-import.routes';
 
 export function createApp(): Express {
   const app = express();
@@ -161,6 +168,14 @@ export function createApp(): Express {
   app.use(`/api/${config.apiVersion}/pos`,             posRoutes);
   app.use(`/api/${config.apiVersion}/cfdi-import`,     cfdiImportRoutes);
   app.use(`/api/${config.apiVersion}/suppliers`,       suppliersRoutes);
+  // ─── Carta Porte 3.1 + Super Lector XML ────────────────────────────
+  app.use(`/api/${config.apiVersion}/carta-porte/lugares`, cartaPorteLugaresRoutes);
+  app.use(`/api/${config.apiVersion}/carta-porte`,     cartaPorteCatalogosEmpresaRoutes);
+  app.use(`/api/${config.apiVersion}/carta-porte/importar-xml`, cartaPorteImportarXmlRoutes);
+  app.use(`/api/${config.apiVersion}/carta-porte/mercancias`, cartaPorteMercanciasRoutes);
+  app.use(`/api/${config.apiVersion}/xml-super-import`, xmlSuperImportRoutes);
+  app.use(`/api/${config.apiVersion}/carta-porte`,     cartaPorteCatalogsRoutes);
+  app.use(`/api/${config.apiVersion}`,                 cartaPorteRoutes);
   // app.use(`/api/${config.apiVersion}/payments`, paymentRoutes);
   // app.use(`/api/${config.apiVersion}/reports`, reportRoutes);
 

@@ -60,4 +60,25 @@ router.delete(
   asyncHandler(companiesController.deleteCompany)
 );
 
+/**
+ * PATCH /api/v1/companies/:id/smtp — actualiza configuración SMTP de la empresa
+ * Body: { mail_host, mail_port, mail_secure, mail_user, mail_pass, mail_from }
+ * La password se cifra con AES-256-GCM antes de guardar.
+ */
+router.patch(
+  '/:id/smtp',
+  authorize('ADMIN'),
+  asyncHandler(companiesController.updateSMTP),
+);
+
+/**
+ * POST /api/v1/companies/:id/smtp/test — envía un correo de prueba al ADMIN.
+ * Usa el SMTP configurado en la empresa (si existe) para verificar creds.
+ */
+router.post(
+  '/:id/smtp/test',
+  authorize('ADMIN'),
+  asyncHandler(companiesController.testSMTP),
+);
+
 export default router;

@@ -970,3 +970,196 @@ recibir clientes reales.
 
 **Cierre del día 2026-07-17: 11 commits, 1 CFDI timbrado y validado en el
 portal SAT.** Descanso hasta mañana con lista clara de prioridades.
+
+---
+
+## 2026-07-21 · 2026-07-22 — V2 nace: Carta Porte 3.1 + Super Lector XML
+
+**Rama nueva**: `v2-carta-porte` (basada en `origin/main`), directorio de
+trabajo `E:\Obsidian\GDM_FAC_2`. V1 (`origin/main` + `hcgm.com.mx/erp`) NO
+se toca durante todo el trabajo — sigue timbrando en producción.
+
+### Contexto
+El usuario tenía dos productos divergentes en Render:
+- **GDM_FAC** (gdmfac-*) — el bueno, facturando real, ordinal `origin/main`
+- **GDM_ALMACEN** (gdm-almacen-*) — sandbox con Inventarios + Carta Porte 3.1 + Super Lector construido a lo largo de las semanas anteriores, rama `gdmalmacen-main` del mismo directorio E:\Obsidian\GDM_FAC.
+
+Después de afinar el complemento CP en gdmalmacen, decisión: **crear V2 de
+GDM_FAC** trayendo SÓLO los módulos de CP + Super Lector + Mercancías (NO
+inventario ni POS). Base de trabajo aislada para probar todo local antes de
+tocar Render.
+
+### Preparación (día 1)
+
+- **Clone limpio** de `origin/main` a `E:\Obsidian\GDM_FAC_2\`.
+- **Nueva rama** `v2-carta-porte`.
+- **Copia selectiva** desde `gdmalmacen-main` (dir `E:\Obsidian\GDM_FAC`):
+  - Backend: `modules/carta-porte/` completo (17 archivos: services, routes, catalogs, builder XML, validator), `modules/xml-super-import/` (2 archivos), migraciones `2026-07-18_carta_porte.sql` + `2026-07-18b_cp_lugares.sql` + `2026-07-18c_cp_mas_catalogos.sql` + `2026-07-20_nomina_imports.sql` + `2026-07-21_cp_mercancias.sql`.
+  - Frontend: 9 pages (`CartaPorte*.tsx`, `SuperXMLImport.tsx`, `CartaPorteMercancias.tsx`), componentes `LugarPicker.tsx` y `CatalogPicker.tsx`.
+  - PDF service completo desde gdmalmacen (con hoja de CP + contrato).
+  - `api.ts` completo (superset — métodos huérfanos = dead code inofensivo).
+- **App.tsx**: agregadas rutas `/carta-porte`, `/carta-porte/*`, `/xml-super-import`, `/invoices/:invoiceId/carta-porte`.
+- **app.ts backend**: montadas 7 rutas nuevas + monta xml-super-import.
+- **Layout.tsx**: agregados items en sidebar.
+- **Package.json**: agregada dep `xmllint-wasm@^5.2.0`.
+- **Migration guard**: `2026-06-20_pkg_flex_price.sql` fallaba en fresh install porque UPDATE sobre `stamp_packages` antes de que la tabla exista. Envuelto en `DO $$ IF EXISTS ... END $$` idempotente.
+- **Ajuste api.ts**: bug de sessionStorage vs localStorage — token guardado en session pero interceptor axios leía de local → 401 loop. Fix: interceptor lee de `sessionStorage.getItem('token') || localStorage.getItem('token')`.
+- **Ajuste Team.tsx / AdminUsers.tsx / AdminCompanies.tsx / Reports.tsx**: se copiaron de gdmalmacen porque usan nuevos métodos del api.ts.
+- **Eliminado PointOfSale.tsx** — fuera de scope V2.
+
+Commit inicial: 47 archivos, 1 commit en rama local, sin remoto ni deploy.
+
+### Setup local (Windows, día 1 tarde)
+
+Requisitos verificados:
+- Intel i3-9100 4C/4T · 64 GB RAM · 927 GB libres en E: · Node v24.16.0 · npm 11.13 · PostgreSQL 16 corriendo como servicio Windows.
+
+**Reset de password postgres** (usuario olvidó la que puso al instalar) —
+edición de `pg_hba.conf` con `trust` temporal + `ALTER USER postgres WITH
+PASSWORD 'gdmfac2local'` + restore. Ejecutado por el usuario en PowerShell
+admin (Claude bloqueado por classifier para tocar servicios de sistema).
+
+**Creación BD** `gdmfac_v2` + extensión `pgcrypto`. **Migraciones**: 25
+aplicadas sin errores incluida la migración guard del pkg_flex_price.
+**Bootstrap** creó empresa `GRUPO HCGM S.A. DE C.V.` (RFC GHC1707275Y0) +
+admin `admin@gdmfac2.local` + 16 productos + 6 clientes de ejemplo.
+
+**Arranque**:
+- Backend en `localhost:3001` (background bash task) — Redis no disponible, corre en modo degradado.
+- Frontend Vite HMR en `localhost:5173` — `.env` con `VITE_API_BASE=http://localhost:3001` (bug: primero puse `VITE_API_URL` que no existe, error HTTP 500 en login).
+
+### Iteración 1 — UX del formulario CP
+
+- **Pickers de plantilla** agregados a Mercancías, Vehículo, Aseguradora, Figura de transporte (además del Lugar que ya tenía). TemplatePicker genérico inline (rose/amber/sky).
+- **Fix picker de Figura**: mapping usaba `nombre_figura`/`rfc_figura` pero backend regresa `nombre`/`rfc`. Se llenaban solo tipo y licencia; ahora los 4 campos.
+- **Verde suave** (`bg-emerald-50`) en campos vacíos del modal Lugares (Calle, No. exterior, Localidad, Municipio) para señalar "el XML no lo trajo, captura manual". Leyenda "Verde = falta capturar" arriba del bloque Domicilio.
+
+### Iteración 2 — Bug del precio del producto
+
+- Editar un producto y cambiar `basePrice` a 0.01 no persistía. **Causa**: controller pasaba `req.body` tal cual a `productsService.updateProduct`, pero el service busca `data.base_price` (snake_case). Frontend siempre mandó `basePrice`. Silenciosamente ignorado.
+- **Fix**: normalizar 12 campos camelCase → snake_case en el controller antes de llamar al service.
+
+### Iteración 3 — Super Lector modo lote
+
+- Frontend acepta hasta 5 archivos en el drop-zone / input.
+- Al procesar, se **detectan todos**, se **dedup client-side** por clave natural entre archivos, y se hace 1 sola llamada `POST /xml-super-import/check-existing` al backend para saber cuáles ya están en BD.
+- Preview consolidado con 7 secciones (parties · productos · mercancías · lugares · vehículos · aseguradoras · operadores) con checkbox por ítem. Los que ya existen aparecen verdes y desmarcados.
+- Un click "Importar lo seleccionado" → `POST /xml-super-import/apply-selected` con listas explícitas → backend crea cada ítem con dedup guard.
+
+### Iteración 4 — PDF de Carta Porte
+
+Copiado el formato SAT que muestra el usuario (imagen de otro sistema
+comercial). Layout resultante:
+- **Hoja 1**: CFDI normal (emisor, receptor, conceptos, totales, timbre) — sin cambios.
+- **Hoja 2**: *Complemento Carta Porte 3.1* — título con barra celeste + QR (esquina superior izq.) + info block a la derecha (Versión, Núm. documento en rojo, IdCCP, Folio fiscal, RFC PAC, No. cert. SAT, Fecha timbrado, Lugar expedición). Barras oscuras 2-col con Transporte Internac / Distancia. Secciones Iformación Autotransporte, Aseguradora Resp. Civil, Vehículo (tabla), Figuras (tabla), Ubicaciones (tabla + domicilio expandido debajo), Mercancías (una tabla por cada).
+- **Hoja 3**: `CONDICIONES DEL CONTRATO DE TRANSPORTE QUE AMPARA ESTA CARTA PORTE` con las 14 cláusulas completas (PRIMERA a DÉCIMA CUARTA).
+
+**Lookup automático clave→nombre** en el PDF: `sat_cp_colonia` (por CP + clave), `sat_cp_municipio` (por estado + clave), `sat_cp_localidad`, `sat_catalogs` c_Estado. Formato `(clave) Nombre` — así por ejemplo `(NLE) Nuevo León`, `(2954) Ciénega de Flores Centro`.
+
+### Iteración 5 — Módulo Mercancías separado de Productos
+
+Regla del usuario: "las mercancías son solo lo que se transporta, no le
+pertenece a la empresa. Los productos sí, por separado. Ya que en determinado
+momento se deben de especificar las mercancías para las inspecciones, ya que
+tal vez por falta de alguna medida o dato, pueden enfrentar multas".
+
+- **Migración `2026-07-21_cp_mercancias.sql`**:
+  - `cp_mercancias_catalog` — plantilla reusable, uniq por (company, claveSat, desc_normalizada, cliente_rfc). Contador `veces_transportada` + `ultima_vez`.
+  - `cp_mercancias_movimiento` — bitácora por viaje. FK a `invoices`; guarda remitente/destinatario/fecha para rastro fiscal.
+- **Backend**: `mercancias.service.ts` con `saveMercancia()` upsert + insert, `mercancias.routes.ts` con GET catálogo/bitácora + DELETE.
+- **Frontend**: nueva página `/carta-porte/mercancias` con tabs Catálogo | Bitácora. Card 📦 en Super Lector con checkbox y listado.
+- **Preset fiscal `auto_carga`** — Super Lector marca conceptos con SAT `78101xxx` o retIva>0 con preset IVA 16% + Ret. IVA 4% automático.
+
+### Iteración 6 — Sidebar V2 con iconos 3D
+
+Orden solicitado y aplicado:
+1. 🏠 Dashboard · 2. 🧾 Facturas · 3. 🚚 Carta Porte (colapsable con 📍🚛🛡️👨‍✈️📦) · 4. 📉 Notas de Crédito · 5. 📦 Productos · 6. 👥 Clientes · 7. 📥 Lector de XML · 8. 📊 Reportes · 9. 📜 Contrato.
+
+Iconos emoji con CSS `drop-shadow` para efecto 3D. `Usuarios` OCULTO en V2. `Datos de la empresa` NO va en sidebar — vive en el modal top bar `DATOS DE MI EMPRESA` (usuario pidió quitar la duplicidad después de haberlo agregado).
+
+### Iteración 7 — Formulario CP autofill total
+
+- **Fecha/hora salida-llegada** split en 2 inputs (date + time) porque `datetime-local` se cortaba visualmente en Chrome (usuario reportó screenshot con "07/21/2026 , -").
+- **CP autofill total**: al escribir CP 5 dígitos, colonia/municipio/localidad se convierten en **comboboxes** con opciones del catálogo SAT. Estado auto-set por rango de CP (2 primeros dígitos → tabla oficial 32 estados). Debajo de cada combo aparece `Clave SAT: XXX` en **rojo pequeño** (tipografía monospace).
+- **Estado read-only**: usuario dijo "aquí no hace falta combobox" — se muestra el nombre completo del estado inferido (ej. "Nuevo León") en read-only y la clave `NLE` en rojo debajo.
+- **Opción "Otra no especificada"** en cada combo por si no está en catálogo.
+
+### 🚨 Bug crítico corregido — seed CP con columnas invertidas
+
+Descubierto al probar CP 66645 (Nuevo León): el combo de colonia decía "0 opciones" a pesar de que el seed cargó 144,718 filas. Investigación:
+
+```sql
+SELECT clave, codigo_postal, descripcion FROM sat_cp_colonia LIMIT 3;
+-- clave | codigo_postal          | descripcion
+-- 0001  | Tetitla la Gallera     | 16514
+-- 0001  | Zona Centro            | 20000
+```
+
+Las columnas `codigo_postal` ↔ `descripcion` estaban intercambiadas — los CPs vivían en `descripcion`, los nombres en `codigo_postal`. Bug del script Python `generate-carta-porte-seed.py` heredado de gdmalmacen.
+
+Verificado con `SELECT COUNT(*) FILTER (WHERE descripcion ~ '^\d{5}$')` = 144,718 (todos). Mismo patrón en `sat_cp_municipio` y `sat_cp_localidad` (estado ↔ descripcion swap).
+
+**Fix aplicado**: SWAP en las 3 tablas (script en `scratchpad/fix_colonia.sql` y `fix_muni_loc.sql`). Después del fix:
+- CP 66645 → 5 colonias (Padilla, Jardines Del Virrey, Parque Industrial Huinalá, Bosques de Huinalá, Hacienda Del Carmen).
+- CP 66600 → colonias reales de Nuevo León (Apodaca).
+- Municipio 006 en NLE → "Apodaca" (antes daba 0 filas).
+
+**⚠️ IMPORTANTE**: este mismo bug existe en la BD de producción de Render (mismo seed original). Cuando se despliegue V2 a Render, se debe correr el mismo SWAP allá antes de que la UI funcione.
+
+### Iteración 8 — Ampliación de columnas geo
+
+Migración `2026-07-21b_cp_ubicaciones_widen.sql`: amplió `colonia / municipio / localidad` de `VARCHAR(4)` a `VARCHAR(60)` en `cp_ubicaciones`, `cp_lugares` y `cp_figuras`. El schema original asumía siempre clave (4 chars). Ahora acepta clave o nombre libre sin truncar.
+
+### Iteración 9 — Datos de la empresa (emisor)
+
+- Nueva página `/company` (`CompanyProfile.tsx`) con formulario editable de datos fiscales + domicilio fiscal + `ManifestSigner` incrustado.
+- **Retirada del sidebar después** cuando el usuario notó que duplicaba el modal del top bar. El componente `ManifestSigner` ya vivía en `IssuerModal` — no se duplica el flujo del manifiesto.
+
+### Iteración 10 — Timbre fiscal con sellos íntegros
+
+Bug en `pdf-helpers.ts`:
+- `abbrev()` cortaba sello a `first60…last20` (perdía firma completa).
+- `lineBreak: false + ellipsis: true` cortaba a 1 renglón.
+- Cadena original NO incluía `SelloCFD` como exige Anexo 20 §III.B.
+
+Fix:
+- Nueva opción `wrap: true` en helper `kv()` — permite multilínea con `doc.y` para calcular altura real.
+- Sellos mostrados ÍNTEGROS.
+- Cadena original con formato correcto `||1.1|UUID|Fecha|PAC||SelloCFD|NoCertSAT||`.
+- Placeholder honesto `— pendiente: PAC en modo MOCK devuelve XML sin sellos —` cuando el sello viene vacío (evita confusión).
+- `BLOCK_H` ajustado de 100pt a 180pt para reservar espacio del wrap.
+
+### Iteración 11 — Ancho de columnas del PDF
+
+- Columna "Datos" de Figuras tenía `w: W - 490` = 25pt → rompía "Licencia: LFD01120038" letra por letra. Ajustado a `w: W - 85 - 105 - 175 - 55` = ~95pt.
+
+### Estado final V2 (2026-07-22)
+
+- **Rama**: `v2-carta-porte` local, sin remoto.
+- **BD local**: `gdmfac_v2` con 25 migraciones + seed CP con SWAP aplicado + 144K colonias + 2,453 municipios + 661 localidades + 33 configs vehiculares + bootstrap admin.
+- **Backend** corriendo en localhost:3001 (background task, MOCK PAC).
+- **Frontend** corriendo en localhost:5173 (Vite HMR).
+- **Sin timbrado real**: `.env` con `PAC_PROVIDER=MOCK`. Cuando se quiera timbrar contra SW Sapien sandbox/prod, cambiar a `SW_SAPIEN` + token.
+
+### Pendientes para llevar V2 a producción
+
+1. **Deploy en Render** — 3 servicios nuevos (`gdmfac2-backend`, `gdmfac2-frontend`, `gdmfac2-postgres`) o rama del repo GDM_FACT existente. Decisión del usuario pendiente.
+2. **Correr SWAP fix en Postgres de producción V2** (mismo bug del seed CP).
+3. **Manifiesto SW Sapien** — HCGM ya firmó, solo falta el token en env vars del deploy.
+4. **PAC real** — cambiar `PAC_PROVIDER=SW_SAPIEN` + `SW_SAPIEN_ENV=sandbox` (o `production`) + `SW_SAPIEN_TOKEN` en el env de Render.
+5. **Actualizar manual de usuario** — refleja el nuevo sidebar, CP, mercancías, super lector.
+6. **Marco legal del contrato para factura** — pendiente decisión de si se genera al inicio o se anexa al PDF.
+
+### Consecuencia
+
+**GDM_FAC V2** listo para pruebas finales locales con datos reales del contribuyente (subir XMLs reales de HCGM al Super Lector, generar CP, timbrar sandbox, descargar PDF). V1 sigue intacta en producción. Cero riesgo para la operación actual.
+
+**Commits notables del período** (todos en rama local, sin remoto todavía):
+- Feat inicial: port CP + Super Lector + Mercancías desde gdmalmacen (47 files)
+- Fix update product basePrice (camelCase → snake_case)
+- Fix pdf.service integrar CP + contrato (2 hojas)
+- Fix sidebar 3D emojis + orden V2 + oculto Usuarios
+- Feat CP autofill total con combos + clave rojo bajo cada campo
+- Fix seed CP swap columnas (SQL directo BD, no versionado)
+- Feat sellos íntegros wrap + cadena original Anexo 20
+- Feat Datos empresa + ManifestSigner (luego retirado del sidebar por duplicidad)

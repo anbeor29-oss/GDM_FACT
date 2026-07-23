@@ -28,6 +28,7 @@ import PDFDocument from 'pdfkit';
 import * as invoicesService from '../invoices/invoices.service';
 import * as companiesService from '../companies/companies.service';
 import * as customersService from '../customers/customers.service';
+import * as cartaPorteService from '../carta-porte/carta-porte.service';
 import { query } from '../../config/database';
 import { NotFoundError } from '../../middleware/errorHandler';
 import logger from '../../middleware/logger';
@@ -225,11 +226,104 @@ export async function generateInvoicePDF(data: PDFGenerationData): Promise<Buffe
   const chunks: Buffer[] = [];
   doc.on('data', (b: Buffer) => chunks.push(b));
 
+  // Complemento Carta Porte 3.1 — cargar si la factura lo tiene + descripciones SAT
+  const cp = await cartaPorteService.getByInvoiceId(data.invoiceId).catch(() => null);
+  let cpSat: {
+    permiso?: string;
+    config?: string;
+    colonias: Record<string, string>;        // "CP|clave" → descripcion
+    municipios: Record<string, string>;      // "estado|clave" → descripcion
+    localidades: Record<string, string>;     // "estado|clave" → descripcion
+    estados: Record<string, string>;         // "clave" → descripcion
+  } = { colonias: {}, municipios: {}, localidades: {}, estados: {} };
+  if (cp?.autotransporte) {
+    const auto = cp.autotransporte;
+    try {
+      const [p, c] = await Promise.all([
+        auto.perm_sct ? query<any>(`SELECT descripcion FROM sat_cp_tipo_permiso WHERE clave=$1`, [auto.perm_sct]) : Promise.resolve({ rows: [] as any[] }),
+        auto.config_vehicular ? query<any>(`SELECT descripcion, numero_ejes, numero_llantas FROM sat_cp_config_autotransporte WHERE clave=$1`, [auto.config_vehicular]) : Promise.resolve({ rows: [] as any[] }),
+      ]);
+      cpSat.permiso = p.rows[0]?.descripcion;
+      const cr = c.rows[0];
+      if (cr) {
+        cpSat.config = `${cr.descripcion}${cr.numero_ejes && cr.numero_llantas ? ` (${cr.numero_ejes} ejes, ${cr.numero_llantas} llantas)` : ''}`;
+      }
+    } catch { /* si falla el lookup usamos solo la clave */ }
+  }
+  // Pre-cargar descripciones SAT de todas las ubicaciones para el PDF —
+  // colonia/municipio/localidad/estado se guardan como CLAVE (4-8 chars) y
+  // en el PDF se muestran como "(clave) Nombre". Batch en una sola query.
+  if (cp?.ubicaciones?.length) {
+    try {
+      const isKey = (v: any) => typeof v === 'string' && /^\d{1,4}$/.test(v);
+      const isEstadoKey = (v: any) => typeof v === 'string' && /^[A-Z]{2,3}$/.test(v);
+      const colClaves = new Set<string>();  // "CP|clave"
+      const munClaves = new Set<string>();  // "estado|clave"
+      const locClaves = new Set<string>();  // "estado|clave"
+      const edoClaves = new Set<string>();
+      for (const u of cp.ubicaciones) {
+        if (isKey(u.colonia) && u.codigo_postal) colClaves.add(`${u.codigo_postal}|${u.colonia}`);
+        if (isKey(u.municipio) && u.estado)      munClaves.add(`${u.estado}|${u.municipio}`);
+        if (isKey(u.localidad) && u.estado)      locClaves.add(`${u.estado}|${u.localidad}`);
+        if (isEstadoKey(u.estado))                edoClaves.add(u.estado);
+      }
+      const runLookup = async (
+        set: Set<string>, sql: (arr: string[]) => string, params: (arr: string[]) => any[],
+        target: Record<string, string>, keyFn: (r: any) => string,
+      ) => {
+        if (!set.size) return;
+        const arr = Array.from(set);
+        const r = await query<any>(sql(arr), params(arr));
+        for (const row of r.rows) target[keyFn(row)] = row.descripcion;
+      };
+      // Colonias: batch por CP+clave
+      if (colClaves.size) {
+        const cps = Array.from(new Set(Array.from(colClaves).map(k => k.split('|')[0])));
+        const claves = Array.from(new Set(Array.from(colClaves).map(k => k.split('|')[1].padStart(4, '0'))));
+        const r = await query<any>(
+          `SELECT clave, codigo_postal, descripcion FROM sat_cp_colonia WHERE codigo_postal = ANY($1) AND clave = ANY($2)`,
+          [cps, claves],
+        );
+        for (const row of r.rows) cpSat.colonias[`${row.codigo_postal}|${String(row.clave).replace(/^0+/, '')}`] = row.descripcion;
+      }
+      // Municipios: batch por estado+clave (clave es 3 dígitos padded)
+      await runLookup(
+        munClaves,
+        () => `SELECT clave, estado, descripcion FROM sat_cp_municipio WHERE (estado, clave) IN (${Array.from(munClaves).map((_, i) => `($${i*2+1}, $${i*2+2})`).join(',')})`,
+        (arr) => arr.flatMap(k => { const [e, c] = k.split('|'); return [e, c.padStart(3, '0')]; }),
+        cpSat.municipios,
+        (row: any) => `${row.estado}|${String(row.clave).replace(/^0+/, '')}`,
+      );
+      // Localidades
+      await runLookup(
+        locClaves,
+        () => `SELECT clave, estado, descripcion FROM sat_cp_localidad WHERE (estado, clave) IN (${Array.from(locClaves).map((_, i) => `($${i*2+1}, $${i*2+2})`).join(',')})`,
+        (arr) => arr.flatMap(k => { const [e, c] = k.split('|'); return [e, c.padStart(2, '0')]; }),
+        cpSat.localidades,
+        (row: any) => `${row.estado}|${String(row.clave).replace(/^0+/, '')}`,
+      );
+      // Estados — usa sat_catalogs c_Estado
+      if (edoClaves.size) {
+        const r = await query<any>(
+          `SELECT catalog_key AS clave, description AS descripcion FROM sat_catalogs WHERE catalog_name='c_Estado' AND catalog_key = ANY($1)`,
+          [Array.from(edoClaves)],
+        );
+        for (const row of r.rows) cpSat.estados[row.clave] = row.descripcion;
+      }
+    } catch (e: any) {
+      logger.warn(`CP PDF: fallo lookup SAT (${e?.message || 'unknown'}) — se muestran claves sin resolver`);
+    }
+  }
+
   generateHeader(doc, company, invoice, cat.regE, logoBuf);
   generateReceptor(doc, customer, invoice, cat.regR, cat.uso);
   generateItems(doc, invoice.items);
   generateTotals(doc, invoice);
   generateStampedSection(doc, invoice, qrPng);
+  if (cp) {
+    generateCartaPorteSection(doc, cp, invoice, company, qrPng, cpSat);
+    generateCartaPorteContract(doc);
+  }
   generateFooter(doc, invoice);
   drawPageNumbers(doc);
   if (invoice.status === 'CANCELLED') {
@@ -604,6 +698,344 @@ function generateTotals(doc: PDFDoc, invoice: any) {
   y += Math.max(16, lineaH + 6);
 
   (doc as any)._nextY = y + 14;
+  doc.fillColor('#000000');
+}
+
+/**
+ * generateCartaPorteSection — Complemento Carta Porte 3.1 en HOJA PROPIA
+ * (después del CFDI y el timbre). Layout siguiendo el estándar de mercado:
+ *
+ *   ┌────────────────────────────────────────────────────────────┐
+ *   │ ▓▓ Complemento Carta Porte                                 │
+ *   │ [QR]   Versión Complemento   3.1                           │
+ *   │        Número documento      23    (rojo)                  │
+ *   │        IdCCP                 CCC…                          │
+ *   │        Folio fiscal          33278…                        │
+ *   │        RFC Certificador      LSO…                          │
+ *   │        No. certificado SAT   00001…                        │
+ *   │        Fecha y hora cert.    2026-05-12 12:21:12           │
+ *   │        Lugar expedición      Nuevo León, 66053             │
+ *   │ ▓ Transporte Internacional  No │▓ Total distancia  188 Kms │
+ *   │ Iformación Autotransporte                                  │
+ *   │ ▓ Permiso SCT  (TPAF01) Auto…    │▓ Núm. Permiso  1938…    │
+ *   │ Aseguradora Responsabilidad Civil                          │
+ *   │ ▓ Aseguradora  MAPS SEGUROS      │▓ Póliza  20312279       │
+ *   │ Vehículo                                                   │
+ *   │ ▓ Tipo │ Placas │ Modelo │ Peso Bruto                      │
+ *   │  (C2) Camión Unitario… │ 45UV5W │ 2012 │ 3.4 Ton           │
+ *   │ Figuras                                                    │
+ *   │ ▓ Tipo │ RFC/IdTrib │ Nombre │ Residencia │ Datos          │
+ *   │ Ubicaciones                                                │
+ *   │ ▓ Tipo │ Clave │ Remitente/Destinatario │ Distancia │Fecha │
+ *   │ Mercancías : 4                                             │
+ *   │ ▓ Código │ Desc │ Peligroso │ Cant │ Unidad │ Peso │ Valor │
+ *   └────────────────────────────────────────────────────────────┘
+ */
+function generateCartaPorteSection(doc: PDFDoc, cp: any, invoice: any, company: any, qrPng: Buffer | null, cpSat: {
+  permiso?: string;
+  config?: string;
+  colonias: Record<string, string>;
+  municipios: Record<string, string>;
+  localidades: Record<string, string>;
+  estados: Record<string, string>;
+}) {
+  doc.addPage();                                      // ── Hoja #2 ──
+  const W    = PAGE_RIGHT - PAGE_LEFT;
+  const DARK = '#1e3a8a';                             // barras azul marino (igual timbre CFDI)
+  const TXT_LIGHT = '#e2e8f0';                        // texto label sobre barra
+  const TXT_WHITE = '#ffffff';                        // valor sobre barra
+  const TITLE_BG  = '#dbeafe';                        // barra celeste del título
+  let y = PAGE_TOP;
+
+  // ── Título "Complemento Carta Porte" con fondo celeste ─────────────
+  doc.rect(PAGE_LEFT, y, 220, 18).fill(TITLE_BG);
+  doc.font('Helvetica-Bold').fontSize(11).fillColor(DARK).text('Complemento Carta Porte', PAGE_LEFT + 6, y + 3.5);
+  y += 24;
+
+  // ── QR + tabla de datos del complemento ────────────────────────────
+  const qrSize = 105;
+  if (qrPng) {
+    try { doc.image(qrPng, PAGE_LEFT, y, { width: qrSize, height: qrSize }); } catch { /* si falla, no bloquea */ }
+  }
+  const infoX = PAGE_LEFT + qrSize + 22;
+  const labelW = 155;
+  const valX   = infoX + labelW;
+  const infoStartY = y;
+  const rowH = 13;
+  const infoRow = (label: string, val: string, opts?: { valColor?: string; bold?: boolean }) => {
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK).text(label, infoX, y);
+    doc.font(opts?.bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(9).fillColor(opts?.valColor || DARK)
+      .text(val || '—', valX, y, { width: PAGE_RIGHT - valX });
+    y += rowH;
+  };
+  infoRow('Versión Complemento', String(cp.version || '3.1'));
+  infoRow('Número documento', String(invoice.folio || ''), { valColor: '#b91c1c', bold: true });
+  infoRow('IdCCP', String(cp.id_ccp || ''));
+  infoRow('Folio fiscal', String(invoice.cfdi_uuid || ''));
+  infoRow('RFC Certificador', String(invoice.pac_id || 'LSO1306189R5'));
+  infoRow('No. certificado del SAT', String(extractNoCertificado(invoice.xml_content) || ''));
+  infoRow('Fecha y hora certificación', fmtDate(invoice.pac_timestamp || invoice.date_issued));
+  const estadoNom = (company as any)?.state || (company as any)?.city || 'México';
+  infoRow('Lugar expedición', `${estadoNom}, ${invoice.lugar_expedicion || (company as any)?.zip_code || ''}`);
+  y = Math.max(y, infoStartY + qrSize) + 6;
+
+  // ─── Helpers de barra oscura ─────────────────────────────────────
+  /** Renderiza una barra oscura con "label" en negrita blanca y opcionalmente
+   *  el valor a un costado (después del label). Devuelve el nuevo y. */
+  const darkLabel = (label: string, x: number, w: number, yy: number) => {
+    doc.rect(x, yy, w, 14).fill(DARK);
+    doc.font('Helvetica-Bold').fontSize(8.5).fillColor(TXT_WHITE).text(label, x + 5, yy + 3, { width: w - 8, lineBreak: false });
+  };
+  /** Dos pares label-value en línea (barra oscura para labels, texto negro
+   *  fuera de la barra para los valores). w es el ancho del label. */
+  const pairLine = (l1: string, v1: string, l2: string, v2: string, yy: number, opts?: { w1?: number; w2?: number }) => {
+    const w1 = opts?.w1 ?? 130;
+    const w2 = opts?.w2 ?? 130;
+    const half = W / 2;
+    darkLabel(l1, PAGE_LEFT, w1, yy);
+    doc.font('Helvetica').fontSize(8.5).fillColor(DARK).text(v1 || '—', PAGE_LEFT + w1 + 6, yy + 3, { width: half - w1 - 10, lineBreak: false });
+    darkLabel(l2, PAGE_LEFT + half, w2, yy);
+    doc.font('Helvetica').fontSize(8.5).fillColor(DARK).text(v2 || '—', PAGE_LEFT + half + w2 + 6, yy + 3, { width: half - w2 - 10, lineBreak: false });
+    return yy + 18;
+  };
+  /** Sección con título en gris pequeño + una o varias barras oscuras. */
+  const sectionTitle = (title: string, yy: number) => {
+    doc.font('Helvetica-Bold').fontSize(9.5).fillColor(DARK).text(title, PAGE_LEFT, yy);
+    return yy + 12;
+  };
+
+  // ─── Transporte internac. | Distancia ─────────────────────────
+  y = pairLine('Transporte Internacional', cp.transp_internac || 'No', 'Total distancia recorrida', `${cp.total_dist_rec || 0} Kms.`, y);
+  y += 4;
+
+  // ─── Iformación Autotransporte ────────────────────────────────
+  y = sectionTitle('Iformación Autotransporte', y);
+  const a = cp.autotransporte || {};
+  const permisoLabel = a.perm_sct ? `(${a.perm_sct}) ${cpSat.permiso || 'Autotransporte Federal'}` : (cpSat.permiso || '—');
+  y = pairLine('Permiso SCT', permisoLabel, 'Núm. Permiso', String(a.num_permiso_sct || ''), y, { w1: 100, w2: 105 });
+  y += 2;
+
+  // ─── Aseguradora Responsabilidad Civil ────────────────────────
+  y = sectionTitle('Aseguradora Responsabilidad Civil', y);
+  y = pairLine('Aseguradora', String(a.asegura_resp_civil || ''), 'Póliza', String(a.poliza_resp_civil || ''), y, { w1: 100, w2: 60 });
+  y += 4;
+
+  // ─── Vehículo ─────────────────────────────────────────────────
+  y = sectionTitle('Vehículo', y);
+  const vehCols = [
+    { label: 'Tipo',       w: W - 210, align: 'left'  as const, val: a.config_vehicular ? `(${a.config_vehicular}) ${cpSat.config || ''}` : (cpSat.config || '—') },
+    { label: 'Placas',     w: 70,       align: 'left'  as const, val: String(a.placa_vm || '') },
+    { label: 'Modelo',     w: 60,       align: 'left'  as const, val: String(a.anio_modelo_vm || '') },
+    { label: 'Peso Bruto', w: 80,       align: 'left'  as const, val: `${a.peso_bruto_vehicular || 0} Ton.` },
+  ];
+  y = renderDarkHeaderRow(doc, vehCols, y, PAGE_LEFT, DARK, TXT_WHITE);
+  y = renderDataRow(doc, vehCols, y, PAGE_LEFT, DARK);
+  y += 6;
+
+  // ─── Figuras ──────────────────────────────────────────────────
+  y = sectionTitle('Figuras', y);
+  // Anchos ajustados: la última columna (Datos) recibe el remanente del
+  // ancho total W para que la Licencia no se rompa letra por letra.
+  const figHeader = [
+    { label: 'Tipo',            w: 85,  align: 'left' as const, val: '' },
+    { label: 'RFC / IdTrib',    w: 105, align: 'left' as const, val: '' },
+    { label: 'Nombre',          w: 175, align: 'left' as const, val: '' },
+    { label: 'Residencia',      w: 55,  align: 'left' as const, val: '' },
+    { label: 'Datos',           w: W - 85 - 105 - 175 - 55, align: 'left' as const, val: '' },
+  ];
+  y = renderDarkHeaderRow(doc, figHeader, y, PAGE_LEFT, DARK, TXT_WHITE);
+  for (const f of cp.figuras || []) {
+    const tipoLabel = f.tipo_figura === '01' ? '(01) Operador'
+                    : f.tipo_figura === '02' ? '(02) Propietario'
+                    : f.tipo_figura === '03' ? '(03) Arrendador'
+                    : f.tipo_figura === '04' ? '(04) Notificado'
+                    : `(${f.tipo_figura}) Figura`;
+    y = renderDataRow(doc, [
+      { ...figHeader[0], val: tipoLabel },
+      { ...figHeader[1], val: String(f.rfc_figura || '') },
+      { ...figHeader[2], val: String(f.nombre_figura || '') },
+      { ...figHeader[3], val: String(f.residencia_fiscal || '') },
+      { ...figHeader[4], val: `Licencia : ${f.num_licencia || '—'}` },
+    ], y, PAGE_LEFT, DARK);
+  }
+  y += 6;
+
+  // ─── Ubicaciones ──────────────────────────────────────────────
+  y = sectionTitle('Ubicaciones', y);
+  const ubiHeader = [
+    { label: 'Tipo',    w: 60,  align: 'left' as const, val: '' },
+    { label: 'Clave',   w: 80,  align: 'left' as const, val: '' },
+    { label: 'Remitente / Destinatario', w: W - 300, align: 'left' as const, val: '' },
+    { label: 'Distancia', w: 60, align: 'right' as const, val: '' },
+    { label: 'Fecha y hora', w: 100, align: 'left' as const, val: '' },
+  ];
+  y = renderDarkHeaderRow(doc, ubiHeader, y, PAGE_LEFT, DARK, TXT_WHITE);
+  for (const u of cp.ubicaciones || []) {
+    const dist = u.tipo_ubicacion === 'Destino' && u.distancia_recorrida ? String(u.distancia_recorrida) : '';
+    const fecha = u.fecha_hora_salida_llegada ? new Date(u.fecha_hora_salida_llegada).toLocaleString('es-MX').replace(', ', ' ') : '';
+    y = renderDataRow(doc, [
+      { ...ubiHeader[0], val: u.tipo_ubicacion || '' },
+      { ...ubiHeader[1], val: u.id_ubicacion || '' },
+      { ...ubiHeader[2], val: `${u.rfc_remitente_destinatario || ''} ${u.nombre_remitente_destinatario || ''}`.trim() },
+      { ...ubiHeader[3], val: dist },
+      { ...ubiHeader[4], val: fecha },
+    ], y, PAGE_LEFT, DARK, { boldFirst: true });
+    // Domicilio expandido — resuelve claves SAT a "(clave) Nombre" cuando
+    // es posible (colonia por CP+clave, municipio/localidad por estado+clave,
+    // estado por clave 2-3 letras). Si no está en catálogo, muestra el valor
+    // literal (nombre libre o clave sin match).
+    const fmt = (v: string | undefined, nombre?: string) =>
+      v ? (nombre ? `(${v}) ${nombre}` : (/^\d+$/.test(v) ? `(${v})` : v)) : '';
+    const colNombre = u.colonia && u.codigo_postal
+      ? cpSat.colonias[`${u.codigo_postal}|${String(u.colonia).replace(/^0+/, '')}`]
+      : undefined;
+    const munNombre = u.municipio && u.estado
+      ? cpSat.municipios[`${u.estado}|${String(u.municipio).replace(/^0+/, '')}`]
+      : undefined;
+    const locNombre = u.localidad && u.estado
+      ? cpSat.localidades[`${u.estado}|${String(u.localidad).replace(/^0+/, '')}`]
+      : undefined;
+    const edoNombre = u.estado ? cpSat.estados[u.estado] : undefined;
+
+    // Formato final tipo imagen SAT:
+    //   "Calle #ext int-Y, (2954) Ciénega de Flores Centro (012) Guadalupe
+    //    (12) Ciénega de Flores, C.P. 65550, (NLE) Nuevo León, (MEX) México
+    //    — Ref: Entre calles X"
+    const parteCalle = [
+      u.calle,
+      u.num_exterior ? `#${u.num_exterior}` : '',
+      u.num_interior ? `int ${u.num_interior}` : '',
+    ].filter(Boolean).join(' ');
+    const parteGeo = [
+      fmt(u.colonia, colNombre),
+      fmt(u.municipio, munNombre),
+      fmt(u.localidad, locNombre),
+    ].filter(Boolean).join(' ');
+    const parteCP = u.codigo_postal ? `C.P. ${u.codigo_postal}` : '';
+    const parteEdoPais = [
+      fmt(u.estado, edoNombre),
+      u.pais ? (u.pais === 'MEX' ? '(MEX) México' : `(${u.pais})`) : '',
+    ].filter(Boolean).join(', ');
+    const parteRef = u.referencia ? ` — Ref: ${u.referencia}` : '';
+    const dom = [parteCalle, parteGeo, parteCP, parteEdoPais].filter(Boolean).join(', ') + parteRef;
+    // Uso doc.y para respetar la altura REAL del wrap multi-línea.
+    // Antes: `y += 12` fijo → cuando el domicilio no cabe en 1 línea,
+    // la siguiente ubicación se empalmaba encima.
+    doc.font('Helvetica').fontSize(7.5).fillColor('#475569')
+      .text(dom.replace(/\s+/g, ' ').trim(), PAGE_LEFT + 6, y, { width: W - 12 });
+    y = doc.y + 6;   // 6pt de padding después de la última línea del wrap
+  }
+  y += 6;
+
+  // ─── Mercancías ───────────────────────────────────────────────
+  y = sectionTitle(`Mercancías : ${cp.mercancias?.length || 0}`, y);
+  const merHeader = [
+    { label: 'Código',    w: 70,  align: 'left'  as const, val: '' },
+    { label: 'Desc',      w: W - 400, align: 'left' as const, val: '' },
+    { label: 'Peligroso', w: 55,  align: 'left'  as const, val: '' },
+    { label: 'Cantidad',  w: 55,  align: 'right' as const, val: '' },
+    { label: 'Unidad',    w: 55,  align: 'left'  as const, val: '' },
+    { label: 'Peso Kg',   w: 55,  align: 'right' as const, val: '' },
+    { label: 'Valor',     w: 90,  align: 'right' as const, val: '' },
+  ];
+  for (const m of cp.mercancias || []) {
+    if (y > 720) { doc.addPage(); y = PAGE_TOP; }
+    y = renderDarkHeaderRow(doc, merHeader, y, PAGE_LEFT, DARK, TXT_WHITE);
+    const uni = m.clave_unidad ? `(${m.clave_unidad}) ${m.unidad || ''}`.trim() : '';
+    y = renderDataRow(doc, [
+      { ...merHeader[0], val: String(m.bienes_transp || '') },
+      { ...merHeader[1], val: String(m.descripcion || '') },
+      { ...merHeader[2], val: m.material_peligroso === 'Si' || m.material_peligroso === true ? 'Sí' : 'No' },
+      { ...merHeader[3], val: fmtQty(m.cantidad).replace('.000', '') },
+      { ...merHeader[4], val: uni },
+      { ...merHeader[5], val: fmtMoney(m.peso_en_kg) },
+      { ...merHeader[6], val: `${fmtMoney(m.valor_mercancia || 0)} ${m.moneda || 'MXN'}` },
+    ], y, PAGE_LEFT, DARK);
+  }
+
+  doc.fillColor('#000000');
+  (doc as any)._nextY = y + 8;
+  // Suprimimos el TXT_LIGHT no usado (por si futuras versiones lo requieren)
+  void TXT_LIGHT;
+}
+
+/** Dibuja una fila de encabezado con fondo oscuro y textos blancos. */
+function renderDarkHeaderRow(
+  doc: PDFDoc,
+  cols: Array<{ label: string; w: number; align: 'left' | 'right' | 'center' }>,
+  y: number, x0: number, dark: string, white: string,
+): number {
+  const totalW = cols.reduce((a, c) => a + c.w, 0);
+  doc.rect(x0, y, totalW, 14).fill(dark);
+  let x = x0 + 5;
+  doc.font('Helvetica-Bold').fontSize(8).fillColor(white);
+  for (const c of cols) {
+    doc.text(c.label, x, y + 3, { width: c.w - 10, align: c.align, lineBreak: false });
+    x += c.w;
+  }
+  return y + 15;
+}
+
+/** Dibuja una fila de datos con el mismo esquema de columnas (sin fondo). */
+function renderDataRow(
+  doc: PDFDoc,
+  cols: Array<{ label?: string; w: number; align: 'left' | 'right' | 'center'; val: string }>,
+  y: number, x0: number, dark: string,
+  opts?: { boldFirst?: boolean },
+): number {
+  let maxH = 12;
+  // Pre-calcular altura para wrap
+  for (const c of cols) {
+    const h = doc.heightOfString(c.val || '', { width: c.w - 10 });
+    if (h > maxH) maxH = h;
+  }
+  let x = x0 + 5;
+  doc.fontSize(8).fillColor(dark);
+  for (let i = 0; i < cols.length; i++) {
+    const c = cols[i];
+    doc.font(opts?.boldFirst && i === 0 ? 'Helvetica-Bold' : 'Helvetica');
+    doc.text(c.val || '', x, y, { width: c.w - 10, align: c.align });
+    x += c.w;
+  }
+  return y + maxH + 2;
+}
+
+/** Página final: 14 cláusulas del contrato de transporte que ampara la CP. */
+function generateCartaPorteContract(doc: PDFDoc) {
+  doc.addPage();
+  const W = PAGE_RIGHT - PAGE_LEFT;
+  let y = PAGE_TOP;
+
+  // Encabezado enmarcado
+  doc.rect(PAGE_LEFT, y, W, 20).stroke('#0f172a');
+  doc.font('Helvetica-Bold').fontSize(10).fillColor('#0f172a')
+    .text('CONDICIONES DEL CONTRATO DE TRANSPORTE QUE AMPARA ESTA CARTA PORTE', PAGE_LEFT, y + 5.5, { width: W, align: 'center', lineBreak: false });
+  y += 26;
+
+  const clausulas: Array<[string, string]> = [
+    ['PRIMERA.-', 'Para los efectos del presente contrato de transporte se denomina Porteador al transportista y Remitente al usuario que contrate el servicio.'],
+    ['SEGUNDA.-', 'El Remitente es responsable de que la información proporcionada al Porteador sea veráz y que la documentación que entregue para efectos del transporte sea la correcta.'],
+    ['TERCERA.-', 'El Remitente debe declarar al Porteador el tipo de mercancía o efectos de que se trate, peso, medidas, y/o número de la carga que entrega para su transporte y, en su caso, el valor de la misma. La carga que se entregue a granel será pesada por el Porteador en el primer punto en donde halla báscula apropiada o en su defecto aforada en metros cúbicos con la conformidad del Remitente.'],
+    ['CUARTA.-', 'Para efectos del transporte, el Remitente deberá entregar al Porteador los documentos que las leyes y reglamentos exijan para llevar a cabo el servicio, en caso de no cumplirse con estos requisitos el Porteador está obligado a rehusar el transporte de las mercancías.'],
+    ['QUINTA.-', 'Si por sospecha de falsedad en la declaración del contenido de un bulto el Porteador deseare proceder a su reconocimiento, podrá hacerlo ante testigos y con asistencia del Remitente o del consignatario. Si este último no concurriere se solicitará la presencia de un inspector de la Secretaría de Comunicaciones y Transportes, y se levantará el acta correspondiente. El Porteador tendrá en todo caso la obligación de dejar los bultos en el estado en que se encontraban antes del reconocimiento.'],
+    ['SEXTA.-', 'El Porteador deberá recoger y entregar la carga precisamente en los domicilios que señale el Remitente, ajustándose a los términos y condiciones convenidos. El Porteador sólo está obligado a llevar la carga al domicilio del consignatario para su entrega una sola vez. Si ésta no fuere recibida, se dejará aviso de que la mercancía queda a disposición del interesado en las bodegas que indique el Porteador.'],
+    ['SÉPTIMA.-', 'Si la carga no fuere retirada dentro de los treinta días siguientes a aquél en que hubiere sido puesta a disposición del consignatario, el Porteador podrá solicitar la venta en pública subasta con arreglo a lo que dispone el Código de Comercio.'],
+    ['OCTAVA.-', 'El Porteador y el Remitente negociarán libremente el precio del servicio, tomando en cuenta su tipo, característica de los embarques, volumen, regularidad, clase de carga y sistema de pago.'],
+    ['NOVENA.-', 'Si el Remitente desea que el Porteador asuma la responsabilidad por el valor de las mercancías o efectos que él declare y que cubra toda clase de riesgos, inclusive los derivados de caso fortuito o de fuerza mayor, las partes deberán convenir un cargo adicional, equivalente al valor de la prima del seguro que se contrate, el cual se deberá expresar en la carta porte.'],
+    ['DÉCIMA.-', 'Cuando el importe del flete no incluya el cargo adicional, la responsabilidad del Porteador queda expresamente limitada a la cantidad equivalente a 15 días del salario mínimo vigente en el Distrito Federal por tonelada o cuando se trate de embarques cuyo peso sea mayor de 200 kg pero menor de 1000 kg; y a 4 días de salario mínimo por remesa cuando se trate de embarques con peso de hasta 200 kg.'],
+    ['DÉCIMA PRIMERA.-', 'El precio de transporte deberá pagarse en origen, salvo convenio entre las partes de pago en destino. Cuando el transporte se hubiere concertado Flete por Cobrar, la entrega de las mercancías o efectos se hará contra el pago del flete y el Porteador tendrá derecho a retenerlos mientras no se le cubra el precio convenido.'],
+    ['DÉCIMA SEGUNDA.-', 'Si al momento de la entrega resultare algún faltante o avería, el consignatario deberá hacerla constar en ese acto en la carta de porte y formular su reclamación por escrito al Porteador, dentro de las 24 horas siguientes.'],
+    ['DÉCIMA TERCERA.-', 'El Porteador queda eximido de la obligación de recibir mercancías o efectos para su transporte en los siguientes casos:\n\na) Cuando se trate de carga que por su naturaleza, peso, volumen, embalaje defectuoso o cualquier otra circunstancia no pueda transportarse sin destruirse o sin causar daño a los demás artículos o al material rodante, salvo que la empresa de que se trate tenga el equipo adecuado.\n\nb) Las mercancías cuyo transporte haya sido prohibido por disposiciones legales o reglamentarias. Cuando tales disposiciones no prohíban precisamente el transporte de determinadas mercancías, pero si ordenen la presentación de ciertos documentos para que puedan ser transportadas, el Remitente estará obligado a entregar al Porteador los documentos correspondientes.'],
+    ['DÉCIMA CUARTA.-', 'Los casos no previstos en las presentes condiciones y las quejas derivadas de su aplicación, se someterán por la vía administrativa a la Secretaría de Comunicaciones y Transportes.'],
+  ];
+
+  doc.fontSize(8.5).fillColor('#0f172a');
+  for (const [head, body] of clausulas) {
+    if (y > 740) { doc.addPage(); y = PAGE_TOP; }
+    doc.font('Helvetica-Bold').text(head, PAGE_LEFT, y, { continued: true });
+    doc.font('Helvetica').text(' ' + body, { width: W });
+    y = doc.y + 6;
+  }
   doc.fillColor('#000000');
 }
 
