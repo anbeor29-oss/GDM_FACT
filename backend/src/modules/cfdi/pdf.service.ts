@@ -741,7 +741,7 @@ function generateCartaPorteSection(doc: PDFDoc, cp: any, invoice: any, company: 
 }) {
   doc.addPage();                                      // ── Hoja #2 ──
   const W    = PAGE_RIGHT - PAGE_LEFT;
-  const DARK = '#0f172a';                             // barras oscuras
+  const DARK = '#1e3a8a';                             // barras azul marino (igual timbre CFDI)
   const TXT_LIGHT = '#e2e8f0';                        // texto label sobre barra
   const TXT_WHITE = '#ffffff';                        // valor sobre barra
   const TITLE_BG  = '#dbeafe';                        // barra celeste del título
@@ -918,9 +918,12 @@ function generateCartaPorteSection(doc: PDFDoc, cp: any, invoice: any, company: 
     ].filter(Boolean).join(', ');
     const parteRef = u.referencia ? ` — Ref: ${u.referencia}` : '';
     const dom = [parteCalle, parteGeo, parteCP, parteEdoPais].filter(Boolean).join(', ') + parteRef;
+    // Uso doc.y para respetar la altura REAL del wrap multi-línea.
+    // Antes: `y += 12` fijo → cuando el domicilio no cabe en 1 línea,
+    // la siguiente ubicación se empalmaba encima.
     doc.font('Helvetica').fontSize(7.5).fillColor('#475569')
       .text(dom.replace(/\s+/g, ' ').trim(), PAGE_LEFT + 6, y, { width: W - 12 });
-    y += 12;
+    y = doc.y + 6;   // 6pt de padding después de la última línea del wrap
   }
   y += 6;
 

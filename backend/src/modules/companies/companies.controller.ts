@@ -138,4 +138,46 @@ export default {
   listCompanies,
   updateCompany,
   deleteCompany,
+  updateSMTP,
+  testSMTP,
 };
+
+/**
+ * PATCH /companies/:id/smtp — persiste SMTP de la empresa. La password se
+ * cifra con AES-256-GCM (misma key que CSD). Si no se envía password nueva,
+ * conserva la existente. Invalida el cache del mailer para que la siguiente
+ * llamada tome la nueva config.
+ */
+export async function updateSMTP(req: Request, res: Response) {
+  const { id } = req.params;
+  const { mail_host, mail_port, mail_secure, mail_user, mail_pass, mail_from } = req.body || {};
+  if (!mail_host || !mail_user) {
+    throw new (require('../../middleware/errorHandler').ValidationError)('mail_host y mail_user son obligatorios');
+  }
+  const { query } = require('../../config/database');
+  const { encryptPass, invalidateSMTPCache } = require('../mailer/mailer.service');
+  const fields = ['mail_host=$1','mail_port=$2','mail_secure=$3','mail_user=$4','mail_from=$5','mail_updated_at=NOW()'];
+  const values: any[] = [mail_host, Number(mail_port) || 587, mail_secure === true, mail_user, mail_from || mail_user];
+  if (mail_pass && String(mail_pass).length > 0) {
+    fields.push(`mail_pass_enc=$${values.length + 1}`);
+    values.push(encryptPass(String(mail_pass)));
+  }
+  values.push(id);
+  await query(`UPDATE companies SET ${fields.join(', ')} WHERE id=$${values.length}`, values);
+  invalidateSMTPCache(id);
+  res.json({ success: true });
+}
+
+/** POST /companies/:id/smtp/test — envía un email al ADMIN autenticado. */
+export async function testSMTP(req: Request, res: Response) {
+  const { id } = req.params;
+  const email = (req as any).user?.email;
+  if (!email) throw new (require('../../middleware/errorHandler').ValidationError)('Sin email en el JWT');
+  const { sendTestMail } = require('../mailer/mailer.service');
+  try {
+    await sendTestMail(id, email);
+    res.json({ success: true, message: `Correo de prueba enviado a ${email}` });
+  } catch (e: any) {
+    res.status(400).json({ success: false, message: e?.message || 'Error al enviar prueba' });
+  }
+}

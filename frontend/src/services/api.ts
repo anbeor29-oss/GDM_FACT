@@ -653,6 +653,14 @@ class APIClient {
     return response.data;
   }
 
+  async updateCompanySMTP(id: string, data: { mail_host: string; mail_port: number; mail_secure: boolean; mail_user: string; mail_pass?: string; mail_from?: string }) {
+    const r = await this.client.patch<any>(`/companies/${id}/smtp`, data);
+    return r.data;
+  }
+  async testCompanySMTP(id: string) {
+    const r = await this.client.post<any>(`/companies/${id}/smtp/test`, {});
+    return r.data;
+  }
   async updateCompany(id: string, data: any) {
     const response = await this.client.put(`/companies/${id}`, data);
     return response.data;

@@ -120,7 +120,7 @@ export function IssuerModal({ companyId, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg shadow-2xl w-full max-w-5xl max-h-[92vh] overflow-y-auto">
         <div className="sticky top-0 bg-white flex items-center justify-between p-6 border-b border-gray-200 z-10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -354,6 +354,9 @@ export function IssuerModal({ companyId, onClose }: Props) {
 
             <Section>Manifiesto PAC — autorización al proveedor de timbrado</Section>
             <ManifestSigner />
+
+            <Section>Servidor de correo (SMTP) — para enviar facturas al cliente</Section>
+            <SMTPConfig companyId={companyId} />
 
             <div className="flex gap-3 pt-4 border-t border-gray-200">
               <button
@@ -610,5 +613,108 @@ function Section({ children }: { children: React.ReactNode }) {
     <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 border-b border-gray-200 pb-1">
       {children}
     </h3>
+  );
+}
+
+/**
+ * SMTPConfig — configura la cuenta de correo saliente de la empresa.
+ * Los datos se guardan cifrados en `companies.mail_*`; el mailer los usa
+ * como remitente en vez del SMTP central. Botón "Enviar prueba" para
+ * verificar credenciales sin arriesgar una factura real.
+ */
+function SMTPConfig({ companyId }: { companyId: string }) {
+  const [form, setForm] = useState({ mail_host: '', mail_port: 587, mail_secure: false, mail_user: '', mail_pass: '', mail_from: '' });
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    try {
+      await api.updateCompanySMTP(companyId, form);
+      setMsg({ kind: 'ok', text: '✓ SMTP guardado. Ya puedes enviar facturas desde tu correo.' });
+    } catch (e: any) {
+      setMsg({ kind: 'err', text: e?.message || 'Error al guardar SMTP' });
+    } finally { setSaving(false); }
+  };
+
+  const testIt = async () => {
+    setTesting(true); setMsg(null);
+    try {
+      const r = await api.testCompanySMTP(companyId);
+      setMsg({ kind: 'ok', text: r?.message || 'Correo de prueba enviado' });
+    } catch (e: any) {
+      setMsg({ kind: 'err', text: e?.message || 'Falló envío de prueba' });
+    } finally { setTesting(false); }
+  };
+
+  const preset = (host: string, port: number, secure: boolean) =>
+    setForm({ ...form, mail_host: host, mail_port: port, mail_secure: secure });
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-600">
+        Configura tu propio correo para que las facturas salgan desde tu buzón (ej. <b>facturas@tudominio.mx</b>) en lugar del
+        buzón central de la plataforma. Se guarda cifrada tu contraseña — nadie más puede leerla.
+      </p>
+
+      {/* Presets rápidos de los SMTP más comunes en México */}
+      <div className="flex flex-wrap gap-2 text-xs">
+        <span className="text-slate-500 self-center">Preset:</span>
+        <button type="button" onClick={() => preset('smtp.hostinger.com', 465, true)} className="px-2 py-1 border rounded hover:bg-slate-50">Hostinger (465 SSL)</button>
+        <button type="button" onClick={() => preset('smtp.gmail.com', 587, false)} className="px-2 py-1 border rounded hover:bg-slate-50">Gmail (587 TLS)</button>
+        <button type="button" onClick={() => preset('smtp.office365.com', 587, false)} className="px-2 py-1 border rounded hover:bg-slate-50">Office365</button>
+        <button type="button" onClick={() => preset('smtp.zoho.com', 587, false)} className="px-2 py-1 border rounded hover:bg-slate-50">Zoho</button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <label className="block col-span-2">
+          <span className="block text-xs text-slate-500 mb-1">Servidor SMTP (host)</span>
+          <input value={form.mail_host} onChange={e => setForm({ ...form, mail_host: e.target.value })} placeholder="smtp.tudominio.com" className="input" />
+        </label>
+        <label className="block">
+          <span className="block text-xs text-slate-500 mb-1">Puerto</span>
+          <input type="number" value={form.mail_port} onChange={e => setForm({ ...form, mail_port: Number(e.target.value) || 587, mail_secure: Number(e.target.value) === 465 })} className="input" />
+        </label>
+
+        <label className="block col-span-2">
+          <span className="block text-xs text-slate-500 mb-1">Usuario / correo</span>
+          <input value={form.mail_user} onChange={e => setForm({ ...form, mail_user: e.target.value, mail_from: form.mail_from || e.target.value })} placeholder="facturas@tudominio.com" className="input" />
+        </label>
+        <label className="block">
+          <span className="block text-xs text-slate-500 mb-1">SSL/TLS</span>
+          <select value={String(form.mail_secure)} onChange={e => setForm({ ...form, mail_secure: e.target.value === 'true' })} className="input">
+            <option value="false">STARTTLS (587)</option>
+            <option value="true">SSL directo (465)</option>
+          </select>
+        </label>
+
+        <label className="block col-span-2">
+          <span className="block text-xs text-slate-500 mb-1">Contraseña / App-password</span>
+          <input type="password" value={form.mail_pass} onChange={e => setForm({ ...form, mail_pass: e.target.value })} placeholder="•••••••• (deja vacío para conservar la actual)" className="input" />
+        </label>
+        <label className="block">
+          <span className="block text-xs text-slate-500 mb-1">Remitente (From)</span>
+          <input value={form.mail_from} onChange={e => setForm({ ...form, mail_from: e.target.value })} placeholder="Igual al usuario" className="input" />
+        </label>
+      </div>
+
+      <p className="text-[11px] text-slate-500 italic">
+        💡 <b>Gmail requiere App Password</b> (no la contraseña normal): activa 2FA y genera una en myaccount.google.com/apppasswords.
+      </p>
+
+      <div className="flex gap-2 justify-end pt-2">
+        <button type="button" onClick={testIt} disabled={testing || !form.mail_host || !form.mail_user} className="px-4 py-2 text-sm border border-slate-300 rounded hover:bg-slate-50 disabled:opacity-50">
+          {testing ? 'Enviando prueba…' : '📧 Enviar correo de prueba'}
+        </button>
+        <button type="button" onClick={save} disabled={saving || !form.mail_host || !form.mail_user} className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded disabled:opacity-50">
+          {saving ? 'Guardando…' : 'Guardar SMTP'}
+        </button>
+      </div>
+
+      {msg && (
+        <p className={`text-sm ${msg.kind === 'ok' ? 'text-emerald-700' : 'text-red-700'}`}>{msg.text}</p>
+      )}
+    </div>
   );
 }
