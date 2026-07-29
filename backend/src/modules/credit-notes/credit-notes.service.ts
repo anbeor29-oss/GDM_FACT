@@ -7,8 +7,7 @@
  *
  * Reglas implementadas:
  *  - El monto total de la NC no puede exceder el saldo pendiente de la factura.
- *  - Al guardarse se TIMBRA con el PAC activo (pac.timbrarXml). Si el PAC
- *    rechaza, la NC no se guarda.
+ *  - Al guardarse en BD se simula timbrado MOCK (status STAMPED, UUID).
  *  - El sistema aplica el monto como un "pago" a la factura referenciada
  *    (de forma que el seguimiento de saldo y los reportes funcionen sin código aparte).
  */
@@ -18,7 +17,6 @@ import * as pacService from '../pac/pac.service';
 import { query, transaction, transactionQuery } from '../../config/database';
 import { ValidationError, NotFoundError } from '../../middleware/errorHandler';
 import logger from '../../middleware/logger';
-import { applyMovementTx, getOrCreateDefaultWarehouse } from '../inventory/inventory.service';
 
 export interface CreditNoteInput {
   customerId: string;
@@ -32,15 +30,6 @@ export interface CreditNoteInput {
   iva?: number;                  // IVA contenido en el monto (opcional, se prorratea si falta)
   currency?: string;
   applyToInvoice?: boolean;      // true: descuenta del saldo; false: solo registra
-  /**
-   * ALMACEN §9/§10 — Devolución de mercancía AUTOMÁTICA: partidas de la
-   * factura que el cliente regresa físicamente. Al crear la NC generan
-   * CUSTOMER_RETURN al inventario en la MISMA transacción. Cancelar la NC
-   * saca la mercancía de vuelta (reversa).
-   */
-  returnItems?: Array<{ productId: string; quantity: number }>;
-  /** Almacén que recibe la devolución (default: el default de la empresa). */
-  returnWarehouseId?: string;
 }
 
 const MOTIVOS_NC: Record<string, string> = {
@@ -124,7 +113,7 @@ export async function createCreditNote(companyId: string, data: CreditNoteInput)
       );
     }
 
-    // 2) Crear NC y TIMBRARLA con el PAC activo
+    // 2) Crear NC con simulación de timbrado
     const folio = await getNextNCFolio(client, companyId);
 
     // IVA contenido en la NC:
@@ -199,29 +188,29 @@ export async function createCreditNote(companyId: string, data: CreditNoteInput)
     </cfdi:Traslados>
   </cfdi:Impuestos>
 </cfdi:Comprobante>`;
-
-    /* ── TIMBRADO REAL DE LA NOTA DE CRÉDITO ──────────────────────────────
-     * Aquí había `const fakeUUID = uuidv4()`: la NC se guardaba como STAMPED
-     * con un folio fiscal inventado y el SAT nunca la recibía. Una NC que no
-     * se timbra no cancela nada ante el SAT — la factura original sigue
-     * surtiendo efectos fiscales completos.
+    /* ── TIMBRADO REAL ────────────────────────────────────────────────────
+     * Aquí había `const fakeUUID = uuidv4()`: el documento se guardaba como
+     * STAMPED con un folio fiscal inventado y el SAT nunca lo recibía. No
+     * dependía de configuración — con las variables del PAC bien puestas,
+     * este módulo seguía inventando el UUID porque nunca se conectó.
      *
-     * Mismo camino que facturas y complementos de pago: pac.timbrarXml(). Si
-     * el PAC rechaza, se lanza el error dentro de la transacción y la NC NO
-     * queda guardada.
+     * Ahora pasa por pac.timbrarXml(), el mismo camino que las facturas. Si el
+     * PAC rechaza, el error se lanza DENTRO de la transacción: el documento no
+     * se guarda y el saldo del cliente no se mueve.
      */
     const timbre = await pacService.timbrarXml(companyId, xml);
     if (!timbre.success) {
       throw new ValidationError(
         `No se pudo timbrar la nota de crédito: ${timbre.errors.join('; ')}. ` +
-        `La NC NO se registró — corrige y vuelve a intentar.`
+        `NO se registró — corrige y vuelve a intentar.`
       );
     }
     const uuidTimbrado = (timbre.uuid || '').toUpperCase();
     if (!uuidTimbrado) {
-      throw new ValidationError('El PAC no devolvió UUID para la nota de crédito. La NC NO se registró.');
+      throw new ValidationError(`El PAC no devolvió UUID para la nota de crédito. NO se registró.`);
     }
     const xmlFinal = timbre.xml_stamped || xml;
+
 
     const insR = await transactionQuery<any>(
       client,
@@ -250,73 +239,13 @@ export async function createCreditNote(companyId: string, data: CreditNoteInput)
       );
     }
 
-    // 4) ALMACEN §9 — Devolución de mercancía AUTOMÁTICA en la misma TX:
-    //    cada returnItem valida contra las partidas de la factura y genera
-    //    CUSTOMER_RETURN al almacén indicado (o al default).
-    let returnedCount = 0;
-    if (Array.isArray(data.returnItems) && data.returnItems.length > 0) {
-      const warehouseId = data.returnWarehouseId
-        || await getOrCreateDefaultWarehouse(client, companyId);
-
-      for (const ri of data.returnItems) {
-        const qty = Number(ri.quantity);
-        if (!ri.productId || !qty || qty <= 0) {
-          throw new ValidationError('Cada returnItem requiere productId y quantity > 0');
-        }
-        // La devolución debe corresponder a lo facturado (producto y tope de cantidad)
-        const itR = await transactionQuery<{ invoiced: number }>(
-          client,
-          `SELECT COALESCE(SUM(quantity), 0) AS invoiced
-             FROM invoice_items
-            WHERE invoice_id = $1 AND product_id = $2`,
-          [invoice.id, ri.productId]
-        );
-        const invoiced = Number(itR.rows[0].invoiced);
-        if (invoiced <= 0) {
-          throw new ValidationError(
-            `El producto ${ri.productId} no está en la factura ${invoice.serie}-${invoice.folio}`
-          );
-        }
-        // Tope: lo facturado menos lo ya devuelto por NCs previas de esa factura
-        const prevR = await transactionQuery<{ returned: number }>(
-          client,
-          `SELECT COALESCE(SUM(m.quantity), 0) AS returned
-             FROM inventory_movements m
-             JOIN credit_notes cn ON cn.id = m.reference_id
-            WHERE m.reference_type = 'credit_note' AND m.movement_type = 'CUSTOMER_RETURN'
-              AND m.product_id = $1 AND cn.invoice_id = $2 AND cn.status != 'CANCELLED'`,
-          [ri.productId, invoice.id]
-        );
-        const alreadyReturned = Number(prevR.rows[0].returned);
-        if (qty > invoiced - alreadyReturned) {
-          throw new ValidationError(
-            `Devolución excede lo facturado: facturado ${invoiced}, ya devuelto ${alreadyReturned}, intentas ${qty}`
-          );
-        }
-
-        await applyMovementTx(client, {
-          companyId,
-          productId: ri.productId,
-          movementType: 'CUSTOMER_RETURN',
-          quantity: qty,
-          warehouseToId: warehouseId,
-          referenceType: 'credit_note',
-          referenceId: note.id,
-          reason: `Devolución por NC ${note.serie}-${note.folio} (factura ${invoice.serie}-${invoice.folio})`,
-          userEmail: 'credit-note@system',
-        });
-        returnedCount++;
-      }
-    }
-
     logger.info(
       `Nota de Crédito ${note.serie}-${note.folio} creada (motivo ${tipoRel}) ` +
       `por $${ncTotal} contra factura ${invoice.serie}-${invoice.folio}` +
-      (hasPct ? ` (${data.discountPercent}% del total)` : '') +
-      (returnedCount > 0 ? ` · ${returnedCount} producto(s) devueltos al inventario.` : '.')
+      (hasPct ? ` (${data.discountPercent}% del total).` : '.')
     );
 
-    return { ...note, inventory_returns: returnedCount };
+    return note;
   });
 }
 
@@ -447,47 +376,6 @@ export async function cancelCreditNote(companyId: string, creditNoteId: string, 
         WHERE id = $2`,
       [`\n[Cancelada ${new Date().toISOString().slice(0, 19)}]${motivo ? ' — ' + motivo : ''}`, creditNoteId]
     );
-
-    // ALMACEN §9 — Reversa de la devolución automática: si esta NC metió
-    // mercancía al inventario (CUSTOMER_RETURN), al cancelarla esa mercancía
-    // sale de vuelta (ADJUSTMENT_OUT — no cuenta como venta para rotación).
-    // Guard anti-doble-reversa por reference_type='credit_note_cancel'.
-    const alreadyReversed = await transactionQuery(
-      client,
-      `SELECT 1 FROM inventory_movements
-        WHERE reference_type = 'credit_note_cancel' AND reference_id = $1 LIMIT 1`,
-      [creditNoteId]
-    );
-    if (alreadyReversed.rows.length === 0) {
-      const returns = await transactionQuery<any>(
-        client,
-        `SELECT product_id, warehouse_to_id, SUM(quantity) AS quantity
-           FROM inventory_movements
-          WHERE reference_type = 'credit_note' AND reference_id = $1
-            AND movement_type = 'CUSTOMER_RETURN'
-          GROUP BY product_id, warehouse_to_id`,
-        [creditNoteId]
-      );
-      for (const ret of returns.rows) {
-        await applyMovementTx(client, {
-          companyId,
-          productId: ret.product_id,
-          movementType: 'ADJUSTMENT_OUT',
-          quantity: Number(ret.quantity),
-          warehouseFromId: ret.warehouse_to_id,
-          referenceType: 'credit_note_cancel',
-          referenceId: creditNoteId,
-          reason: `Reversa de devolución — NC ${nc.serie}-${nc.folio} cancelada`,
-          userEmail: 'credit-note@system',
-        });
-      }
-      if (returns.rows.length > 0) {
-        logger.info(
-          `[inventario] Cancelación de NC ${nc.serie}-${nc.folio} revirtió ` +
-          `${returns.rows.length} devolución(es) de mercancía`
-        );
-      }
-    }
 
     // Recalcular status de la factura padre
     if (nc.invoice_id) {

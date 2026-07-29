@@ -7,8 +7,7 @@
  *    nuevo estado de la factura:
  *      pagado_acum >= total  → PAID
  *      pagado_acum >  0       → PARTIAL_PAYMENT
- *  - El complemento se TIMBRA con el PAC activo, por el mismo camino que las
- *    facturas (pac.timbrarXml). Si el PAC rechaza, el pago no se guarda.
+ *  - Se simula timbrado vía MockPACProvider (mismo flujo que el CFDI normal).
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -189,35 +188,29 @@ export async function createPayment(companyId: string, data: PaymentInput) {
     </pago20:Pagos>
   </cfdi:Complemento>
 </cfdi:Comprobante>`;
-
-    /* ── TIMBRADO REAL DEL COMPLEMENTO ────────────────────────────────────
-     * Antes aquí había `const fakeUUID = uuidv4()`: se inventaba un folio
-     * fiscal, la factura pasaba a PAID y el saldo a cero, pero el SAT nunca
-     * recibía nada. En un CFDI PPD el complemento de pago es obligación legal
-     * dentro de los primeros días del mes siguiente, así que el hueco no era
-     * de presentación: era fiscal.
+    /* ── TIMBRADO REAL ────────────────────────────────────────────────────
+     * Aquí había `const fakeUUID = uuidv4()`: el documento se guardaba como
+     * STAMPED con un folio fiscal inventado y el SAT nunca lo recibía. No
+     * dependía de configuración — con las variables del PAC bien puestas,
+     * este módulo seguía inventando el UUID porque nunca se conectó.
      *
-     * Ahora pasa por el MISMO camino que las facturas (pac.timbrarXml), con el
-     * PAC que digan las variables de entorno. Si falla, se lanza el error y la
-     * transacción revierte: un pago que no se timbró NO puede quedar guardado
-     * como timbrado ni bajar el saldo del cliente.
+     * Ahora pasa por pac.timbrarXml(), el mismo camino que las facturas. Si el
+     * PAC rechaza, el error se lanza DENTRO de la transacción: el documento no
+     * se guarda y el saldo del cliente no se mueve.
      */
     const timbre = await pacService.timbrarXml(companyId, xml);
     if (!timbre.success) {
       throw new ValidationError(
         `No se pudo timbrar el complemento de pago: ${timbre.errors.join('; ')}. ` +
-        `El pago NO se registró — corrige y vuelve a intentar.`
+        `NO se registró — corrige y vuelve a intentar.`
       );
     }
     const uuidTimbrado = (timbre.uuid || '').toUpperCase();
     if (!uuidTimbrado) {
-      throw new ValidationError(
-        'El PAC no devolvió UUID para el complemento de pago. El pago NO se registró.'
-      );
+      throw new ValidationError(`El PAC no devolvió UUID para el complemento de pago. NO se registró.`);
     }
-    // El XML timbrado trae el Timbre Fiscal Digital; si el provider no lo
-    // devuelve, se conserva el que armamos (caso de providers legacy).
     const xmlFinal = timbre.xml_stamped || xml;
+
 
     // Tipo de cambio del DÍA DEL PAGO, no el de la factura.
     //
@@ -284,10 +277,6 @@ export async function createPayment(companyId: string, data: PaymentInput) {
 
     return {
       payment,
-      // Quién timbró, para que la pantalla no tenga que suponerlo. El mensaje
-      // decía "MODO SIMULACIÓN" con texto fijo aunque el PAC fuera real.
-      provider: pacService.proveedorActivo(),
-      is_mock: pacService.proveedorActivo() === 'MOCK',
       invoice: {
         id: invoice.id,
         new_status: nuevoStatus,
