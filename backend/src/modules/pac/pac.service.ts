@@ -24,6 +24,11 @@ import * as invoicesService from '../invoices/invoices.service';
 import * as cfdiService from '../cfdi/cfdi.service';
 import { buildCFDIJson } from '../cfdi/build-cfdi-json.service';
 import * as billingService from '../billing/billing.service';
+import {
+  checkInvoiceStock,
+  discountInvoiceStock,
+  restoreInvoiceStock,
+} from '../inventory/inventory.service';
 
 /**
  * REGISTRY de proveedores PAC disponibles.
@@ -45,38 +50,6 @@ const DEFAULT_PROVIDER =
   process.env.PAC_PROVIDER === 'SW_SAPIEN' && process.env.SW_SAPIEN_TOKEN
     ? 'SW_SAPIEN'
     : 'MOCK';
-
-/*
- * Caer a MOCK EN SILENCIO es peligroso: el sistema sigue "timbrando", devuelve
- * un UUID inventado, y solo se descubre leyendo la letra chica del PDF —"PAC en
- * modo MOCK devuelve XML sin sellos"—. Ya pasó: se puso SW_SAPIEN_ENV=production,
- * se dio por hecho que timbraba en vivo, y no era así porque fallaba la OTRA
- * condición de este mismo ternario.
- *
- * El arranque ahora lo grita y dice CUÁL de las dos condiciones falló.
- */
-if (DEFAULT_PROVIDER === 'MOCK') {
-  const motivo =
-    process.env.PAC_PROVIDER !== 'SW_SAPIEN'
-      ? `PAC_PROVIDER vale "${process.env.PAC_PROVIDER || '(vacío)'}" y debe ser exactamente "SW_SAPIEN"`
-      : 'SW_SAPIEN_TOKEN está vacío o no existe';
-  logger.warn(
-    '═══════════════════════════════════════════════════════════════\n' +
-    '  TIMBRADO SIMULADO (MOCK): los CFDI de este servidor NO tienen\n' +
-    '  validez fiscal — el UUID es inventado y el XML va sin sellos.\n' +
-    `  Motivo: ${motivo}.\n` +
-    '  Para timbrar de verdad hacen falta LAS TRES: PAC_PROVIDER=SW_SAPIEN,\n' +
-    '  SW_SAPIEN_TOKEN con el token del panel de SW, SW_SAPIEN_ENV=production.\n' +
-    '═══════════════════════════════════════════════════════════════'
-  );
-} else if ((process.env.SW_SAPIEN_ENV || 'sandbox') === 'production') {
-  logger.info('[PAC] SW Sapien en PRODUCCIÓN — los timbres son reales y se cobran.');
-} else {
-  logger.warn(
-    `[PAC] SW Sapien en ${(process.env.SW_SAPIEN_ENV || 'sandbox').toUpperCase()}: ` +
-    'timbres de prueba, sin validez fiscal. Pon SW_SAPIEN_ENV=production para timbrar en vivo.'
-  );
-}
 
 /**
  * Obtener el provider activo para una empresa.
@@ -106,6 +79,29 @@ function getCredentials(_companyId: string): PACCredentials {
     password: 'mock_pass',
     is_test_mode: true,
   };
+}
+
+/**
+ * Timbra un XML ya armado con el PAC activo.
+ *
+ * Existe para que OTROS comprobantes —hoy el Complemento de Pago— usen el mismo
+ * camino que las facturas en vez de inventarse el suyo. El complemento se
+ * estuvo "timbrando" con un uuidv4() local: la factura quedaba PAID y el saldo
+ * en cero, pero el SAT nunca se enteraba. En un CFDI PPD el complemento es
+ * obligación legal, así que era un hueco fiscal, no un detalle de pantalla.
+ *
+ * Devuelve el resultado tal cual: quien llama decide qué hacer si `success` es
+ * false. Aquí NO se traga el error — un pago que no se timbró no debe quedar
+ * guardado como timbrado.
+ */
+export async function timbrarXml(companyId: string, xml: string): Promise<StampResult> {
+  const provider = getProvider();
+  return provider.stamp(xml, getCredentials(companyId));
+}
+
+/** Nombre del PAC activo, para que quien llame sepa si fue real o simulado. */
+export function proveedorActivo(): string {
+  return DEFAULT_PROVIDER;
 }
 
 /** Minutos tras los cuales un reclamo de timbrado se considera abandonado. */
@@ -241,6 +237,29 @@ export async function stampInvoice(companyId: string, invoiceId: string): Promis
   // extras se cobran al cierre del mes.
   await billingService.assertCanStamp(companyId);
 
+  // Existencias: se revisa ANTES de llamar al PAC, porque un timbre gastado no
+  // se recupera. Solo bloquea si la empresa lo pidió expresamente
+  // (inventory_block_no_stock); el default es dejar pasar y anotar el faltante,
+  // porque hay giros que facturan sobre pedido y no tienen stock al emitir.
+  const blockR = await query<{ inventory_block_no_stock: boolean }>(
+    `SELECT inventory_block_no_stock FROM companies WHERE id = $1`,
+    [companyId],
+  );
+  if (blockR.rows[0]?.inventory_block_no_stock) {
+    const shortages = await transaction((client) =>
+      checkInvoiceStock(client, companyId, invoiceId),
+    );
+    if (shortages.length > 0) {
+      const detail = shortages
+        .map((s) => `${s.sku} ${s.name}: pedido ${s.requested}, disponible ${s.available}`)
+        .join(' · ');
+      throw new ValidationError(
+        `Existencia insuficiente para timbrar (la empresa bloquea venta sin stock): ${detail}. ` +
+        `Recibe mercancía o ajusta el inventario antes de facturar.`,
+      );
+    }
+  }
+
   // ── Reclamo atómico ──────────────────────────────────────────────────────
   // A partir de aquí llamamos al PAC, que consume un timbre. Solo UNA petición
   // puede pasar: la carrera la resuelve Postgres, no un if.
@@ -348,6 +367,27 @@ export async function stampInvoice(companyId: string, invoiceId: string): Promis
       invoiceId,
       stampUuid: result.uuid,
     });
+
+    // La salida de inventario va en la MISMA transacción que el timbrado: si
+    // algo falla aquí, se revierte también el UPDATE que marcó STAMPED. Nunca
+    // debe quedar un CFDI timbrado sin su movimiento de stock, porque el
+    // kardex dejaría de cuadrar y ya no hay forma de saber qué salió.
+    //
+    // En modo alerta se descuenta lo disponible y el faltante queda anotado:
+    // el negocio prefiere un kardex con la anomalía visible que un timbrado
+    // detenido.
+    const inv = await discountInvoiceStock(client, {
+      companyId,
+      invoiceId,
+      docRef: `${invoice.serie || ''}-${invoice.folio}`,
+      userEmail: 'stamp@system',
+    });
+    if (inv.warnings.length > 0) {
+      logger.warn(
+        `[inventario] Factura ${invoice.serie}-${invoice.folio} timbrada con faltantes: ` +
+        inv.warnings.join(' | '),
+      );
+    }
   });
 
   // Alertas de prepago (low/zero) — fire-and-forget FUERA de la TX: el
@@ -458,11 +498,26 @@ export async function cancelInvoice(
   const skipPac =
     forceLocal || (invoice.pac_id === 'MOCK' && provider.name !== 'MOCK');
   if (skipPac) {
-    await query(
-      `UPDATE invoices SET status = 'CANCELLED', updated_at = NOW()
-        WHERE id = $1 AND company_id = $2`,
-      [invoiceId, companyId]
-    );
+    // Marcar cancelada y devolver el inventario en una sola transacción: si
+    // la devolución falla, la factura no debe quedar cancelada, porque la
+    // mercancía seguiría descontada y nadie notaría el hueco.
+    await transaction(async (client) => {
+      await transactionQuery(
+        client,
+        `UPDATE invoices SET status = 'CANCELLED', updated_at = NOW()
+          WHERE id = $1 AND company_id = $2`,
+        [invoiceId, companyId],
+      );
+      const restored = await restoreInvoiceStock(client, {
+        companyId,
+        invoiceId,
+        docRef: `${invoice.serie || ''}-${invoice.folio}`,
+        userEmail: 'cancel@system',
+      });
+      if (restored > 0) {
+        logger.info(`[inventario] Cancelación devolvió ${restored} producto(s) al stock`);
+      }
+    });
     logger.info(
       `Factura ${invoice.serie}-${invoice.folio} cancelada localmente ` +
       `(${forceLocal ? 'force=true' : 'pac_id=MOCK'}). PAC no invocado.`
@@ -486,10 +541,24 @@ export async function cancelInvoice(
   // Solo actualizamos la BD si aún no está cancelada. En modo resend
   // ya está CANCELLED y solo queríamos notificar al PAC.
   if (!isResendToPAC) {
-    await query(
-      `UPDATE invoices SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1 AND company_id = $2`,
-      [invoiceId, companyId]
-    );
+    await transaction(async (client) => {
+      await transactionQuery(
+        client,
+        `UPDATE invoices SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1 AND company_id = $2`,
+        [invoiceId, companyId],
+      );
+      // restoreInvoiceStock trae su propio guard contra doble devolución, así
+      // que un reintento de cancelación no infla el inventario.
+      const restored = await restoreInvoiceStock(client, {
+        companyId,
+        invoiceId,
+        docRef: `${invoice.serie || ''}-${invoice.folio}`,
+        userEmail: 'cancel@system',
+      });
+      if (restored > 0) {
+        logger.info(`[inventario] Cancelación devolvió ${restored} producto(s) al stock`);
+      }
+    });
   }
 
   logger.info(
