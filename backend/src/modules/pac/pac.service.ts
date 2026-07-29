@@ -46,6 +46,38 @@ const DEFAULT_PROVIDER =
     ? 'SW_SAPIEN'
     : 'MOCK';
 
+/*
+ * Caer a MOCK EN SILENCIO es peligroso: el sistema sigue "timbrando", devuelve
+ * un UUID inventado, y solo se descubre leyendo la letra chica del PDF —"PAC en
+ * modo MOCK devuelve XML sin sellos"—. Ya pasó: se puso SW_SAPIEN_ENV=production,
+ * se dio por hecho que timbraba en vivo, y no era así porque fallaba la OTRA
+ * condición de este mismo ternario.
+ *
+ * El arranque ahora lo grita y dice CUÁL de las dos condiciones falló.
+ */
+if (DEFAULT_PROVIDER === 'MOCK') {
+  const motivo =
+    process.env.PAC_PROVIDER !== 'SW_SAPIEN'
+      ? `PAC_PROVIDER vale "${process.env.PAC_PROVIDER || '(vacío)'}" y debe ser exactamente "SW_SAPIEN"`
+      : 'SW_SAPIEN_TOKEN está vacío o no existe';
+  logger.warn(
+    '═══════════════════════════════════════════════════════════════\n' +
+    '  TIMBRADO SIMULADO (MOCK): los CFDI de este servidor NO tienen\n' +
+    '  validez fiscal — el UUID es inventado y el XML va sin sellos.\n' +
+    `  Motivo: ${motivo}.\n` +
+    '  Para timbrar de verdad hacen falta LAS TRES: PAC_PROVIDER=SW_SAPIEN,\n' +
+    '  SW_SAPIEN_TOKEN con el token del panel de SW, SW_SAPIEN_ENV=production.\n' +
+    '═══════════════════════════════════════════════════════════════'
+  );
+} else if ((process.env.SW_SAPIEN_ENV || 'sandbox') === 'production') {
+  logger.info('[PAC] SW Sapien en PRODUCCIÓN — los timbres son reales y se cobran.');
+} else {
+  logger.warn(
+    `[PAC] SW Sapien en ${(process.env.SW_SAPIEN_ENV || 'sandbox').toUpperCase()}: ` +
+    'timbres de prueba, sin validez fiscal. Pon SW_SAPIEN_ENV=production para timbrar en vivo.'
+  );
+}
+
 /**
  * Obtener el provider activo para una empresa.
  * En el futuro, esto leerá la configuración de PAC desde la tabla companies.
