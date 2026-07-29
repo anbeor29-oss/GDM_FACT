@@ -33,9 +33,13 @@ interface Props {
   onClose: () => void;
   onSelect: (item: CatalogItem) => void;
   showExtras?: string[]; // cols extra a mostrar (ej: ['nombre'] para claveUnidad)
+  /** Filtros que viajan al backend como query string —p. ej.
+   *  { claveTransporte: '02' }— para que en marítimo no se ofrezcan los
+   *  permisos de autotransporte. */
+  filtros?: Record<string, string>;
 }
 
-export function CatalogPicker({ name, title, open, onClose, onSelect, showExtras = [] }: Props) {
+export function CatalogPicker({ name, title, open, onClose, onSelect, showExtras = [], filtros }: Props) {
   const [q, setQ] = useState('');
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -54,7 +58,7 @@ export function CatalogPicker({ name, title, open, onClose, onSelect, showExtras
     const t = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await api.searchCartaPorteCatalog(name, q);
+        const res = await api.searchCartaPorteCatalog(name, q, 50, filtros || {});
         setItems(res.items || []);
       } finally {
         setLoading(false);

@@ -263,7 +263,7 @@ export function CartaPorteFormPage() {
   const [aereo, setAereo] = useState({ ...AEREO_VACIO });
 
   // ─── Picker state (uno global, se abre según el trigger actual) ────
-  const [picker, setPicker] = useState<{ name: string; title: string; onSelect: (i: CatalogItem) => void; showExtras?: string[] } | null>(null);
+  const [picker, setPicker] = useState<{ name: string; title: string; onSelect: (i: CatalogItem) => void; showExtras?: string[]; filtros?: Record<string, string> } | null>(null);
 
   // ─── Cargar factura + CP existente ─────────────────────────────────
   const { data: invoice } = useQuery({
@@ -597,8 +597,14 @@ export function CartaPorteFormPage() {
     onSuccess: () => navigate('/carta-porte'),
   });
 
-  const openPicker = (name: string, title: string, onSelect: (i: CatalogItem) => void, showExtras?: string[]) =>
-    setPicker({ name, title, onSelect: (i) => { onSelect(i); setPicker(null); }, showExtras });
+  const openPicker = (
+    name: string,
+    title: string,
+    onSelect: (i: CatalogItem) => void,
+    showExtras?: string[],
+    filtros?: Record<string, string>,
+  ) =>
+    setPicker({ name, title, onSelect: (i) => { onSelect(i); setPicker(null); }, showExtras, filtros });
 
   return (
     <div className="mx-auto max-w-[1200px] p-6 pb-24">
@@ -1012,7 +1018,7 @@ export function CartaPorteFormPage() {
             <div className="grid grid-cols-4 gap-3">
               <Field label="Tipo de permiso SCT">
                 <PickerButton value={auto.permSct} placeholder="Buscar…"
-                  onClick={() => openPicker('tipo-permiso', 'Tipo de permiso SCT', it => setAuto({ ...auto, permSct: it.clave }))} />
+                  onClick={() => openPicker('tipo-permiso', 'Tipo de permiso SCT', it => setAuto({ ...auto, permSct: it.clave }), undefined, { claveTransporte: '01' })} />
               </Field>
               <Field label="Número de permiso">
                 <input value={auto.numPermisoSct} onChange={e => setAuto({ ...auto, numPermisoSct: e.target.value })} className="input" />
@@ -1081,7 +1087,7 @@ export function CartaPorteFormPage() {
             <div className="grid grid-cols-4 gap-3">
               <Field label="Tipo de permiso SCT">
                 <PickerButton value={maritimo.permSct} placeholder="Buscar…"
-                  onClick={() => openPicker('tipo-permiso', 'Tipo de permiso SCT', it => setMaritimo({ ...maritimo, permSct: it.clave }))} />
+                  onClick={() => openPicker('tipo-permiso', 'Tipo de permiso SCT', it => setMaritimo({ ...maritimo, permSct: it.clave }), undefined, { claveTransporte: '02' })} />
               </Field>
               <Field label="Número de permiso">
                 <input value={maritimo.numPermisoSct} onChange={e => setMaritimo({ ...maritimo, numPermisoSct: e.target.value })} className="input" />
@@ -1204,7 +1210,7 @@ export function CartaPorteFormPage() {
             <div className="grid grid-cols-4 gap-3">
               <Field label="Tipo de permiso SCT">
                 <PickerButton value={aereo.permSct} placeholder="Buscar…"
-                  onClick={() => openPicker('tipo-permiso', 'Tipo de permiso SCT', it => setAereo({ ...aereo, permSct: it.clave }))} />
+                  onClick={() => openPicker('tipo-permiso', 'Tipo de permiso SCT', it => setAereo({ ...aereo, permSct: it.clave }), undefined, { claveTransporte: '03' })} />
               </Field>
               <Field label="Número de permiso">
                 <input value={aereo.numPermisoSct} onChange={e => setAereo({ ...aereo, numPermisoSct: e.target.value })} className="input" />

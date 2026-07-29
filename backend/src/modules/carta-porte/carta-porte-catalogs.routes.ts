@@ -99,6 +99,21 @@ router.get(
       params.push(String(req.query.pais));
       where.push(`pais = $${params.length}`);
     }
+    // Mismo principio para la modalidad: un permiso SCT pertenece a un medio de
+    // transporte concreto, y ofrecerlos todos es una trampa. En marítimo el
+    // único permiso del catálogo es TPTM01 (navegación de cabotaje), pero sin
+    // filtro se listaban también los 20 TPAF de autotransporte federal —
+    // elegir uno produce un CFDI que el SAT rechaza.
+    //
+    // La columna admite varias claves separadas por coma (TPXX00, "permiso no
+    // contemplado", vale para 01,02,03), así que se compara contra el arreglo
+    // y no por igualdad de cadena.
+    if (extras.includes('clave_transporte') && req.query.claveTransporte) {
+      params.push(String(req.query.claveTransporte));
+      where.push(
+        `$${params.length} = ANY(regexp_split_to_array(COALESCE(clave_transporte, ''), '\\s*,\\s*'))`
+      );
+    }
     if (where.length) sql += ` WHERE ${where.join(' AND ')}`;
 
     sql += ` ORDER BY descripcion LIMIT ${limit}`;

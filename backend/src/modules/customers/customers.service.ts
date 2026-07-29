@@ -10,6 +10,41 @@ import { Customer } from '../../types';
 import { isValidRFC, isValidEmail, isValidPostalCode, isValidStateCode } from '../../utils/validators';
 
 /**
+ * SALDO DEL CLIENTE — lo que nos debe hoy.
+ *
+ * Se define una sola vez porque lo usan el listado y calculateBalance(), y
+ * tenerlo duplicado fue precisamente lo que dejó que se desincronizaran.
+ *
+ * Dos errores que corrige respecto de la versión anterior:
+ *
+ *  1. Filtraba por `status IN ('SENT','PARTIAL_PAYMENT')`, y esos dos estados
+ *     NO EXISTEN en este sistema: una factura es DRAFT, STAMPED, PAID o
+ *     CANCELLED. El filtro no casaba con nada, así que el saldo salía SIEMPRE
+ *     en cero — por eso "cuando hay saldo, no aparece".
+ *  2. Hacía `SUM(i.total) - SUM(p.payment_amount)` sobre un LEFT JOIN. Con dos
+ *     pagos parciales, el total de la factura se sumaba DOS veces y la deuda
+ *     salía inflada. Los pagos se agregan ahora en una subconsulta, de modo
+ *     que cada factura entra una sola vez.
+ *
+ * Se cuentan solo las STAMPED: la timbrada es la que ampara la deuda. DRAFT
+ * todavía no existe para el SAT, CANCELLED dejó de existir, y PAID ya se
+ * liquidó.
+ */
+const SALDO_SQL = `
+  COALESCE((
+    SELECT SUM(i.total - COALESCE((
+             SELECT SUM(p.payment_amount)
+               FROM payments p
+              WHERE p.invoice_id = i.id
+                AND p.document_status = 'STAMPED'
+           ), 0))
+      FROM invoices i
+     WHERE i.customer_id = c.id
+       AND i.status = 'STAMPED'
+       AND i.deleted_at IS NULL
+  ), 0)`;
+
+/**
  * Create customer
  */
 export async function createCustomer(companyId: string, data: {
@@ -192,11 +227,18 @@ export async function listCustomers(
 
   const sortField = sortFieldMap[sortBy as keyof typeof sortFieldMap];
 
-  // Get customers
+  // Get customers.
+  //
+  // El saldo se CALCULA aquí en vez de leer la columna customers.balance:
+  // esa columna solo se refresca cuando alguien llama updateCustomerBalance(),
+  // y no se llama al timbrar ni al registrar un pago, así que se quedaba vieja.
+  // Calculándolo, el listado dice la verdad sin depender de que nadie olvide
+  // una llamada.
   const customersResult = await query<Customer>(
-    `SELECT * FROM customers ${whereClause}
-     ORDER BY ${sortField} ${sortOrder}
-     LIMIT $${paramCount} OFFSET $${paramCount + 1}`,
+    `SELECT c.*, ${SALDO_SQL} AS balance
+       FROM customers c ${whereClause}
+      ORDER BY ${sortField === 'balance' ? SALDO_SQL : sortField} ${sortOrder}
+      LIMIT $${paramCount} OFFSET $${paramCount + 1}`,
     [...params, limit, offset]
   );
 
@@ -362,14 +404,7 @@ export async function deleteCustomer(companyId: string, customerId: string): Pro
  */
 export async function calculateBalance(customerId: string): Promise<number> {
   const result = await query<{ balance: string }>(
-    `SELECT COALESCE(
-       SUM(i.total) - COALESCE(SUM(p.payment_amount), 0), 0
-     ) as balance
-     FROM invoices i
-     LEFT JOIN payments p ON i.id = p.invoice_id AND p.document_status = 'STAMPED'
-     WHERE i.customer_id = $1
-       AND i.status IN ('SENT', 'PARTIAL_PAYMENT')
-       AND i.deleted_at IS NULL`,
+    `SELECT ${SALDO_SQL.replace('c.id', '$1')} AS balance`,
     [customerId]
   );
 
