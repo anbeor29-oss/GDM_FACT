@@ -95,7 +95,15 @@ export class SWSapienProvider implements IPACProvider {
       // en 'xml'", pero el código mandaba la cadena cruda con Content-Type
       // application/xml. SW buscaba el campo `xml`, no lo encontraba, y
       // respondía "Xml CFDI no proporcionado o viene vacío".
-      const ENDPOINT = '/cfdi33/stamp/v4';
+      /* Al endpoint le faltaba el prefijo de versión.
+       *
+       * Evidencia, no suposición: se probaron CINCO cuerpos distintos y los cinco
+       * devolvieron el MISMO mensaje palabra por palabra. Si el cuerpo importara,
+       * el error cambiaría entre formas; que no cambie significa que nadie lo
+       * está leyendo — es el path. Y el endpoint hermano documentado, el único
+       * que funciona, sí lo lleva: /v3/cfdi33/issue/json/v4.
+       */
+      const ENDPOINT = '/v3/cfdi33/stamp/v4';
       const b64 = Buffer.from(xmlContent, 'utf8').toString('base64');
 
       /* SW no dice CÓMO quiere el XML, y ya se probaron dos formas: cadena cruda
