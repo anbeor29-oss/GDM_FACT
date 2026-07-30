@@ -13,6 +13,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { fmtFechaSAT } from '../cfdi/build-cfdi-json.service';
 import * as pacService from '../pac/pac.service';
 import { query, transaction, transactionQuery } from '../../config/database';
 import { ValidationError, NotFoundError } from '../../middleware/errorHandler';
@@ -155,12 +156,20 @@ export async function createCreditNote(companyId: string, data: CreditNoteInput)
       || (hasPct ? `${data.discountPercent}% — ${MOTIVOS_NC[tipoRel]}` : MOTIVOS_NC[tipoRel]);
     const moneda = data.currency || invoice.currency || 'MXN';
     const esc = (s: any) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    /* FECHA EN HORA DEL LUGAR DE EXPEDICIÓN, NO EN UTC.
+     * Render corre en UTC y el SAT valida contra hora de México: toISOString()
+     * nos ponía 6 horas en el futuro y el PAC rechazaba con "la fecha de emisión
+     * no se encuentra en el rango permitido". Es la misma función que usan las
+     * facturas —por eso ellas sí timbran— y ahora se comparte. */
+    const fechaEmision = fmtFechaSAT(new Date());
+
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://www.sat.gob.mx/cfd/4 http://www.sat.gob.mx/sitio_internet/cfd/4/cfdv40.xsd"
   Version="4.0" Serie="NC" Folio="${folio}"
-  Fecha="${new Date().toISOString().slice(0, 19)}"
+  Fecha="${fechaEmision}"
   NoCertificado="${noCertEmisor}"
   TipoDeComprobante="E" Moneda="${moneda}"
   SubTotal="${subtotal.toFixed(2)}" Total="${ncTotal.toFixed(2)}"
@@ -215,7 +224,7 @@ export async function createCreditNote(companyId: string, data: CreditNoteInput)
       Version: '4.0',
       Serie: 'NC',
       Folio: String(folio),
-      Fecha: new Date().toISOString().slice(0, 19),
+      Fecha: fechaEmision,
       FormaPago: '01',
       MetodoPago: 'PUE',
       SubTotal: subtotal.toFixed(2),
