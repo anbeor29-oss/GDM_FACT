@@ -16,6 +16,8 @@ import {
   ShieldCheck, LogIn, Wallet, Mail, Ban, QrCode, Scale,
   ClipboardCheck, Building2, FileSignature, Send,
   ChevronDown, BookOpen, Stamp,
+  Truck, MapPin, PackageSearch, BadgeCheck, Coins as CoinsIcon,
+  ArrowLeftRight, Landmark, KeyRound,
 } from 'lucide-react';
 import { useState } from 'react';
 import { GdmLogo } from '@/components/GdmLogo';
@@ -27,7 +29,7 @@ const PLANS = [
     color: 'emerald', highlight: false,
     icon: <Zap size={28} className="text-emerald-600" />,
     bullets: [
-      '100 timbres CFDI 4.0 al mes',
+      '100 timbres CFDI 4.0 al mes (no acumulables)',
       'Reportes de cobranza, ventas y fiscal',
       'Notas de crédito y complementos de pago',
       'Multi-usuario (Admin + operativos)',
@@ -39,7 +41,7 @@ const PLANS = [
     color: 'indigo', highlight: true,
     icon: <Star size={28} className="text-indigo-600" />,
     bullets: [
-      '200 timbres CFDI 4.0 al mes',
+      '200 timbres CFDI 4.0 al mes (no acumulables)',
       'Todo lo del plan Esencial',
       'Importación de XMLs recibidos',
       'Gestión de proveedores',
@@ -48,15 +50,15 @@ const PLANS = [
   },
   {
     code: 'PKG_500', name: 'Empresarial',
-    price: '$1,399', stamps: 500, extra: '$2.00',
+    price: '$1,800', stamps: 500, extra: '$2.00',
     color: 'violet', highlight: false,
     icon: <Rocket size={28} className="text-violet-600" />,
     bullets: [
-      '500 timbres CFDI 4.0 al mes',
+      '500 timbres CFDI 4.0 al mes (no acumulables)',
       'Todo lo del plan Pyme',
       'Prioridad en soporte',
       'Backup mensual SAT en ZIP',
-      'Multi-empresa (multi-tenant)',
+      'Multi-empresa: varios RFC en una sola cuenta',
     ],
   },
   {
@@ -93,6 +95,23 @@ const MODULES = [
   { icon: <Boxes size={22}/>,        tint: 'bg-fuchsia-50 text-fuchsia-600', title: 'Productos',        desc: 'Preset fiscal por producto (IVA 16, 8, 0, exento, RESICO, honorarios, IEPS). 52 mil claves SAT indexadas.' },
   { icon: <BarChart3 size={22}/>,    tint: 'bg-violet-50 text-violet-600',   title: 'Reportes',         desc: 'Cobranza total, cobranza detallada por cliente con saldo > $0.20, ventas por período, fiscal y auditable.' },
   { icon: <ShieldCheck size={22}/>,  tint: 'bg-teal-50 text-teal-600',       title: 'Compliance SAT',   desc: 'CSD cifrado con pgcrypto, bitácora inmutable 5 años, XML timbrado firmado por el SAT, PDF Anexo 20.' },
+
+  /* A partir de aquí, módulos que ya operaban en el sistema pero no aparecían
+   * en esta página. No es un detalle estético: la Carta Porte es de lo más
+   * costoso de implementar y quien evaluaba el sistema no se enteraba de que
+   * existe. Cada tarjeta corresponde a una pantalla real —CartaPorte.tsx,
+   * CartaPorteLugares.tsx, CartaPorteMercancias.tsx…—; no se anuncia nada que
+   * no esté hecho. */
+  { icon: <Truck size={22}/>,        tint: 'bg-cyan-50 text-cyan-600',       title: 'Carta Porte 3.1',  desc: 'Complemento de traslado en las cuatro modalidades: autotransporte, marítimo, aéreo y ferroviario, con la capa de comercio internacional.' },
+  { icon: <MapPin size={22}/>,       tint: 'bg-lime-50 text-lime-700',       title: 'Lugares',          desc: 'Catálogo de orígenes y destinos reutilizables. Al capturar el código postal se autollenan colonia, municipio y estado, y la numeración OR/DE se asigna sola.' },
+  { icon: <PackageSearch size={22}/>,tint: 'bg-orange-50 text-orange-700',   title: 'Mercancías',       desc: 'Catálogo propio del traslado, separado de Productos: peso, embalaje, fracción arancelaria y material peligroso. Lo que se transporta no siempre es lo que se vende.' },
+  { icon: <ClipboardCheck size={22}/>,       tint: 'bg-sky-50 text-sky-700',         title: 'Vehículos y operadores', desc: 'Placas, configuración vehicular, permiso SCT, remolques y licencia del operador. Se eligen de una lista al armar la Carta Porte, sin recapturar.' },
+  { icon: <BadgeCheck size={22}/>,   tint: 'bg-rose-50 text-rose-700',       title: 'Aseguradoras',     desc: 'Pólizas de responsabilidad civil, de carga y de medio ambiente, con plantillas por modalidad de transporte.' },
+  { icon: <FileUp size={22}/>,       tint: 'bg-amber-50 text-amber-700',     title: 'Súper lector de XML', desc: 'Un solo lector reconoce CFDI de ingreso, traslado con Carta Porte 3.1 y detecta nómina. Da de alta emisor, productos y mercancías en un paso.' },
+  { icon: <ArrowLeftRight size={22}/>,tint: 'bg-emerald-50 text-emerald-700',title: 'Tipos de cambio',  desc: 'Se actualizan solos todos los días con el token del Banco de México (serie SIE). Quedan guardados por fecha, que es como los pide el SAT.' },
+  { icon: <Landmark size={22}/>,     tint: 'bg-indigo-50 text-indigo-700',   title: 'Diferencia cambiaria', desc: 'Calcula la utilidad o pérdida entre el tipo de cambio de la factura y el del pago, para facturas en dólares o euros.' },
+  { icon: <KeyRound size={22}/>,     tint: 'bg-slate-100 text-slate-700',    title: 'Grupos de trabajo', desc: 'Ventas, Almacén, Compras y Tesorería. Cada usuario ve sólo los módulos de su grupo — el menú se arma según sus permisos.' },
+  { icon: <CoinsIcon size={22}/>,    tint: 'bg-violet-50 text-violet-700',   title: 'Multi-empresa',    desc: 'Varios RFC en una sola cuenta, cada uno con su CSD, sus folios y sus catálogos. Se cambia de empresa sin volver a iniciar sesión. Plan Empresarial.' },
 ];
 
 const HOW_STEPS = [
@@ -137,11 +156,11 @@ const FAQ_ITEMS = [
   },
   {
     q: '¿El plan incluye los timbres reales del SAT?',
-    a: 'Sí. La renta mensual cubre el volumen indicado. Si superas el cupo, cada timbre extra se cobra al precio adicional del plan. El plan Uso libre no tiene renta — pagas solo por lo que timbras.',
+    a: 'Sí. La renta mensual cubre el volumen indicado. Los timbres NO son acumulables: el periodo corre del día 1 al último día natural del mes y el contador se reinicia al volumen contratado, sin importar cuántos hayas usado. Si en un mes usas 80 de 100, los 20 restantes no se traspasan al mes siguiente. Si superas el cupo, cada timbre extra se cobra al precio adicional del plan y se factura junto con la renta. El plan Uso libre no tiene renta ni corte: pagas solo por lo que timbras.',
   },
   {
     q: '¿Puedo administrar más de una empresa?',
-    a: 'Sí. El sistema es multi-tenant. Como SUPER_ADMIN puedes agregar varias empresas con RFCs distintos, cada una con su plan, sus usuarios operativos y sus CSDs. Los datos están aislados por empresa.',
+    a: 'Sí, con el plan Empresarial. Se da de alta cada RFC desde SUPER_ADMIN → Empresas, subiendo su Constancia de Situación Fiscal y su propio CSD; los folios, catálogos, clientes y reportes quedan separados por empresa y no se mezclan. Un mismo usuario puede tener acceso a varias y cambiar entre ellas desde el selector de empresa, sin volver a iniciar sesión. La bolsa de 500 timbres es de la cuenta y se reparte entre todas las empresas que administres, no 500 por cada una.',
   },
   {
     q: '¿Cómo respaldo mis XMLs mensualmente?',
@@ -319,10 +338,20 @@ export function PublicHomePage() {
               <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-4">Precios más IVA</p>
 
               {p.stamps !== null && (
-                <div className={`bg-${p.color}-50 rounded-lg px-3 py-2 mb-4 flex items-center justify-between`}>
-                  <span className="text-xs text-slate-600">Timbres/mes</span>
-                  <span className={`font-bold text-${p.color}-700`}>{p.stamps}</span>
-                </div>
+                <>
+                  <div className={`bg-${p.color}-50 rounded-lg px-3 py-2 mb-1 flex items-center justify-between`}>
+                    <span className="text-xs text-slate-600">Timbres/mes</span>
+                    <span className={`font-bold text-${p.color}-700`}>{p.stamps}</span>
+                  </div>
+                  {/* Se dice aquí, junto al número, y no sólo en el contrato: que
+                      los timbres no se acumulan es lo que más se malentiende de
+                      un plan mensual, y enterarse en el corte es la peor forma
+                      de enterarse. */}
+                  <p className="text-[10px] text-slate-500 mb-4 leading-snug">
+                    No acumulables. Cada mes el contador vuelve a {p.stamps};
+                    lo no usado no se traspasa.
+                  </p>
+                </>
               )}
 
               <ul className="space-y-1.5 flex-1 text-sm text-slate-700">

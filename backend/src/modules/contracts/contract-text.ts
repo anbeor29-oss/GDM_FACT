@@ -15,7 +15,7 @@
  */
 
 /** Súbela SIEMPRE que cambie el texto. Formato: AAAA-MM-DD.N */
-export const CONTRACT_VERSION = '2026-07-27.1';
+export const CONTRACT_VERSION = '2026-08-03.1';
 
 export interface ContractParty {
   rfc: string;
@@ -103,18 +103,46 @@ tanto la renta mensual del plan como los timbres incluidos en el plan se cobran
 por adelantado al inicio de cada mes calendario. El consumo de timbres por
 encima del plan se factura al corte del mes en curso.
 
-2.5. HCGM emitirá el CFDI correspondiente a EL CLIENTE por los servicios
+2.5. TIMBRES NO ACUMULABLES. Los timbres incluidos en cada plan con renta
+mensual corresponden EXCLUSIVAMENTE al mes calendario en que se contratan y NO
+son acumulables, transferibles ni canjeables.
+
+  a) El periodo de consumo corre del día 1 al último día natural de cada mes
+     calendario.
+  b) Al iniciar cada nuevo mes, el contador de timbres se REINICIA al volumen
+     contratado en el plan, con independencia de cuántos timbres se hayan
+     consumido en el mes anterior.
+  c) Los timbres no consumidos al cierre del mes SE PIERDEN y no generan saldo
+     a favor, crédito, descuento ni derecho a reembolso. A manera de ejemplo:
+     si EL CLIENTE contrató un plan de 100 timbres y consumió 80 durante el
+     mes, los 20 restantes no se traspasan; el mes siguiente inicia nuevamente
+     con 100 timbres.
+  d) Los timbres consumidos por encima del volumen del plan se facturan al
+     precio de timbre adicional publicado para ese plan, y se cobran en el
+     corte del mes en que se consumieron.
+  e) Lo dispuesto en esta cláusula NO aplica al plan de uso libre (sin renta
+     mensual), en el cual no existe volumen incluido ni corte mensual de
+     timbres: EL CLIENTE paga únicamente por los timbres que consume.
+
+2.6. Planes multi-empresa. En los planes que admiten la administración de más
+de un RFC bajo una misma cuenta, el volumen de timbres incluido corresponde a
+la CUENTA y se comparte entre todas las empresas registradas en ella. No se
+asigna un volumen independiente por cada RFC. Cada empresa conserva sus propios
+certificados de sello digital, folios, catálogos y comprobantes de forma
+separada.
+
+2.7. HCGM emitirá el CFDI correspondiente a EL CLIENTE por los servicios
 prestados en los plazos que el SAT establezca.
 
-2.6. Los precios publicados no incluyen IVA salvo indicación expresa. Todos los
+2.8. Los precios publicados no incluyen IVA salvo indicación expresa. Todos los
 impuestos aplicables corren por cuenta de EL CLIENTE.
 
-2.7. Mora. El impago mayor a quince (15) días naturales posteriores a la fecha
+2.9. Mora. El impago mayor a quince (15) días naturales posteriores a la fecha
 de emisión de la factura de HCGM faculta a este último a suspender el Servicio
 de inmediato, sin necesidad de declaración judicial y previa notificación por
 correo electrónico. La reactivación queda sujeta al pago de lo adeudado.
 
-2.8. Modificación de precios. HCGM podrá modificar precios notificando a EL
+2.10. Modificación de precios. HCGM podrá modificar precios notificando a EL
 CLIENTE por correo electrónico con treinta (30) días naturales de anticipación.
 Los cambios no aplican a periodos ya pagados por adelantado.
 
@@ -128,9 +156,10 @@ permanece vigente mientras EL CLIENTE conserve cuenta activa.
   a) EL CLIENTE puede cancelar en cualquier momento notificando por escrito a
      HCGM o desde la plataforma, con al menos quince (15) días naturales de
      anticipación al final del mes de facturación en curso.
-  b) Alternativamente, EL CLIENTE puede optar por no renovar y agotar los
-     timbres pendientes: mantendrá acceso hasta que consuma los timbres del
-     plan o hasta el término del mes ya pagado, lo que ocurra primero.
+  b) Alternativamente, EL CLIENTE puede optar por no renovar: mantendrá acceso
+     hasta el término del mes ya pagado. Conforme a la cláusula 2.5, los
+     timbres no consumidos de ese mes no se traspasan ni sobreviven a la
+     terminación.
 
 3.3. Los timbres NO son reembolsables, en ningún caso, ni siquiera por
 terminación anticipada. Los pagos mensuales anticipados tampoco se reembolsan

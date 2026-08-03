@@ -307,7 +307,7 @@ table(
   [
     [{ icon: 'home',     color: '#0284c7' }, 'Dashboard',        'Resumen del mes: facturas emitidas, timbres disponibles y cobranza pendiente.'],
     [{ icon: 'receipt',  color: '#d97706' }, 'Facturas',         'Emitir, timbrar, cancelar y enviar por correo tus CFDI.'],
-    [{ icon: 'truck',    color: '#d97706' }, 'Carta Porte',      'Complemento de traslado. Se despliega en cinco catálogos (ver capítulo 3).'],
+    [{ icon: 'truck',    color: '#d97706' }, 'Carta Porte',      'Complemento de traslado. Se despliega en cinco catálogos (ver capítulo 4).'],
     [{ icon: 'fileDown', color: '#e11d48' }, 'Notas de Crédito', 'Devoluciones, descuentos y bonificaciones sobre facturas ya timbradas.'],
     [{ icon: 'box',      color: '#c026d3' }, 'Productos',        'Catálogo de lo que vendes, con su clave SAT y su régimen de impuestos.'],
     [{ icon: 'users',    color: '#059669' }, 'Clientes',         'Receptores de tus facturas. Se pueden dar de alta leyendo su Constancia Fiscal.'],
@@ -378,10 +378,111 @@ p('Si prefieres que tus facturas salgan desde tu propia cuenta (por ejemplo fact
 box('tip', 'Gmail requiere contraseña de aplicación',
   'Google no acepta tu contraseña normal para enviar correo desde programas externos. Activa la verificación en dos pasos y genera una contraseña de aplicación en myaccount.google.com/apppasswords. Esa es la que se escribe aquí.');
 
+/* ==========================================================
+   CAP 3 - LOS TRES CATALOGOS
+========================================================== */
+chapter(3, 'Clientes, Productos y Mercancias');
+
+p('El sistema tiene tres catalogos que a primera vista se parecen y que conviene no confundir, porque guardan cosas distintas y se usan en momentos distintos. La diferencia cabe en una frase: Clientes es a quien le facturas, Productos es lo que vendes, y Mercancias es lo que trasladas por encargo de alguien mas.');
+
+table(
+  [ { label: 'Catalogo', w: 110 }, { label: 'Que guarda', w: 150 }, { label: 'Es tuyo', w: 100 }, { label: 'Donde se usa', w: W - 360 } ],
+  [
+    ['Clientes',   'Receptores de tus facturas',              'No aplica',           'Al emitir cualquier CFDI.'],
+    ['Productos',  'Lo que vendes o el servicio que prestas', 'Si, es tuyo',         'En los conceptos de la factura.'],
+    ['Mercancias', 'La carga que transportas',                'No, es del cliente',  'En el bloque de mercancias de la Carta Porte.'],
+  ]
+);
+
+box('info', 'Por que Productos y Mercancias no son lo mismo',
+  'Una empresa de transporte vende el SERVICIO de flete: eso es un Producto, con su clave SAT de servicio. Y traslada, por ejemplo, tambores de pintura, que no le pertenecen y que nunca apareceran en sus ventas: eso es una Mercancia. Si los dos vivieran en el mismo catalogo, tu lista de productos se llenaria de cosas que no vendes y tus reportes de ventas dejarian de cuadrar.');
+
+h2('Clientes');
+p('Un cliente es el receptor de la factura. El SAT valida sus datos fiscales contra su propio padron, asi que un error de captura aqui se convierte en un rechazo al momento de timbrar.');
+
+h3('Alta leyendo la Constancia de Situacion Fiscal');
+p('Es el camino recomendado, porque elimina el error de dedo. Pide al cliente el PDF de su Constancia, el que descarga del portal del SAT, y subelo:');
+steps([
+  'Entra a Clientes y pulsa Nuevo cliente.',
+  'Pulsa Leer Constancia (PDF) y elige el archivo.',
+  'El sistema llena solo el RFC, la razon social, el regimen fiscal y el codigo postal.',
+  'Completa el correo: es a donde se enviaran el PDF y el XML de cada factura.',
+  'Elige el Uso de CFDI habitual del cliente. Se propondra solo en cada factura y podras cambiarlo.',
+  'Guarda.',
+]);
+
+h3('Alta a mano');
+p('Si no tienes la Constancia, captura los mismos datos manualmente. Cuida tres cosas, que son las que mas rechazos provocan:');
+bullets([
+  'La razon social va SIN el regimen societario. Se escribe GRUPO HCGM, no GRUPO HCGM S.A. DE C.V. El SAT compara contra su padron y el sufijo hace que no coincida.',
+  'El codigo postal debe ser el del DOMICILIO FISCAL registrado ante el SAT, que no siempre es la direccion donde el cliente recibe la mercancia.',
+  'El regimen fiscal debe ser el vigente del receptor. Un regimen equivocado hace que el Uso de CFDI deje de ser valido y la factura rebote.',
+]);
+
+box('tip', 'El publico en general',
+  'Para ventas al publico usa el RFC generico XAXX010101000, con nombre PUBLICO GENERAL (sin acento) y regimen 616. El domicilio fiscal del receptor es, en ese caso, el codigo postal de tu propia empresa.');
+
+h3('Sin duplicados');
+p('El sistema no permite dar de alta dos veces el mismo RFC dentro de una empresa. Si el cliente ya existe, te lleva al registro existente en vez de crear una copia. Es a proposito: dos fichas del mismo cliente parten su saldo en dos y la cobranza deja de cuadrar.');
+
+h3('El saldo del cliente');
+p('En la lista de Clientes, la columna Saldo muestra lo que ese cliente debe: la suma de sus facturas timbradas, menos los complementos de pago timbrados, menos las notas de credito. Se calcula al momento de consultar, no es un dato guardado, de modo que siempre refleja la realidad aunque acabes de registrar un pago.');
+
+h2('Productos');
+p('El catalogo de Productos guarda lo que vendes, con la informacion fiscal que la factura necesita. Cada producto lleva:');
+bullets([
+  'Clave del producto o servicio del SAT. Hay mas de 52 mil y el buscador acepta texto libre: escribe flete o tornillo y te muestra las claves que coinciden.',
+  'Clave de unidad: pieza, kilogramo, servicio, actividad.',
+  'Valor unitario: el precio de lista, que puedes ajustar al facturar sin modificar el catalogo.',
+  'Preset fiscal: como se calculan los impuestos de ese producto.',
+]);
+
+h3('El preset fiscal');
+p('El preset es el atajo que evita capturar impuestos renglon por renglon. Al elegirlo, la factura ya sabe que trasladar y que retener:');
+table(
+  [ { label: 'Preset', w: 150 }, { label: 'Que aplica', w: W - 150 } ],
+  [
+    ['IVA 16%',         'Traslado de IVA al 16%. Es el caso general.'],
+    ['IVA 8% frontera', 'Traslado al 8% en la region fronteriza.'],
+    ['IVA 0%',          'Tasa cero: alimentos, medicinas, exportacion.'],
+    ['Exento',          'Sin IVA y sin tasa. No es lo mismo que 0%.'],
+    ['Honorarios',      'IVA 16% trasladado, mas retencion de IVA e ISR de persona fisica.'],
+    ['Arrendamiento',   'IVA 16% trasladado, mas las retenciones de arrendamiento.'],
+    ['RESICO',          'Retencion de ISR del Regimen Simplificado de Confianza.'],
+    ['Flete',           'IVA 16% trasladado y retencion del 4% de autotransporte de carga.'],
+  ]
+);
+box('warn', 'Exento y 0% no son intercambiables',
+  'Los dos dan cero pesos de impuesto, pero el SAT los declara distinto: en tasa 0% el concepto SI es objeto de impuesto y va con su nodo de traslado en cero; en exento NO lo es y ese nodo no debe existir. Elegir mal no siempre rebota al timbrar, pero descuadra la declaracion mensual, que es peor porque se descubre tarde.');
+
+h3('Alta desde un XML');
+p('Al importar un XML recibido, los conceptos de esa factura pueden darse de alta como productos con un clic, con su clave SAT y su unidad ya puestas. Es la forma rapida de arrancar el catalogo cuando vienes de otro sistema.');
+
+h2('Mercancias');
+p('Las mercancias son la carga de un traslado. No se venden, no aparecen en tus facturas de ingreso y no tienen precio de lista: tienen peso, embalaje y un valor declarado que sirve para amparar la carga ante una revision en carretera.');
+
+table(
+  [ { label: 'Dato', w: 175 }, { label: 'Para que sirve', w: W - 175 } ],
+  [
+    ['Clave SAT del bien',    'Identifica que es. Es obligatoria en el complemento.'],
+    ['Descripcion',           'Lo que el inspector lee primero.'],
+    ['Unidad y cantidad',     'Cuanto se transporta.'],
+    ['Peso en kilogramos',    'El SAT lo exige y debe ser congruente con el peso bruto declarado del vehiculo.'],
+    ['Valor de la mercancia', 'El monto que se ampara. No es tu precio de venta: es el valor de lo ajeno.'],
+    ['Material peligroso',    'Si aplica, con su clave y su tipo de embalaje.'],
+    ['Fraccion arancelaria',  'Solo en traslados de comercio exterior.'],
+  ]
+);
+
+p('El detalle de como se cargan y para que sirve la bitacora esta en el capitulo 6.');
+
+box('tip', 'La regla practica para no equivocarse',
+  'Preguntate: me lo van a pagar? Si la respuesta es si, es un Producto y va en los conceptos de la factura. Si solo lo llevo de un punto a otro y le pertenece a alguien mas, es una Mercancia y va en la Carta Porte.');
+
 /* ══════════════════════════════════════════════════════════
    CAP 3 — CARTA PORTE
 ══════════════════════════════════════════════════════════ */
-chapter(3, 'Complemento Carta Porte 3.1');
+chapter(4, 'Complemento Carta Porte 3.1');
 
 p('La Carta Porte es el complemento que el SAT exige para amparar el traslado de mercancías por territorio nacional. Describe qué se transporta, desde dónde y hacia dónde, en qué vehículo y quién lo conduce.');
 
@@ -398,7 +499,7 @@ table(
     [{ icon: 'truck',  color: '#d97706' }, 'Vehículos',          'Placa, configuración vehicular, permiso SCT, año y peso bruto de cada unidad de tu flota.'],
     [{ icon: 'shield', color: '#0284c7' }, 'Aseguradoras',       'Nombre de la aseguradora y número de póliza de responsabilidad civil, ambiental o de carga.'],
     [{ icon: 'driver', color: '#7c3aed' }, 'Operadores',         'Nombre, RFC y número de licencia de tus choferes y demás figuras de transporte.'],
-    [{ icon: 'box',    color: '#e11d48' }, 'Mercancías',         'Las mercancías que has transportado, con su clave SAT, unidad y peso. Ver capítulo 5.'],
+    [{ icon: 'box',    color: '#e11d48' }, 'Mercancías',         'Las mercancías que has transportado, con su clave SAT, unidad y peso. Ver capítulo 6.'],
   ]
 );
 
@@ -435,7 +536,7 @@ p('Cada ubicación pide el momento en que la mercancía sale (origen) o llega (d
 /* ══════════════════════════════════════════════════════════
    CAP 4 — PLANTILLAS
 ══════════════════════════════════════════════════════════ */
-chapter(4, 'Plantillas: captura en un clic');
+chapter(5, 'Plantillas: captura en un clic');
 
 p('Las plantillas son el mecanismo que evita volver a teclear datos que ya capturaste antes. Cada uno de los cinco bloques de la Carta Porte tiene un botón Cargar plantilla que abre el catálogo correspondiente.');
 
@@ -468,13 +569,67 @@ box('tip', 'Guardar mientras capturas',
 h2('Cuando el catálogo está vacío');
 p('Si abres una plantilla y no aparece nada, el catálogo todavía no tiene registros. La ventana te lo indica y sugiere importar un XML. No es un error del sistema.');
 
+h2('Bloque por bloque, con detalle');
+
+h3('Ubicaciones: de donde sale y a donde va');
+p('Toda Carta Porte necesita al menos un Origen y un Destino. Cada ubicacion guarda el RFC y nombre de quien entrega o recibe, la direccion completa y la fecha y hora de salida o llegada.');
+bullets([
+  'La numeracion OR000001 y DE000001 se asigna sola al agregar la ubicacion. No la escribas a mano.',
+  'Al capturar el codigo postal, el sistema completa colonia, municipio y estado desde el catalogo del SAT. Si el CP tiene varias colonias, te deja elegir.',
+  'La Distancia Recorrida en kilometros se captura en el DESTINO, no en el origen. Es el dato que mas se olvida y el complemento no se puede timbrar sin el.',
+  'Un mismo viaje puede tener varios origenes y varios destinos: agrega tantos como paradas reales tenga la ruta, en el orden en que ocurren.',
+]);
+box('warn', 'Las fechas deben ir en orden',
+  'La fecha de salida del origen tiene que ser anterior a la de llegada del destino. Suena obvio, pero al cargar una plantilla se arrastra la fecha del viaje anterior: revisala siempre despues de cargar.');
+
+h3('Mercancias: que se transporta');
+p('Aqui va la carga, con su clave SAT, cantidad, unidad, peso y valor. La suma de los pesos de todas las mercancias forma el Peso Bruto Total del traslado.');
+bullets([
+  'El peso total de las mercancias debe ser congruente con el peso bruto vehicular que declaras en el bloque de Autotransporte.',
+  'Si la carga es material peligroso, hay que indicar la clave del material y el tipo de embalaje. El sistema no lo adivina.',
+  'En traslados internacionales se pide ademas la fraccion arancelaria y el tipo de documento aduanero.',
+]);
+
+h3('Autotransporte: el vehiculo');
+p('Placa, configuracion vehicular, ano modelo, permiso de la SCT y su numero, peso bruto vehicular, y los remolques si los hay.');
+bullets([
+  'El Permiso SCT depende de la modalidad. En transporte maritimo, aereo o ferroviario NO se usa el mismo catalogo que en autotransporte: el sistema filtra las claves segun la modalidad que elegiste.',
+  'Se pueden declarar hasta dos remolques, con su subtipo y su placa.',
+]);
+
+h3('Aseguradora: la poliza');
+p('El SAT pide la aseguradora y el numero de poliza de responsabilidad civil. Segun el caso, tambien la de la carga y la de medio ambiente.');
+bullets([
+  'La poliza de responsabilidad civil es obligatoria en autotransporte federal.',
+  'La de medio ambiente solo se exige cuando se trasladan materiales peligrosos.',
+  'Las plantillas de aseguradora vienen separadas por modalidad, porque una poliza maritima y una terrestre no comparten formato.',
+]);
+
+h3('Figuras del transporte: quien conduce');
+p('El operador con su RFC, su numero de licencia y su nombre. Si intervienen otras figuras (propietario, arrendatario, notificado) se agregan como renglones adicionales.');
+bullets([
+  'El RFC del operador se valida con el mismo criterio que el de un cliente: si esta mal formado, el complemento rebota.',
+  'Cuando el vehiculo no es propio, hay que declarar tambien al propietario o al arrendatario, con su RFC.',
+]);
+
+h2('Guardar, editar y reusar una plantilla');
+p('Las plantillas no son un archivo aparte: son los propios catalogos. Editar un vehiculo en el catalogo de Vehiculos cambia lo que esa plantilla cargara la proxima vez.');
+steps([
+  'Cargar una plantilla COPIA sus datos a la Carta Porte que estas capturando.',
+  'Si despues cambias algo en la Carta Porte, el catalogo NO se modifica: la copia es independiente.',
+  'Para que el cambio quede permanente, editalo en el catalogo correspondiente desde el menu.',
+  'Las Cartas Porte ya timbradas nunca se alteran, aunque cambies la plantilla despues.',
+]);
+box('info', 'Por que la copia es independiente',
+  'Si al corregir la placa de un viaje se modificara el catalogo, un ajuste puntual contaminaria todos los viajes futuros de esa unidad. Y al reves: cambiar el catalogo no puede tocar un CFDI ya timbrado, porque ese documento ya es un hecho fiscal.');
+
 h2('Campos en verde');
 p('En el catálogo de Lugares verás campos con fondo verde suave. Significa que ese dato no venía en el XML del que se importó la dirección y conviene completarlo a mano. Suele pasar con la calle y el número exterior, porque el SAT no los exige en el complemento y muchos emisores los omiten.');
 
 /* ══════════════════════════════════════════════════════════
    CAP 5 — MERCANCÍAS
 ══════════════════════════════════════════════════════════ */
-chapter(5, 'Mercancías transportadas');
+chapter(6, 'Mercancías transportadas');
 
 box('info', 'No son tus productos',
   'Productos es tu catálogo de venta: lo que facturas. Mercancías es lo que trasladas por encargo de un cliente y no te pertenece. Por eso viven en módulos separados y nunca se mezclan.');
@@ -495,7 +650,7 @@ p('Ambas pestañas se alimentan solas cuando importas un XML con Carta Porte des
 /* ══════════════════════════════════════════════════════════
    CAP 6 — LECTOR DE XML
 ══════════════════════════════════════════════════════════ */
-chapter(6, 'Lector de XML');
+chapter(7, 'Lector de XML');
 
 p('El Lector de XML lee cualquier comprobante fiscal y extrae de él los datos que le sirven a tu catálogo. Reconoce el tipo de documento solo, sin que tengas que indicárselo.');
 
@@ -541,7 +696,7 @@ p('El sistema nunca crea un registro repetido. Reconoce lo que ya existe por su 
 /* ══════════════════════════════════════════════════════════
    CAP 7 — EL PDF
 ══════════════════════════════════════════════════════════ */
-chapter(7, 'El PDF de la factura');
+chapter(8, 'El PDF de la factura');
 
 p('Cuando la factura no lleva Carta Porte, el PDF tiene una sola hoja con la información fiscal de siempre. Cuando sí la lleva, se agregan dos hojas más:');
 
@@ -563,7 +718,7 @@ p('Al pie de la primera hoja aparece el bloque del timbre: folio fiscal, fecha d
 /* ══════════════════════════════════════════════════════════
    CAP 8 — CONTRATO
 ══════════════════════════════════════════════════════════ */
-chapter(8, 'Contrato y manifiesto');
+chapter(9, 'Contrato y manifiesto');
 
 p('El módulo Contrato reúne dos documentos que se firman en un mismo acto con tu e.firma:');
 
@@ -589,7 +744,7 @@ p('Cada versión del contrato lleva número y fecha. Las firmas que ya emitiste 
 /* ══════════════════════════════════════════════════════════
    CAP 9 — PREGUNTAS FRECUENTES
 ══════════════════════════════════════════════════════════ */
-chapter(9, 'Preguntas frecuentes');
+chapter(10, 'Preguntas frecuentes');
 
 const faq = [
   ['El icono del barco está gris y no puedo pulsarlo',
