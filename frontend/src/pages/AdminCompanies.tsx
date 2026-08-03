@@ -718,12 +718,55 @@ function CSDUploadModal({ company, onClose, onDone }: any) {
   const [cerFile, setCerFile] = useState<File|null>(null);
   const [keyFile, setKeyFile] = useState<File|null>(null);
   const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  const [cert, setCert] = useState<any|null>(null);   // lo que devuelve /csd/inspect
+  const [reading, setReading] = useState(false);
 
   async function fileToB64(f: File): Promise<string> {
     const buf = new Uint8Array(await f.arrayBuffer());
     let s = ''; for (let i=0;i<buf.length;i++) s += String.fromCharCode(buf[i]);
     return btoa(s);
   }
+
+  /* LECTURA AUTOMATICA DEL .cer
+   *
+   * El endpoint /csd/inspect existia en el backend desde hace tiempo; esta
+   * pantalla simplemente no lo llamaba, asi que el operador tecleaba a mano los
+   * 20 digitos del numero de certificado y las dos fechas de vigencia. Un
+   * digito mal y el timbrado falla ante el SAT, con un error que no dice que el
+   * problema es el numero.
+   *
+   * Conviene dejarlo escrito porque se confunde seguido: la vigencia NO esta en
+   * el .key. El .key es solo la llave privada cifrada, sin metadatos. El numero
+   * de certificado, la vigencia, el RFC y la razon social viven en el .cer. El
+   * .key se manda aqui para otra cosa: comprobar que corresponde al .cer y que
+   * la contrasena es correcta ANTES de guardar, en vez de descubrirlo al
+   * intentar timbrar.
+   */
+  async function inspect(cer: File|null, key: File|null, pwd: string) {
+    if (!cer) { setCert(null); return; }
+    setReading(true); setError('');
+    try {
+      const r = await api.adminInspectCSD(company.id, {
+        cerBase64: await fileToB64(cer),
+        keyBase64: key && pwd ? await fileToB64(key) : undefined,
+        keyPassword: key && pwd ? pwd : undefined,
+      });
+      const d: any = r.data;
+      setCert(d);
+      setForm(f => ({
+        ...f,
+        noCertificado: d.no_certificado || f.noCertificado,
+        validFrom: (d.valid_from || '').slice(0, 10),
+        validTo:   (d.valid_to   || '').slice(0, 10),
+      }));
+    } catch (e: any) {
+      setCert(null);
+      setError(e.response?.data?.message || e.message);
+    } finally { setReading(false); }
+  }
+
+  const onCer = (f: File|null) => { setCerFile(f); inspect(f, keyFile, form.keyPassword); };
+  const onKey = (f: File|null) => { setKeyFile(f); inspect(cerFile, f, form.keyPassword); };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setError('');
@@ -756,23 +799,52 @@ function CSDUploadModal({ company, onClose, onDone }: any) {
         <div className="p-5 space-y-3">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">{error}</div>}
           <label className="block"><span className="text-sm font-medium block mb-1">No. Certificado (20 dígitos) *</span>
-            <input required className="input w-full font-mono" maxLength={20} pattern="\d{20}"
+            <input required className={`input w-full font-mono ${cert ? 'bg-slate-50' : ''}`}
+              maxLength={20} pattern="\d{20}" readOnly={!!cert}
+              placeholder={reading ? 'Leyendo el certificado…' : 'Se llena solo al elegir el .cer'}
               value={form.noCertificado} onChange={(e)=>setForm({...form,noCertificado:e.target.value})}/></label>
           <label className="block"><span className="text-sm font-medium block mb-1">Archivo .cer (público) *</span>
-            <input required type="file" accept=".cer" onChange={(e)=>setCerFile(e.target.files?.[0]||null)}/></label>
+            <input required type="file" accept=".cer" onChange={(e)=>onCer(e.target.files?.[0]||null)}/></label>
           <label className="block"><span className="text-sm font-medium block mb-1">Archivo .key (privado) *</span>
-            <input required type="file" accept=".key" onChange={(e)=>setKeyFile(e.target.files?.[0]||null)}/></label>
+            <input required type="file" accept=".key" onChange={(e)=>onKey(e.target.files?.[0]||null)}/></label>
           <label className="block"><span className="text-sm font-medium block mb-1">Password del .key *</span>
             <input required type="password" className="input w-full"
-              value={form.keyPassword} onChange={(e)=>setForm({...form,keyPassword:e.target.value})}/></label>
+              value={form.keyPassword}
+              onChange={(e)=>setForm({...form,keyPassword:e.target.value})}
+              onBlur={(e)=>inspect(cerFile, keyFile, e.target.value)}/></label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block"><span className="text-sm block mb-1">Vigente desde</span>
-              <input type="date" className="input w-full" value={form.validFrom}
+              <input type="date" className={`input w-full ${cert ? 'bg-slate-50' : ''}`} value={form.validFrom}
                 onChange={(e)=>setForm({...form,validFrom:e.target.value})}/></label>
             <label className="block"><span className="text-sm block mb-1">Vigente hasta</span>
-              <input type="date" className="input w-full" value={form.validTo}
+              <input type="date" className={`input w-full ${cert ? 'bg-slate-50' : ''}`} value={form.validTo}
                 onChange={(e)=>setForm({...form,validTo:e.target.value})}/></label>
           </div>
+          {/* Lo que el certificado dice de si mismo. Se muestra ANTES de guardar
+              porque los tres problemas de abajo hacen que el SAT rechace el
+              timbrado, y descubrirlo timbrando cuesta mucho mas que leerlo
+              aqui. */}
+          {cert && (
+            <div className="text-xs border rounded px-3 py-2 space-y-1 bg-slate-50 border-slate-200">
+              <div className="text-slate-700">
+                <b>{cert.razon_social || 'Sin razón social'}</b> · {cert.rfc || 'sin RFC'}
+              </div>
+              {!cert.rfc_matches && (
+                <div className="text-red-700">
+                  Este CSD es del RFC {cert.rfc || '(desconocido)'} y la empresa es {cert.company_rfc}.
+                  Un certificado ajeno no puede sellar sus comprobantes.
+                </div>
+              )}
+              {cert.expired && <div className="text-red-700">El certificado está VENCIDO.</div>}
+              {cert.not_yet_valid && <div className="text-amber-700">El certificado aún no entra en vigencia.</div>}
+              {cert.key_matches === false && (
+                <div className="text-red-700">{cert.key_error || 'La .key no corresponde al .cer.'}</div>
+              )}
+              {cert.key_matches === true && (
+                <div className="text-emerald-700">La .key corresponde al .cer y la contraseña es correcta.</div>
+              )}
+            </div>
+          )}
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded">
             El .key y su password se cifran con pgcrypto antes de almacenarse. Nunca se devuelven por API.
           </p>

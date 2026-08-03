@@ -998,6 +998,18 @@ class APIClient {
     const r = await this.client.put(`/admin/companies/${id}`, data);
     return r.data;
   }
+  /** Lee el .cer para autollenar el formulario de CSD. No guarda nada. */
+  async adminInspectCSD(id: string, data: { cerBase64: string; keyBase64?: string; keyPassword?: string }) {
+    const r = await this.client.post<APIResponse<{
+      no_certificado: string; rfc: string | null; razon_social: string | null;
+      valid_from: string; valid_to: string;
+      rfc_matches: boolean; company_rfc: string;
+      expired: boolean; not_yet_valid: boolean;
+      key_matches: boolean | null; key_error: string | null;
+    }>>(`/admin/companies/${id}/csd/inspect`, data);
+    return r.data;
+  }
+
   async adminUploadCSD(id: string, data: { noCertificado: string; cerBase64: string;
                                             keyBase64: string; keyPassword: string;
                                             validFrom?: string; validTo?: string }) {

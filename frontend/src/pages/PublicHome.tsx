@@ -58,7 +58,7 @@ const PLANS = [
       'Todo lo del plan Pyme',
       'Prioridad en soporte',
       'Backup mensual SAT en ZIP',
-      'Multi-empresa: varios RFC en una sola cuenta',
+      'Multi-empresa: administra varios RFC desde una cuenta',
     ],
   },
   {
@@ -111,7 +111,7 @@ const MODULES = [
   { icon: <ArrowLeftRight size={22}/>,tint: 'bg-emerald-50 text-emerald-700',title: 'Tipos de cambio',  desc: 'Se actualizan solos todos los días con el token del Banco de México (serie SIE). Quedan guardados por fecha, que es como los pide el SAT.' },
   { icon: <Landmark size={22}/>,     tint: 'bg-indigo-50 text-indigo-700',   title: 'Diferencia cambiaria', desc: 'Calcula la utilidad o pérdida entre el tipo de cambio de la factura y el del pago, para facturas en dólares o euros.' },
   { icon: <KeyRound size={22}/>,     tint: 'bg-slate-100 text-slate-700',    title: 'Grupos de trabajo', desc: 'Ventas, Almacén, Compras y Tesorería. Cada usuario ve sólo los módulos de su grupo — el menú se arma según sus permisos.' },
-  { icon: <CoinsIcon size={22}/>,    tint: 'bg-violet-50 text-violet-700',   title: 'Multi-empresa',    desc: 'Varios RFC en una sola cuenta, cada uno con su CSD, sus folios y sus catálogos. Se cambia de empresa sin volver a iniciar sesión. Plan Empresarial.' },
+  { icon: <CoinsIcon size={22}/>,    tint: 'bg-violet-50 text-violet-700',   title: 'Multi-empresa',    desc: 'Administra varios RFC desde una cuenta, cada uno con su CSD, sus folios y sus catálogos, sin que los datos se mezclen. Plan Empresarial.' },
 ];
 
 const HOW_STEPS = [
@@ -160,7 +160,7 @@ const FAQ_ITEMS = [
   },
   {
     q: '¿Puedo administrar más de una empresa?',
-    a: 'Sí, con el plan Empresarial. Se da de alta cada RFC desde SUPER_ADMIN → Empresas, subiendo su Constancia de Situación Fiscal y su propio CSD; los folios, catálogos, clientes y reportes quedan separados por empresa y no se mezclan. Un mismo usuario puede tener acceso a varias y cambiar entre ellas desde el selector de empresa, sin volver a iniciar sesión. La bolsa de 500 timbres es de la cuenta y se reparte entre todas las empresas que administres, no 500 por cada una.',
+    a: 'Sí, con el plan Empresarial. Se da de alta cada RFC desde SUPER_ADMIN → Empresas, subiendo su Constancia de Situación Fiscal y su propio CSD; los folios, catálogos, clientes y reportes quedan separados por empresa y no se mezclan nunca. Hoy cada usuario operativo pertenece a una empresa, y quien administra la cuenta las ve todas desde el panel de plataforma. La bolsa de 500 timbres es de la cuenta y se reparte entre todas las empresas que administres, no 500 por cada una.',
   },
   {
     q: '¿Cómo respaldo mis XMLs mensualmente?',

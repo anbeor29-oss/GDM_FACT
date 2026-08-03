@@ -161,8 +161,14 @@ export function Layout() {
               <NavItem to="/admin/packages"  icon={<Emoji3D e="💳" />} accent="violet"  label="Paquetes fiscales"     open={sidebarOpen} />
               <NavItem to="/admin/billing"   icon={<Emoji3D e="💰" />} accent="emerald" label="Facturación y consumo" open={sidebarOpen} />
               <NavItem to="/admin/prepaid"   icon={<Emoji3D e="🛒" />} accent="fuchsia" label="Compras prepago"       open={sidebarOpen} />
-              <NavItem to="/import-xml"      icon={<Emoji3D e="📥" />} accent="amber"   label="Importar XML"          open={sidebarOpen} />
-              <NavItem to="/suppliers"       icon={<Emoji3D e="🚚" />} accent="rose"    label="Proveedores"           open={sidebarOpen} />
+              {/* Aquí estaban "Importar XML" y "Proveedores". No pertenecen a
+                  este bloque: PLATAFORMA administra la CUENTA —empresas,
+                  usuarios, paquetes, facturación—, mientras que importar un XML
+                  o dar de alta un proveedor son operaciones de UNA empresa
+                  concreta y ya viven en el menú de operación. Tenerlas aquí
+                  invitaba a usarlas desde un contexto donde no hay empresa
+                  elegida. Las rutas siguen existiendo; sólo se quitó el atajo
+                  duplicado. */}
             </>
           )}
         </nav>

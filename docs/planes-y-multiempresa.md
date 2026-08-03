@@ -79,6 +79,19 @@ El aislamiento no es una convención de la interfaz: cada consulta del backend
 filtra por `company_id`, y las que tocan datos fiscales lo exigen. Mezclar datos
 de dos RFC no sería un error cosmético, sería un problema fiscal.
 
+### ⚠️ Corrección — lo que sigue describe el objetivo, no lo que hay hoy
+
+Un usuario **no puede pertenecer a varias empresas** en la versión actual:
+`users.company_id` es una columna, no una tabla puente, y la empresa se graba en
+el token al iniciar sesión. No existe el selector de empresa que se describía
+aquí. El análisis completo y el plan para implementarlo están en
+[multiempresa-analisis.md](multiempresa-analisis.md).
+
+Lo que **sí** es cierto hoy: los datos están separados por empresa sin
+excepción, y SUPER_ADMIN administra todas desde el panel de plataforma. Si una
+misma persona debe operar dos RFC, se le crean dos accesos con correos
+distintos.
+
 ### Cómo se configura
 
 1. Entrar como **SUPER_ADMIN** → **Empresas**.
@@ -89,8 +102,8 @@ de dos RFC no sería un error cosmético, sería un problema fiscal.
    comparte el de otra: el sello es del RFC que emite.
 5. Dar de alta a sus usuarios y asignarles su grupo de trabajo.
 
-Un mismo usuario puede tener acceso a varias empresas y cambiar entre ellas desde
-el selector, sin cerrar sesión.
+Cada usuario operativo queda asignado a esa empresa. Un usuario no puede
+pertenecer a dos: ver la corrección de arriba.
 
 ### Lo que todavía no hay
 
