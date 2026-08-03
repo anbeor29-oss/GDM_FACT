@@ -417,6 +417,13 @@ export async function createPayment(companyId: string, data: PaymentInput) {
     );
 
     return {
+      /* Quién timbró. La pantalla lo muestra en el aviso, y sin este campo
+       * decidía sola que el timbrado era simulado: su condición era
+       * `is_mock !== false`, y como el backend nunca mandaba ninguno de los
+       * dos, un complemento timbrado de verdad aparecía rotulado como
+       * simulación. El dato tenía que salir de aquí, no adivinarse allá. */
+      provider: pacService.proveedorActivo(),
+      is_mock: pacService.proveedorActivo() === 'MOCK',
       payment,
       invoice: {
         id: invoice.id,

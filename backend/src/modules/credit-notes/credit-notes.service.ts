@@ -338,7 +338,8 @@ export async function createCreditNote(companyId: string, data: CreditNoteInput)
       (hasPct ? ` (${data.discountPercent}% del total).` : '.')
     );
 
-    return note;
+    /* Quién timbró, para que el aviso lo diga en vez de suponerlo. */
+    return { ...note, provider: pacService.proveedorActivo() };
   });
 }
 
