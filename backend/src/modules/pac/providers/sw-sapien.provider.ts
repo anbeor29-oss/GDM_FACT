@@ -6,7 +6,7 @@
  *
  * Autenticación:
  *   El TOKEN de API se genera en swpanel.mx (Configuración → Tokens).
- *   Es un JWT largo. Se manda en cada request como `Authorization: bearer <TOKEN>`.
+ *   Es un JWT largo. Se manda en cada request como `Authorization: Bearer <TOKEN>`.
  *   Se rota desde el panel sin tocar código; nunca se guarda tu password
  *   personal — solo el token en `.env` cifrado.
  *
@@ -77,7 +77,8 @@ export class SWSapienProvider implements IPACProvider {
       baseURL: SW_ENDPOINTS[cfg.env],
       timeout: 30_000,
       headers: {
-        Authorization: `bearer ${cfg.token}`,
+        // 'Bearer' con mayúscula, como lo escribe la documentación de SW.
+        Authorization: `Bearer ${cfg.token}`,
         'Content-Type': 'application/jsontoxml',
       },
     });

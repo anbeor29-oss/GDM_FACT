@@ -30,6 +30,33 @@
 
 const { spawnSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+
+/* ── 0. Variables de entorno desde un .env, si viene uno ──────────────────
+ *
+ * En Render las variables las inyecta el panel y aquí no hay nada que hacer.
+ * En un hosting donde el despliegue es un .zip no hay panel equivalente: la
+ * única forma de configurar el servidor es un archivo dentro del paquete. Sin
+ * esto, poner PAC_PROVIDER=SW_SAPIEN en un .env no surtía ningún efecto —
+ * dotenv sólo se cargaba en el script `dev`— y el backend arrancaba en modo
+ * simulación creyendo estar configurado.
+ *
+ * dotenv NO pisa lo que ya exista en el entorno, así que Render sigue mandando
+ * sobre cualquier .env que se colara en el repo. El orden importa: primero el
+ * panel, después el archivo.
+ *
+ * Se avisa cuál se usó, porque "de dónde salió esta variable" es justo la
+ * pregunta que uno se hace cuando el PAC no timbra.
+ */
+const rutaEnv = path.join(__dirname, '..', '.env');
+if (fs.existsSync(rutaEnv)) {
+  try {
+    require('dotenv').config({ path: rutaEnv });
+    console.log(`[arranque] variables leídas de ${rutaEnv} (el entorno del proceso tiene prioridad)`);
+  } catch (e) {
+    console.warn(`[arranque] hay un .env pero no se pudo leer: ${e.message}`);
+  }
+}
 
 const dir = (f) => path.join(__dirname, f);
 
@@ -47,6 +74,19 @@ function banner(lineas) {
   const barra = '═'.repeat(72);
   console.log(`\n${barra}\n${lineas.join('\n')}\n${barra}\n`);
 }
+
+/* ── 0b. Estado del PAC, dicho en el arranque ─────────────────────────────
+ * El módulo pac.service ya avisa, pero lo hace al importarse, enterrado entre
+ * migraciones. Aquí queda arriba y en una sola línea que se puede buscar. */
+const pacListo =
+  process.env.PAC_PROVIDER === 'SW_SAPIEN' && !!process.env.SW_SAPIEN_TOKEN;
+console.log(
+  pacListo
+    ? `[arranque] PAC: SW_SAPIEN (${process.env.SW_SAPIEN_ENV || 'sandbox'}) — timbrado REAL`
+    : `[arranque] PAC: MOCK — timbrado SIMULADO. ` +
+      `PAC_PROVIDER="${process.env.PAC_PROVIDER || '(vacío)'}", ` +
+      `SW_SAPIEN_TOKEN ${process.env.SW_SAPIEN_TOKEN ? 'presente' : 'AUSENTE'}`
+);
 
 /* ── 1. Migraciones: requisito. Si fallan, no se arranca. ────────────────── */
 const codigoMigraciones = correr('migrate-up.js');
