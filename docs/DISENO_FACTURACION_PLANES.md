@@ -1,5 +1,26 @@
 # Módulo Facturación y Consumo — diseño
 
+> ## ⚠️ DECISIÓN COMERCIAL SUPERADA — el rollover NO existe
+>
+> Este documento describe un modelo con **acumulación de timbres (rollover)**.
+> Esa decisión quedó **sin efecto** el 3 de agosto de 2026.
+>
+> **La regla vigente es la contraria:** los timbres **no son acumulables**. El
+> contador se reinicia cada mes al volumen contratado y lo no consumido se
+> pierde. Está en la cláusula 2.5 del contrato
+> (`backend/src/modules/contracts/contract-text.ts`, versión `2026-08-03.1`),
+> en la página pública y en [planes-y-multiempresa.md](planes-y-multiempresa.md).
+>
+> Se conserva este archivo porque el resto —el cálculo del corte, el prorrateo
+> del primer mes, la bolsa prepago del plan FLEX, el cron de facturación— sigue
+> siendo válido y describe código que existe. Pero **todo párrafo que hable de
+> rollover, saldo acumulado o sobrante que se conserva describe algo que no debe
+> implementarse**.
+>
+> Se marca en vez de borrarse porque un documento que desaparece deja la duda de
+> si alguien lo implementó a medias; uno marcado deja el rastro de la decisión.
+
+
 > **ESTADO: ✅ IMPLEMENTADO (las 5 fases)** — commits `e5a6e47` (F1),
 > `56730cb` (F2), `7f4cec4` (F3), `7473c6e` (F4), F5 en el commit que
 > acompaña esta edición.
@@ -26,7 +47,7 @@ Propuesta del nuevo módulo SUPER_ADMIN que se agrega después de
 
 Lo que **falta** para cerrar el modelo de facturación:
 
-- Contador de **timbres acumulados** (rollover) para plan iguala.
+- ~~Contador de **timbres acumulados** (rollover) para plan iguala.~~ **DESCARTADO:** los timbres no se acumulan (cláusula 2.5 del contrato).
 - Registro de **facturación mensual** (una fila por mes por empresa) con el desglose renta + extras.
 - **Bolsa prepago** para plan FLEX con recompra.
 - **Alertas por correo** al agotarse el saldo prepago o cerca del cap.
@@ -47,8 +68,12 @@ Mes 3:  cap efectivo = 100 + 40 = 140. Timbra 150 → factura $399 + 10 × $2.50
 ```
 
 **Política**:
-- Rollover **infinito** (no expira) mientras el plan esté activo.
-- Al cambiar de plan, el saldo acumulado se **cancela** (o se conserva? — decisión de negocio).
+- ~~Rollover **infinito** (no expira) mientras el plan esté activo.~~
+- ~~Al cambiar de plan, el saldo acumulado se **cancela** o se conserva.~~
+- **VIGENTE:** no hay rollover. El contador se reinicia el día 1 de cada mes
+  al volumen del plan; lo no consumido se pierde y no genera saldo a favor.
+  La pregunta de qué pasa al cambiar de plan deja de existir: no hay saldo
+  que arrastrar.
 - Cancelar un CFDI **no** devuelve el timbre (SAT ya lo cobró al PAC).
 
 ### 2.2 Plan renta (sin cap, pago por uso)
@@ -387,8 +412,9 @@ timbrado** (se lee de `stamp_usage.package_code_at_stamp` que ya guardamos).
 **Regla de redondeo**: al calcular el cap prorrateado, siempre redondeamos
 **hacia arriba** (favorece al cliente). La renta no se redondea (usa 2 decimales).
 
-**Rollover previo del plan viejo**: se **conserva íntegro** al cambiar de plan
-— no se prorratea. El sobrante acumulado sigue disponible para el nuevo cap.
+~~**Rollover previo del plan viejo**: se conserva íntegro al cambiar de plan.~~
+**SIN EFECTO:** no hay sobrante que conservar. El cambio de plan surte efecto
+en el siguiente corte y el contador arranca en el volumen del plan nuevo.
 (Alternativa que descartamos: convertir a crédito monetario — muy complejo
 contablemente.)
 
