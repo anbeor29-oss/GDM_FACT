@@ -354,4 +354,93 @@ const icons = {
   },
 };
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   LOS ICONOS REALES DE LA PAGINA
+
+   Todo lo de arriba son iconos dibujados a mano. Funcionaban, pero eran una
+   IMITACION de los que ve el usuario en pantalla: parecidos, no iguales. Con el
+   manual abierto al lado del sistema la diferencia se nota, y un manual que no
+   coincide con la pantalla pierde autoridad justo cuando se consulta.
+
+   Debajo se dibujan los trazos de lucide-react, la MISMA biblioteca que usa la
+   pagina, extraidos a manual-icons-lucide.js por build-manual-icons.js.
+
+   Los dibujados a mano se conservan como respaldo: si algun nombre no existe en
+   el archivo generado, se sigue usando el trazo antiguo en vez de dejar un
+   hueco. Un icono viejo comunica; un espacio en blanco, no.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+let trazosLucide = {};
+try {
+  trazosLucide = require('./manual-icons-lucide');
+} catch (e) {
+  // Sin el archivo generado el manual sigue saliendo, con los iconos a mano.
+}
+
+/**
+ * Dibuja una primitiva de lucide. El sistema de coordenadas de origen es un
+ * viewBox de 24x24 con trazo 2; el llamador ya aplico la escala, asi que aqui
+ * se trabaja en esas unidades.
+ */
+function primitiva(doc, tag, a) {
+  switch (tag) {
+    case 'path':
+      doc.path(a.d);
+      break;
+    case 'circle':
+      doc.circle(Number(a.cx), Number(a.cy), Number(a.r));
+      break;
+    case 'ellipse':
+      doc.ellipse(Number(a.cx), Number(a.cy), Number(a.rx), Number(a.ry));
+      break;
+    case 'rect': {
+      const rx = Number(a.rx || 0);
+      const x = Number(a.x), y = Number(a.y);
+      const w = Number(a.width), h = Number(a.height);
+      if (rx) doc.roundedRect(x, y, w, h, rx);
+      else doc.rect(x, y, w, h);
+      break;
+    }
+    case 'line':
+      doc.moveTo(Number(a.x1), Number(a.y1)).lineTo(Number(a.x2), Number(a.y2));
+      break;
+    case 'polyline':
+    case 'polygon': {
+      const n = String(a.points).trim().split(/[\s,]+/).map(Number);
+      if (n.length >= 4) {
+        doc.moveTo(n[0], n[1]);
+        for (let i = 2; i + 1 < n.length; i += 2) doc.lineTo(n[i], n[i + 1]);
+        if (tag === 'polygon') doc.closePath();
+      }
+      break;
+    }
+    default:
+      // lucide no usa otras primitivas hoy; si algun dia las usa, se ignora esa
+      // parte del icono en vez de romper la generacion del manual completo.
+      break;
+  }
+}
+
+/** Envuelve un icono de lucide como las funciones dibujadas a mano. */
+function desdeLucide(trazos) {
+  return function (doc, x, y, s, c) {
+    doc.save();
+    doc.translate(x, y).scale(s / 24);
+    /* El grosor tambien se escala, asi que se compensa: lucide traza a 2 en un
+     * lienzo de 24. A 16pt el trazo efectivo queda en 1.33, que es justo el
+     * peso visual de los iconos en pantalla. */
+    doc.strokeColor(c).lineWidth(2).lineJoin('round').lineCap('round');
+    for (const [tag, a] of trazos) {
+      primitiva(doc, tag, a);
+      doc.stroke();
+    }
+    doc.restore();
+  };
+}
+
+for (const [nombre, trazos] of Object.entries(trazosLucide)) {
+  icons[nombre] = desdeLucide(trazos);
+}
+
 module.exports = { icons };
+

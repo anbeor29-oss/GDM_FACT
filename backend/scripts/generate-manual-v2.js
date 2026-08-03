@@ -65,7 +65,7 @@ function h2(title) {
   needSpace(90);
   doc.moveDown(0.7);
   toc.push({ titulo: title, pagina: pageNo(), nivel: 2 });
-  doc.font('Helvetica-Bold').fontSize(14).fillColor(NAVY)
+  doc.font('Helvetica-Bold').fontSize(16).fillColor(NAVY)
      .text(title, M, doc.y, { width: W });
   doc.moveDown(0.35);
 }
@@ -73,7 +73,7 @@ function h2(title) {
 function h3(title) {
   needSpace(60);
   doc.moveDown(0.45);
-  doc.font('Helvetica-Bold').fontSize(11).fillColor(NAVY_DARK)
+  doc.font('Helvetica-Bold').fontSize(13).fillColor(NAVY_DARK)
      .text(title, M, doc.y, { width: W });
   doc.moveDown(0.2);
 }
@@ -81,7 +81,7 @@ function h3(title) {
 function p(text, opts = {}) {
   needSpace(46);
   doc.font(opts.bold ? 'Helvetica-Bold' : 'Helvetica')
-     .fontSize(opts.size || 10)
+     .fontSize(opts.size || 12)
      .fillColor(opts.color || GRAY)
      .text(text, M + (opts.indent || 0), doc.y,
            { width: W - (opts.indent || 0), align: opts.align || 'justify', lineGap: 1.6 });
@@ -94,17 +94,17 @@ function bullets(items, opts = {}) {
   items.forEach(it => {
     needSpace(34);
     const x = M + (opts.indent || 12);
-    doc.font('Helvetica-Bold').fontSize(10).fillColor(opts.bulletColor || NAVY)
+    doc.font('Helvetica-Bold').fontSize(12).fillColor(opts.bulletColor || NAVY)
        .text(bullet, x, doc.y, { width: 14, continued: false });
     const yLine = doc.y - doc.currentLineHeight();
     // Soporte de **negrita** al inicio
     const mm = it.match(/^\*\*(.+?)\*\*\s*(.*)$/s);
     if (mm) {
-      doc.font('Helvetica-Bold').fontSize(10).fillColor(NAVY_DARK)
+      doc.font('Helvetica-Bold').fontSize(12).fillColor(NAVY_DARK)
          .text(mm[1], x + 16, yLine, { width: W - 30, continued: true });
       doc.font('Helvetica').fillColor(GRAY).text(mm[2] ? ` ${mm[2]}` : '', { width: W - 30 });
     } else {
-      doc.font('Helvetica').fontSize(10).fillColor(GRAY)
+      doc.font('Helvetica').fontSize(12).fillColor(GRAY)
          .text(it, x + 16, yLine, { width: W - 30, lineGap: 1.4 });
     }
     doc.moveDown(0.25);
@@ -119,9 +119,9 @@ function steps(items) {
     const x = M + 12;
     const y0 = doc.y;
     doc.circle(x + 7, y0 + 6, 8).fill(NAVY);
-    doc.font('Helvetica-Bold').fontSize(8).fillColor('#ffffff')
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#ffffff')
        .text(String(i + 1), x, y0 + 3, { width: 15, align: 'center' });
-    doc.font('Helvetica').fontSize(10).fillColor(GRAY)
+    doc.font('Helvetica').fontSize(12).fillColor(GRAY)
        .text(it, x + 24, y0, { width: W - 40, lineGap: 1.4 });
     doc.moveDown(0.4);
   });
@@ -137,7 +137,7 @@ function box(kind, title, text) {
     danger: { bg: '#fef2f2', border: '#ef4444', icon: 'x',  fg: '#991b1b' },
   }[kind];
 
-  doc.font('Helvetica').fontSize(9.5);
+  doc.font('Helvetica').fontSize(11.5);
   const h = doc.heightOfString(text, { width: W - 48, lineGap: 1.5 }) + 34;
   needSpace(h + 12);
 
@@ -145,11 +145,11 @@ function box(kind, title, text) {
   doc.roundedRect(M, y0, W, h, 6).fill(palette.bg);
   doc.rect(M, y0, 4, h).fill(palette.border);
   doc.circle(M + 20, y0 + 15, 7).fill(palette.border);
-  doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffffff')
+  doc.font('Helvetica-Bold').fontSize(11).fillColor('#ffffff')
      .text(palette.icon, M + 13, y0 + 11, { width: 14, align: 'center' });
-  doc.font('Helvetica-Bold').fontSize(10).fillColor(palette.fg)
+  doc.font('Helvetica-Bold').fontSize(12).fillColor(palette.fg)
      .text(title, M + 34, y0 + 10, { width: W - 48 });
-  doc.font('Helvetica').fontSize(9.5).fillColor(palette.fg)
+  doc.font('Helvetica').fontSize(11.5).fillColor(palette.fg)
      .text(text, M + 34, doc.y + 2, { width: W - 48, lineGap: 1.5 });
   doc.y = y0 + h + 10;
 }
@@ -168,7 +168,7 @@ function table(cols, rows) {
   const drawHeader = (yy) => {
     doc.rect(M, yy, totalW, 20).fill(NAVY);
     let xh = M;
-    doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#ffffff');
+    doc.font('Helvetica-Bold').fontSize(10.5).fillColor('#ffffff');
     cols.forEach(c => {
       doc.text(c.label, xh + 6, yy + 6, { width: c.w - 12, align: c.align || 'left', lineBreak: false });
       xh += c.w;
@@ -179,7 +179,7 @@ function table(cols, rows) {
   let y = drawHeader(doc.y);
 
   rows.forEach((r, i) => {
-    doc.font('Helvetica').fontSize(8.5);
+    doc.font('Helvetica').fontSize(10.5);
     // Altura: los iconos ocupan 18pt fijos, el texto lo que necesite
     let maxH = 20;
     cols.forEach((c, j) => {
@@ -206,7 +206,7 @@ function table(cols, rows) {
           fn(doc, xr + (c.w - size) / 2, y + (maxH - size) / 2, size, cell.color || NAVY);
         }
       } else {
-        doc.font('Helvetica').fontSize(8.5).fillColor(NAVY_DARK)
+        doc.font('Helvetica').fontSize(10.5).fillColor(NAVY_DARK)
            .text(String(cell ?? ''), xr + 6, y + 5, { width: c.w - 12, align: c.align || 'left' });
       }
       xr += c.w;
@@ -222,7 +222,7 @@ function iconLine(name, color, text) {
   const y0 = doc.y;
   const fn = icons[name];
   if (fn) fn(doc, M + 4, y0, 15, color);
-  doc.font('Helvetica').fontSize(10).fillColor(GRAY)
+  doc.font('Helvetica').fontSize(12).fillColor(GRAY)
      .text(text, M + 26, y0 + 1, { width: W - 26, lineGap: 1.4 });
   doc.moveDown(0.35);
 }
@@ -812,17 +812,35 @@ toc.forEach(t => {
   doc.moveDown(isCap ? 0.55 : 0.35);
 });
 
-// Pie en todas menos portada
-for (let i = 1; i < range.count; i++) {
+/* Pie en todas menos la portada.
+ *
+ * AQUI ESTABA EL DEFECTO DE LAS PAGINAS EN BLANCO. El pie se dibuja a
+ * height - 46, que cae DENTRO del margen inferior de 56pt. PDFKit, cuando le
+ * piden escribir por debajo del margen, agrega una pagina automaticamente y
+ * escribe ahi. Resultado: cada pie generaba una hoja nueva que solo contenia
+ * ese pie, el documento pasaba de 20 a 58 paginas, y la numeracion quedaba
+ * corrida -- por eso las primeras paginas salian sin rotular y aparecian hojas
+ * con nada mas que "Pagina 16 de 16".
+ *
+ * La solucion es anular el margen inferior mientras se estampan los pies: no
+ * hay texto que fluya en ese momento, solo se dibuja en una posicion fija.
+ *
+ * Ademas se recorre `total`, capturado ANTES del ciclo. Usar range.count vivo
+ * significaba comparar contra un numero que crecia con cada pagina que el
+ * propio ciclo agregaba: el ciclo se alimentaba a si mismo.
+ */
+const total = range.count;
+for (let i = 1; i < total; i++) {
   doc.switchToPage(i);
+  doc.page.margins.bottom = 0;
   const yF = doc.page.height - 46;
   doc.moveTo(M, yF).lineTo(M + W, yF).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
   doc.font('Helvetica').fontSize(7.5).fillColor(GRAY_LIGHT)
      .text('GDM Facturación V2 · Manual de Usuario', M, yF + 6, { width: W / 2, lineBreak: false });
-  doc.text(`Página ${i + 1} de ${range.count}`, M + W / 2, yF + 6,
+  doc.text(`Página ${i + 1} de ${total}`, M + W / 2, yF + 6,
            { width: W / 2, align: 'right', lineBreak: false });
 }
 
 doc.end();
 console.log(`✔ Manual generado: ${OUT}`);
-console.log(`  ${range.count} páginas · ${toc.filter(t => t.nivel === 1).length} capítulos`);
+console.log(`  ${total} páginas · ${toc.filter(t => t.nivel === 1).length} capítulos`);
