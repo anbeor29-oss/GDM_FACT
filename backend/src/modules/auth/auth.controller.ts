@@ -4,6 +4,7 @@
  */
 
 import { Request, Response } from 'express';
+import { empresasDelUsuario, cambiarDeEmpresa } from './companies-de-usuario.service';
 import * as authService from './auth.service';
 import { ValidationError } from '../../middleware/errorHandler';
 import logger from '../../middleware/logger';
@@ -124,3 +125,31 @@ export default {
   changePassword,
   getCurrentUser,
 };
+
+/**
+ * GET /auth/companies — las empresas a las que este usuario tiene acceso.
+ *
+ * Lo consulta la pantalla para decidir si muestra el selector: con una sola no
+ * hay nada que elegir y no debe estorbar.
+ */
+export async function misEmpresas(req: Request, res: Response) {
+  const userId = (req as any).user?.userId;
+  const empresas = await empresasDelUsuario(userId);
+  res.status(200).json({ success: true, data: empresas });
+}
+
+/**
+ * POST /auth/switch-company — cambiar la empresa activa de la sesión.
+ *
+ * Devuelve un token NUEVO. El frontend debe reemplazar el que tenía y limpiar lo
+ * que traiga en memoria: si conservara los datos de la empresa anterior, la
+ * pantalla mostraría facturas de una y el token apuntaría a otra.
+ */
+export async function cambiarEmpresa(req: Request, res: Response) {
+  const u = (req as any).user;
+  const { companyId } = req.body || {};
+  if (!companyId) throw new ValidationError('Indica la empresa a la que quieres cambiar.');
+
+  const r = await cambiarDeEmpresa(u.userId, u.email, u.role, String(companyId));
+  res.status(200).json({ success: true, message: `Ahora trabajas en ${r.company.business_name}`, data: r });
+}

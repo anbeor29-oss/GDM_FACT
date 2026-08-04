@@ -16,6 +16,7 @@
  *   · No se permite deshabilitar al PROPIO super-admin
  */
 import { Router, Request, Response } from 'express';
+import { empresasDelUsuario, asociarEmpresa, desasociarEmpresa } from '../auth/companies-de-usuario.service';
 import bcrypt from 'bcryptjs';
 import { authenticateToken, generateToken } from '../../middleware/authentication';
 import { asyncHandler, ValidationError, NotFoundError, ConflictError, UnauthorizedError } from '../../middleware/errorHandler';
@@ -359,4 +360,39 @@ router.post('/:id/impersonate', asyncHandler(async (req, res) => {
 }));
 
 logger.info('admin-users routes loaded');
+
+/* ─────────────── EMPRESAS DE UN USUARIO (multi-empresa) ───────────────
+ *
+ * Un correo puede administrar varios RFC. Estas tres rutas son la cara
+ * administrativa de `user_companies`: ver, asociar y quitar.
+ *
+ * La comprobación de que el usuario TIENE acceso a una empresa no vive aquí sino
+ * en el cambio de sesión —companies-de-usuario.service—, que es donde importa:
+ * esto sólo administra la lista, y quien llega hasta aquí ya es SUPER_ADMIN.
+ */
+router.get('/:id/companies', asyncHandler(async (req: Request, res: Response) => {
+  const empresas = await empresasDelUsuario(req.params.id);
+  res.status(200).json({ success: true, data: empresas });
+}));
+
+router.post('/:id/companies', asyncHandler(async (req: Request, res: Response) => {
+  const { companyId, workGroup } = req.body || {};
+  if (!companyId) throw new ValidationError('Indica la empresa a asociar.');
+  const empresas = await asociarEmpresa(req.params.id, String(companyId), workGroup);
+  res.status(200).json({
+    success: true,
+    message: 'Empresa asociada al usuario',
+    data: empresas,
+  });
+}));
+
+router.delete('/:id/companies/:companyId', asyncHandler(async (req: Request, res: Response) => {
+  const empresas = await desasociarEmpresa(req.params.id, req.params.companyId);
+  res.status(200).json({
+    success: true,
+    message: 'Se retiró el acceso a esa empresa',
+    data: empresas,
+  });
+}));
+
 export default router;

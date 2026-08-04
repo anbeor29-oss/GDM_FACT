@@ -6,7 +6,9 @@
  *  · Clientes con su saldo agregado
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useAuthStore } from '@/store/auth';
 import { FileText, Wallet, TrendingDown, AlertCircle, Stamp } from 'lucide-react';
 import api from '@/services/api';
 
@@ -21,15 +23,9 @@ export function DashboardPage() {
     refetchOnWindowFocus: true,
   });
 
-  const { data: invoicesData } = useQuery({
-    queryKey: ['invoices', 1],
-    queryFn: () => api.getInvoices(1, 6),
-  });
-
-  const { data: customersData } = useQuery({
-    queryKey: ['customers', 1],
-    queryFn: () => api.getCustomers(1, 6),
-  });
+  /* Se retiraron las consultas de facturas y clientes recientes: sus listas
+   * repetían lo que ya está a un clic en sus propias pantallas, y dejarlas
+   * cargando datos que nadie ve es trabajo del servidor a cambio de nada. */
 
   const { data: usage } = useQuery({
     queryKey: ['monthly-usage'],
@@ -37,14 +33,79 @@ export function DashboardPage() {
     refetchOnWindowFocus: true,
   });
 
+  const qc = useQueryClient();
+  const { user, setToken } = useAuthStore();
+
   const s = summary?.data || {};
   const u = usage?.data;
 
+  /* EMPRESAS DE ESTE CORREO.
+   *
+   * La empresa activa dejó de ser un atributo del usuario para volverse una
+   * elección de la sesión, así que la pantalla tiene que decir en cuál se está
+   * trabajando. Sin eso, alguien con dos RFC no tiene forma de saber a cuál va a
+   * timbrar — y enterarse después de emitir no se arregla, se cancela. */
+  const misEmpresas = useQuery({
+    queryKey: ['auth', 'companies'],
+    queryFn: () => api.misEmpresas(),
+  });
+  const empresas: any[] = (misEmpresas.data as any)?.data || [];
+  const empresaActiva = empresas.find((e) => e.id === user?.companyId) || empresas[0];
+
+  const [cambiando, setCambiando] = useState('');
+
+  const cambiarEmpresa = async (companyId: string) => {
+    if (companyId === user?.companyId) return;
+    setCambiando(companyId);
+    try {
+      const r: any = await api.cambiarEmpresa(companyId);
+      /* El token nuevo reemplaza al anterior y se limpia TODO lo que había en
+       * memoria: si se conservara, la pantalla mostraría facturas de la empresa
+       * anterior mientras el token ya apunta a otra. */
+      if (r?.data?.token) setToken(r.data.token);
+      qc.clear();
+      window.location.reload();
+    } catch (e: any) {
+      alert(`No se pudo cambiar de empresa.\n\n${e.response?.data?.message || e.message}`);
+      setCambiando('');
+    }
+  };
+
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-4xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-600 mt-2">Resumen de tu cartera al día de hoy</p>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-4xl font-bold text-gray-900">Dashboard</h1>
+          {empresaActiva ? (
+            <p className="text-gray-600 mt-2">
+              Trabajando en{' '}
+              <b className="text-gray-900">{empresaActiva.business_name}</b>
+              <span className="text-gray-400"> · {empresaActiva.rfc}</span>
+            </p>
+          ) : (
+            <p className="text-gray-600 mt-2">Resumen de tu cartera al día de hoy</p>
+          )}
+        </div>
+
+        {/* El selector sólo aparece con más de una empresa: con una sola no hay
+            nada que elegir y sería un control que nunca se usa. */}
+        {empresas.length > 1 && (
+          <label className="block">
+            <span className="text-xs text-gray-500 block mb-1">Cambiar de empresa</span>
+            <select
+              className="input min-w-[16rem]"
+              value={user?.companyId || ''}
+              disabled={!!cambiando}
+              onChange={(e) => cambiarEmpresa(e.target.value)}
+            >
+              {empresas.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.business_name} — {e.rfc}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       {/* KPIs reales (Ingresos timbrados, no borradores ni cancelados) */}
@@ -76,6 +137,58 @@ export function DashboardPage() {
           hint={`${s.facturas_con_saldo ?? 0} facturas con saldo pendiente`}
         />
       </div>
+
+
+      {/* EMPRESAS QUE ADMINISTRA ESTE CORREO.
+          Sustituye a las listas de facturas y clientes recientes, que repetían
+          lo que ya está a un clic en sus propias pantallas. Aquí, en cambio, se
+          responde algo que no se puede ver en ningún otro lado: qué RFC maneja
+          esta cuenta y en cuál se está trabajando. */}
+      {empresas.length > 0 && (
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-1">
+            {empresas.length > 1 ? 'Empresas que administras' : 'Tu empresa'}
+          </h2>
+          <p className="text-sm text-gray-500 mb-4">
+            {empresas.length > 1
+              ? 'Haz clic en una para trabajar en ella.'
+              : 'Datos fiscales del emisor con el que timbras.'}
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {empresas.map((e) => {
+              const activa = e.id === user?.companyId;
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => cambiarEmpresa(e.id)}
+                  disabled={!!cambiando || activa}
+                  className={`text-left border rounded-lg p-4 transition-colors ${
+                    activa
+                      ? 'border-indigo-400 bg-indigo-50 cursor-default'
+                      : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="font-semibold text-gray-900 leading-tight">
+                      {e.business_name}
+                    </span>
+                    {activa && (
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded shrink-0">
+                        Activa
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm font-mono text-gray-500 mt-1">{e.rfc}</p>
+                  {cambiando === e.id && (
+                    <p className="text-xs text-indigo-600 mt-2">Cambiando…</p>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Consumo de timbres del mes — relevante para plan iguala (100 timbres) */}
       {u && (
@@ -112,58 +225,6 @@ export function DashboardPage() {
           </div>
         </div>
       )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Facturas recientes con saldo real */}
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Facturas recientes</h2>
-          <div className="space-y-3">
-            {(invoicesData?.data?.invoices || []).slice(0, 6).map((invoice: any) => {
-              const bal = Number(invoice.balance ?? invoice.total);
-              const settled = bal <= 0.01;
-              return (
-                <div key={invoice.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-gray-900">{invoice.serie}-{invoice.folio}</p>
-                    <p className="text-sm text-gray-600 truncate">{invoice.customer_name}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-gray-900">$ {fmt(invoice.total)}</p>
-                    <p className={`text-xs font-semibold ${settled ? 'text-emerald-700' : 'text-amber-700'}`}>
-                      saldo $ {fmt(bal)}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-            {(!invoicesData?.data?.invoices || invoicesData.data.invoices.length === 0) && (
-              <p className="text-sm text-gray-500 italic">No hay facturas todavía.</p>
-            )}
-          </div>
-        </div>
-
-        {/* Clientes recientes */}
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Clientes recientes</h2>
-          <div className="space-y-3">
-            {(customersData?.data?.customers || []).slice(0, 6).map((customer: any) => (
-              <div key={customer.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
-                <div className="min-w-0">
-                  <p className="font-semibold text-gray-900 truncate">{customer.business_name}</p>
-                  <p className="text-sm text-gray-600 font-mono">{customer.rfc}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-gray-500 uppercase">Saldo</p>
-                  <p className="font-semibold text-gray-900">$ {fmt(customer.balance)}</p>
-                </div>
-              </div>
-            ))}
-            {(!customersData?.data?.customers || customersData.data.customers.length === 0) && (
-              <p className="text-sm text-gray-500 italic">No hay clientes registrados.</p>
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
