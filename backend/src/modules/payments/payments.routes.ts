@@ -16,14 +16,14 @@ function companyId(req: Request): string {
   return req.user.companyId;
 }
 
-/** POST /payments — crear complemento de pago (timbra en modo MOCK) */
+/** POST /payments — crea el complemento. Admite una o varias facturas. */
 router.post(
   '/',
   asyncHandler(async (req: Request, res: Response) => {
     const result = await paymentsService.createPayment(companyId(req), req.body);
     res.status(201).json({
       success: true,
-      message: 'Complemento de Pago timbrado (modo MOCK)',
+      message: 'Complemento de Pago timbrado',
       data: result,
     });
   })
