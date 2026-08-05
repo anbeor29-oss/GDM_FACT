@@ -145,9 +145,13 @@ export function AdminPromocionPage() {
             ))}
           </select>
           <select value={paqueteSel} onChange={(e) => { setPaqueteSel(e.target.value); setCotiza(null); }} className="input">
-            <option value="PKG_100">100 timbres — $399</option>
-            <option value="PKG_200">200 timbres — $699</option>
-            <option value="PKG_500">500 timbres — $1,399</option>
+            {/* Sin precios escritos aquí: los tuve puestos a mano y quedaron
+                en $1,399 el mismo día que Empresarial subió a $1,800. El
+                importe real lo dice el servidor en "Ver cuánto paga hoy", que
+                lee stamp_packages — que es lo que de verdad se cobra. */}
+            <option value="PKG_100">Esencial — 100 timbres</option>
+            <option value="PKG_200">Pyme — 200 timbres</option>
+            <option value="PKG_500">Empresarial — 500 timbres</option>
           </select>
           <button onClick={cotizar} disabled={ocupado === 'cotizar'}
             className="px-4 py-2 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-50">
