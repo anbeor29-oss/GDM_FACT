@@ -4,10 +4,57 @@ Sistema de **facturación electrónica CFDI 4.0** para México **con Complemento
 Backend Node/Express + TypeScript, frontend React + Vite, PostgreSQL 16. Integrado con
 **SW Sapien** como PAC para timbrado real.
 
-**Estado** (al 2026-07-27):
+**Estado** (al 2026-08-04):
 - 🟢 **Producción** — FACTURANDO REAL con **GRUPO HCGM** desde 2026-07-17 · SW Sapien production.
-- 🟢 **V2 desplegada en sitio** — se decidió actualizar los servicios existentes de Render en lugar de levantar un par nuevo. Todo vive en `origin/main`; la rama `v2-carta-porte` quedó absorbida.
-- 🟡 **`hcgm.com.mx/erp`** — el hosting de México se actualiza subiendo el .zip del build; verificar que sirva la versión vigente después de cada release.
+- 🟢 **Los cuatro comprobantes timbran** — factura (I), complemento de pago (P), nota de crédito (E) y cancelación. Hasta el 08-03 sólo la factura llegaba de verdad al SAT.
+- 🟢 **Multi-empresa** — un correo puede administrar varios RFC y cambiar entre ellos sin cerrar sesión.
+- 🟡 **`hcgm.com.mx/erp`** — el hosting se actualiza con `npm run build:hosting`, que compila con `base=/erp/` y `VITE_API_BASE` al backend de Render. El `npm run build` normal NO sirve aquí: deja el ERP sin backend.
+
+---
+
+## ⚠️ Cinco cosas que hay que saber antes de tocar esto
+
+Cada una costó horas de diagnóstico. Están arriba porque leerlas después no sirve
+de nada.
+
+**1. El CSD vive en la base de datos, no en el disco.** En Render el disco es
+efímero: cada despliegue borra los archivos. Si alguien vuelve a guardarlos como
+archivos, cada actualización dejará a todas las empresas sin poder timbrar hasta
+que recarguen su certificado a mano. Columnas `csd_cer_data` / `csd_key_data`,
+cifradas con `utils/csd-crypto`. **`ENCRYPTION_KEY` no se rota a la ligera:** si
+cambia, no se puede descifrar nada y hay que recargar el CSD de cada empresa.
+
+**2. El complemento de pago va en `Complemento.Any[]` con la llave
+`pago20:Pagos`** — con el prefijo del namespace. Sin él, SW lo descarta **en
+silencio**, responde 200, y el SAT rechaza con `CFDI140230`. El error parece
+decir que el complemento no se envió; en realidad se envió mal nombrado.
+
+**3. Un 404 de una API externa puede ser la RUTA, no los datos.** Pasó tres veces
+con la cancelación: se leía como "el CFDI no está en la bóveda del PAC" cuando el
+path simplemente no existía. La cancelación lleva todo en la URL:
+`POST /cfdi33/cancel/{RFC}/{UUID}/{MOTIVO}[/{folio}]`, sin cuerpo.
+
+**4. Cancelar tiene que llamar al PAC.** Durante mucho tiempo `cancelPayment` y
+`cancelCreditNote` sólo hacían `UPDATE ... status='CANCELLED'`: el sistema decía
+que había cancelado algo que ante el SAT seguía vigente. Y un comprobante vivo
+**bloquea la cancelación de su factura**. Si se toca esa parte, verificar contra
+el portal del SAT, no contra la pantalla.
+
+**5. Las fechas van en hora de México, nunca en UTC.** Render corre en UTC y el
+SAT valida contra `America/Mexico_City`. Usar `fmtFechaSAT()` de
+`build-cfdi-json.service` — existe desde el principio y aun así pagos y NC
+volvieron a formatear por su cuenta, saliendo seis horas en el futuro.
+
+## 🧾 Verificaciones antes de dar por bueno un cambio
+
+```bash
+node scripts/probar-pagos20.js       # 46 comprobaciones del Complemento de Pago 2.0
+node scripts/auditar-comprobantes.js # compara el estado local contra el del SAT
+```
+
+El primero **debe pasar completo** antes de timbrar en vivo: los errores de ese
+nodo no se ven al compilar, se ven cuando el SAT rechaza con el timbre ya
+consumido.
 
 ---
 

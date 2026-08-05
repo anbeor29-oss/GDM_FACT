@@ -1406,3 +1406,207 @@ Fix:
 - Fix seed CP swap columnas (SQL directo BD, no versionado)
 - Feat sellos íntegros wrap + cadena original Anexo 20
 - Feat Datos empresa + ManifestSigner (luego retirado del sidebar por duplicidad)
+
+---
+
+## 2026-08-03 / 04 — Timbrado completo de los cuatro comprobantes, CSD en base, multi-empresa
+
+Jornada larga con un hilo conductor: **el sistema afirmaba cosas sobre el SAT que
+el SAT no confirmaba**. Casi todo lo de abajo es una variante de eso.
+
+### 1. El Complemento de Pago no timbraba — `CFDI140230`
+
+**Causa.** El nodo iba mal anidado. SW espera:
+
+```json
+"Complemento": { "Any": [ { "pago20:Pagos": { ... } } ] }
+```
+
+Dos detalles que no se deducen del Anexo 20 porque son del convertidor de SW: el
+arreglo intermedio se llama **`Any`** —traduce a `<cfdi:Complemento>` con hijos
+arbitrarios, igual que el `xs:any` del XSD— y la llave lleva **el prefijo del
+namespace**. Sin el prefijo, SW no identifica el complemento y **lo descarta en
+silencio**: el comprobante sale tipo P sin complemento, SW responde 200, y el
+rechazo llega del SAT. Error engañoso: parece que no se envió.
+
+Antes de dar con esto se probaron cinco anidamientos y se leyó un 404 como "el
+CFDI no está en la bóveda" tres veces. **Regla que quedó:** ante un 404 de una
+API externa, descartar primero que la ruta esté mal antes de concluir nada sobre
+los datos.
+
+**Otros tres defectos del mismo comprobante:**
+
+- El `SELECT` de la factura no traía `cfdi_uuid`, así que `IdDocumento` viajaba
+  vacío. La factura estaba bien timbrada; el dato nunca salió de la base.
+- Faltaba el desglose de impuestos, y `ObjetoImpDR` decía "no objeto de impuesto"
+  en facturas que sí lo llevan.
+- La fecha iba en **UTC** y el SAT la valida en hora de México: salía seis horas
+  en el futuro. Lo revelador es que ya existía `fmtFechaSAT()` resolviéndolo —por
+  eso las facturas sí timbraban— pero no estaba exportada, y pagos y NC
+  volvieron a formatear la fecha por su cuenta.
+
+### 2. Los impuestos se derivan de la factura, no se suponen
+
+`pagos20.builder.ts` lee las tasas reales de las partidas y arma traslados,
+retenciones, exentos, `ObjetoImpDR` y los totales por tasa. Antes era 16% fijo:
+funcionaba porque todas las facturas eran al 16%, pero una exenta o con retención
+producía un comprobante que el SAT rechaza al timbrar.
+
+Tres reglas del documento de SW que no se adivinan: en **Exento** no van
+`TasaOCuotaDR` ni `ImporteDR`; `ObjetoImpDR` debe concordar con la presencia del
+nodo `ImpuestosDR`; y los totales tienen nombre fijo por tasa, sin campo
+genérico.
+
+Verificado con `scripts/probar-pagos20.js` — 46 comprobaciones, incluida la
+invariante `BaseDR × tasa == ImporteDR` sobre montos con decimales incómodos.
+
+### 3. Un pago puede liquidar varias facturas
+
+Un depósito sobre tres facturas consumía **tres timbres** y generaba tres
+comprobantes. El SAT admite varios `DoctoRelacionado` en un CFDI tipo P desde
+siempre; el límite era `payments.invoice_id`, una sola columna.
+
+Migración `2026-08-04b`: tabla `payment_invoices` con el desglose, guardando
+parcialidad y saldos **tal como se enviaron al SAT** —recalcularlos después
+mostraría cifras distintas a las del CFDI—.
+
+Reglas que sólo aparecen con varias: `NumParcialidad` es **por factura**, `Monto`
+debe cuadrar con la suma de los `ImpPagado`, y `Totales` suma todos los
+documentos **antes** de redondear.
+
+### 4. Cancelar sólo cambiaba un estado en la base
+
+`cancelPayment` y `cancelCreditNote` hacían `UPDATE ... SET status='CANCELLED'` y
+**nunca llamaban al PAC**. El comentario del código lo admitía: *"en producción
+con PAC real, aquí también invocaríamos el endpoint de cancelación. Por ahora
+solo estado local"* — y ese "por ahora" se quedó.
+
+Comprobado en el portal del SAT: una NC figuraba Cancelada aquí y **Vigente**
+allá. Y como el SAT no deja cancelar un CFDI con comprobantes vivos apuntándole,
+esa NC fantasma **bloqueaba su factura** sin que nada lo explicara.
+
+Los tres módulos mostraban el mismo aviso de éxito, así que desde la pantalla no
+había forma de distinguir una cancelación real de una que sólo movía un renglón.
+
+**Consecuencia de diseño:** el botón de cancelar aparece aunque el comprobante ya
+figure cancelado. Suena contradictorio y es deliberado: existen registros
+marcados así que siguen vigentes ante el SAT, y ocultarlo los dejaría sin
+reparación posible.
+
+### 5. La ruta de cancelación lleva todo en la URL
+
+```
+POST /cfdi33/cancel/{RFC}/{UUID}/{MOTIVO}[/{folioSustitucion}]
+```
+
+Sin cuerpo JSON. El folio de sustitución sólo con motivo `01` — omitido, no
+vacío. Además, el folio se validaba en `pac.service` pero **nunca se pasaba al
+provider**: la validación daba una sensación de rigor que el envío no respaldaba.
+
+### 6. CSD en la base de datos — bloqueaba el lanzamiento
+
+Los `.cer` y `.key` se guardaban como **archivos**. En Render el disco es
+efímero: cada despliegue los borra, la fila conservaba la ruta, y el sistema
+caía a la bóveda del PAC → `CA305 Certificado Inválido`. Tal como estaba, **cada
+actualización dejaba a todas las empresas sin poder timbrar**.
+
+Migración `2026-08-04a`: `csd_cer_data` y `csd_key_data`, base64 del DER cifrado
+con `utils/csd-crypto` (AES-256-GCM). Se guarda base64 en TEXT y no bytes en
+BYTEA porque es literalmente lo que la API del PAC pide, y porque el cifrado ya
+trabaja sobre cadenas.
+
+**El descifrado no existía.** `encryptPassword` vivía dentro de una ruta HTTP sin
+inverso en ninguna parte: la contraseña del sello se guardaba y jamás se leía.
+
+`csd-loader.ts` resuelve la carga en un lugar y **siempre devuelve un motivo
+legible**. Antes el fallback cambiaba de vía **en silencio**, y el `CA305` que
+llegaba al usuario no apuntaba a la causa: averiguarlo costó una tarde.
+
+### 7. Consulta de estatus al SAT
+
+Botón **Consultar** en el modal de cancelación. Servicio SOAP del SAT, no de SW.
+El detalle que más se equivoca: en la expresión impresa, `fe` son los **últimos
+ocho caracteres del sello**, no el sello completo.
+
+Traduce la respuesta a una frase entendible sin conocer el Anexo 20 — en
+particular **"En proceso"**, que no es un error sino una solicitud ya aceptada, y
+donde reintentar sólo enturbia el diagnóstico.
+
+### 8. El XML fabricado
+
+Cuando `xml_content` venía vacío, los endpoints de descarga **construían** un XML
+con los datos de la tabla: mismo namespace, misma estructura, **sin
+TimbreFiscalDigital**. Indistinguible del bueno sin abrirlo y buscar el nodo.
+Quien lo archivara como respaldo fiscal se enteraría en una auditoría. Ahora se
+niega la descarga y se explica por qué.
+
+`scripts/auditar-comprobantes.js` consulta cada folio al SAT y clasifica en
+`ok` / `FANTASMA` / `DESFASADO` / `duda`. **No borra nada**: qué hacer con cada
+uno es decisión fiscal, no técnica.
+
+### 9. Multi-empresa
+
+`users.company_id` era una columna: un correo pertenecía a UNA empresa. Migración
+`2026-08-04c` con `user_companies`; la empresa activa pasa a ser **una elección
+de la sesión**.
+
+**El grupo de trabajo vive en la tabla puente**, y no es un detalle: la misma
+persona puede ser de Ventas en una empresa y de Tesorería en otra. Colgado del
+usuario, asignarle una segunda le daría ahí permisos que no le tocan.
+
+Lo delicado está en una línea: `cambiarDeEmpresa` valida la pertenencia **contra
+la tabla** antes de emitir el token.
+
+**Un defecto propio, corregido el mismo día:** al cambiar se reemplazaba el token
+pero no el usuario guardado, y el store lo persiste. El selector volvía a marcar
+la empresa vieja y el guard impedía regresar. Peor que atorarse: el token sí
+llevaba la nueva, así que los datos cambiaban por debajo mientras el encabezado
+decía otra cosa.
+
+Pantallas: empresa activa y selector en el Dashboard, tarjetas de las empresas
+administradas en lugar de las listas de recientes, y **Accesos por empresa** en
+PLATAFORMA — con el contador en cero marcado en ámbar, porque un usuario sin
+empresas no puede entrar y ese estado sólo se descubría cuando reportaba que no
+podía trabajar.
+
+### 10. Comercial y de presentación
+
+- Plan Empresarial a **$1,800 + IVA**.
+- **Los timbres no se acumulan** — cláusula 2.5 del contrato, el FAQ y la tarjeta
+  del plan. Contrato a versión `2026-08-03.1`. Se marcó como superado
+  `DISENO_FACTURACION_PLANES.md`, que documentaba *rollover infinito*: dos
+  documentos internos contradiciéndose sobre cuántos timbres le tocan a un
+  cliente no es un detalle de redacción.
+- Diez módulos que existían y no se anunciaban en la landing, empezando por
+  **Carta Porte** — lo más costoso del sistema, invisible para quien lo evaluaba.
+- Manual: **el pie se dibujaba dentro del margen inferior y PDFKit agregaba una
+  página por cada una**. De 22 hojas salían 58, con la numeración corrida. Yo
+  había visto ese dato —58 contra 20— y lo expliqué como artefacto de la
+  herramienta de medición en vez de tirar del hilo. Ahora 22 páginas, ninguna
+  vacía, tipografía +2pt e iconos reales de lucide en vez de imitaciones.
+- Las 8 herramientas de hcgm.com.mx con logo, colores y tipografía del sitio, y
+  botón de regreso. Capa compartida (`hcgm-tool.css` + `.js`) en vez de tocar
+  6,444 líneas con aritmética fiscal dentro.
+- Captura de la prima de riesgo: era `type="number"`, que en español muestra y
+  exige **coma**, y se reformateaba en cada tecla — teclear `15` era imposible
+  porque el `1` se volvía `1.0000` antes del `5`.
+
+### Errores propios que conviene no repetir
+
+1. **Leer un 404 como problema de datos** cuando puede ser la ruta. Tres veces.
+2. **Poner una comprobación en una rama que el caso a comprobar no recorre** — el
+   bloqueo del MOCK quedó dentro de un `if` que el provider MOCK nunca entra.
+   Segunda vez en el proyecto.
+3. **Descartar un dato de verificación porque no cuadraba con lo esperado** — las
+   58 páginas del manual.
+4. **Afirmar sin verificar**: dije que un usuario podía tener varias empresas y
+   que el constructor soportaba pagos multi-factura. Ninguna de las dos era
+   cierta.
+5. **Compilar el frontend sin `VITE_API_BASE`**, dejando el ERP sin backend.
+   `npm run build:hosting` ya existía y estaba documentado; no lo leí.
+
+### Estado al cierre
+
+Los cuatro comprobantes —factura, complemento de pago, nota de crédito y
+cancelación— timbran contra el SAT. Queda una cancelación **en proceso** del lado
+del SAT, esperando su plazo de 72 horas.
