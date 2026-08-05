@@ -163,6 +163,7 @@ export function Layout() {
               <NavItem to="/admin/packages"  icon={<Emoji3D e="💳" />} accent="violet"  label="Paquetes fiscales"     open={sidebarOpen} />
               <NavItem to="/admin/billing"   icon={<Emoji3D e="💰" />} accent="emerald" label="Facturación y consumo" open={sidebarOpen} />
               <NavItem to="/admin/prepaid"   icon={<Emoji3D e="🛒" />} accent="fuchsia" label="Compras prepago"       open={sidebarOpen} />
+              <NavItem to="/admin/promocion" icon={<Emoji3D e="🎁" />} accent="amber"   label="Promoción y cobros"    open={sidebarOpen} />
               {/* Aquí estaban "Importar XML" y "Proveedores". No pertenecen a
                   este bloque: PLATAFORMA administra la CUENTA —empresas,
                   usuarios, paquetes, facturación—, mientras que importar un XML
