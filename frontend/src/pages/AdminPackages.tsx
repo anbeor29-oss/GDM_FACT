@@ -77,7 +77,10 @@ const PLANS: StampPlan[] = [
     code: 'PKG_500',
     name: 'Empresarial',
     monthlyStamps: 500,
-    monthlyFeeMXN: 1399,
+    /* Vigente desde 2026-08-05. Es sólo el valor de respaldo mientras carga el
+     * catálogo, pero tiene que estar bien: un respaldo que miente se ve igual
+     * que el dato bueno durante el segundo que dura. */
+    monthlyFeeMXN: 1800,
     extraStampMXN: 2.0,
     color: 'text-violet-700',
     ring: 'border-violet-200',
