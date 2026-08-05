@@ -332,7 +332,12 @@ export function PublicHomePage() {
                 <span className="text-3xl font-bold text-slate-900">{p.price}</span>
                 {' '}
                 <span className="text-sm text-slate-500">
-                  MXN {p.stamps !== null ? '/ mes' : 'pay-per-stamp'}
+                  {/* En Uso libre el precio grande dice "Sin renta", así que
+                      pegarle "MXN pay-per-stamp" salía como "Sin renta MXN
+                      pay-per-stamp" y el renglón se partía a media palabra.
+                      Ahí no va unidad: el precio por timbre ya se explica en
+                      la línea del timbre extra. */}
+                  {p.stamps !== null ? 'MXN / mes' : 'pagas solo lo que timbras'}
                 </span>
               </div>
               <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-4">Precios más IVA</p>
