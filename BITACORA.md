@@ -1610,3 +1610,145 @@ podía trabajar.
 Los cuatro comprobantes —factura, complemento de pago, nota de crédito y
 cancelación— timbran contra el SAT. Queda una cancelación **en proceso** del lado
 del SAT, esperando su plazo de 72 horas.
+
+---
+
+## 2026-08-05 — La oferta de lanzamiento: cobro prepago, prueba gratis y precios
+
+El trabajo del día salió de una decisión comercial —lanzar una promoción para
+conseguir los primeros clientes— y terminó destapando tres defectos que ya
+estaban ahí y que sólo se ven cuando el sistema empieza a cobrarle a alguien
+distinto de uno mismo.
+
+### 1. Prueba de cortesía: 10 timbres, una sola vez, tres empresas
+
+`PKG_TRIAL` en el catálogo de paquetes, para que todo lo que ya sabe leer
+`stamp_packages` lo entienda sin cambios.
+
+**`monthly_stamps = 0` a propósito.** Lo natural era poner 10 ahí y acabar. Pero
+el cierre de mes **repone la dotación de cada paquete**: la prueba se renovaría
+sola y los 10 timbres de cortesía serían 120 al año por empresa. El saldo vive
+en `companies.trial_stamps_left`, que nadie repone.
+
+`trial_granted_at` no se borra nunca. Sin él, bastaría cambiar de paquete y
+volver a la prueba para tener timbres gratis sin fin.
+
+Al agotarse **se bloquea sólo el timbrado**. Capturar, importar XML, mover
+inventario y consultar siguen funcionando. Apagarle el sistema entero a alguien
+que está evaluando lo deja sin ver lo que ya capturó, y esa conversación no
+termina en venta.
+
+El cupo de 3 se cuenta **dentro de la transacción y con la fila bloqueada**: dos
+altas simultáneas contando "2 de 3" dejarían 4 empresas.
+
+### 2. Cobro prepago con prorrateo
+
+Quien contrata el día 15 paga los días que faltan y recibe los timbres en la
+misma proporción. **Se prorratean los dos.** Cobrar la mitad y entregar el
+paquete completo suena generoso hasta que alguien contrata el día 28, timbra 100
+y no vuelve — y esos timbres cuestan dinero real con el PAC.
+
+El día de alta se cobra (día 15 de un mes de 31 = 17 días, no 16), y los timbres
+se redondean hacia arriba: la diferencia es de un timbre y discutirlo con un
+cliente nuevo cuesta más que regalarlo.
+
+**El cierre mensual tenía que enterarse.** Si no, hacía dos cosas mal a la vez:
+volver a cobrar la renta completa de un mes ya pagado, y dar el cupo de 100
+timbres a quien pagó por 50. Ahora busca el `plan_charge` PAGADO del periodo y
+de ahí saca el cupo real y una renta de cero. Los excedentes sí se cobran: el
+prepago cubre el paquete contratado, no lo que se timbre de más.
+
+Los timbres del prorrateo **no se copian** a `prepaid_stamp_balance`. Esa bolsa
+es exclusiva de FLEX; para un PKG_100 el saldo se quedaría ahí sin que nadie lo
+mirara mientras el cierre daría el cupo completo. Dos cifras para lo mismo y
+ninguna correcta.
+
+### 3. El aviso y la factura, en el orden del dinero
+
+```
+contratar → aviso de cobro (sin CFDI) → entra el pago → CFDI + servicio liberado
+```
+
+La factura **no** se emite al avisar. Siendo prepago, un CFDI emitido antes de
+cobrar queda **vigente ante el SAT** si el cliente nunca paga, y hay que
+cancelarlo — con su trámite y su ventana de 72 horas.
+
+El aviso desglosa el prorrateo en el cuerpo del correo, porque es LA pregunta de
+quien lo recibe: por qué $218.81 y no $399. Sin eso, la respuesta la da alguien
+por teléfono.
+
+`notified_at` se marca **sólo si el envío salió**: es la diferencia entre un
+cliente que no ha pagado y uno que nunca supo que debía pagar, y desde la lista
+de pendientes esas dos cosas se ven igual si no se distinguen.
+
+El CFDI se emite **fuera de la transacción del pago**. Timbrar habla con el PAC
+por red: dentro, un PAC lento mantendría abierta la transacción que libera el
+servicio y un PAC caído impediría cobrar. Tampoco lanza — si falla, el pago ya
+quedó y el cliente ya trabaja. Idempotente por `invoice_id`: sin eso, dos clics
+en "registrar pago" gastarían dos timbres y mandarían dos facturas del mismo
+cobro. Va como **PUE**, no PPD: el dinero ya entró.
+
+### 4. La base cobraba distinto de lo que anunciaba la página
+
+La landing y el contrato decían Empresarial **$1,800** y timbre suelto **$4.99**.
+`stamp_packages` seguía en **$1,399** y **$2.00**, los precios de julio.
+
+No era presentación: `stamp_packages` es lo que **lee el cierre mensual**. Un
+cliente en Empresarial se habría facturado a $1,399 —$401 menos cada mes— y los
+timbres extra de Uso libre a menos de la mitad. La página vendía una cosa y el
+sistema cobraba otra, y el primero en notarlo habría sido el cliente.
+
+El $4.99 ya estaba bien en `PREPAID_UNIT_PRICE_MXN` y mal en la tabla: dos
+números para el mismo precio, que es justo como se separan.
+
+No se editó la semilla de julio —ya corrió en producción y su registro dice qué
+precios estuvieron vigentes y desde cuándo— ni se recalculó `monthly_invoicing`
+ya emitido: cada fila registra lo que se cobró cuando se cobró.
+
+### 5. El paquete del alta no se guardaba. Nunca.
+
+El alta escribía `billing_plan`, `cap_timbres` y `monthly_fee`, pero **jamás**
+`stamp_package_code`. Toda empresa nueva se quedaba con el valor por omisión de
+la columna —PKG_100— sin importar qué eligiera el operador.
+
+Lo que lo hacía invisible: **la pantalla mostraba el plan correcto**, porque lee
+las otras columnas. El cierre mensual lee el paquete por JOIN. Una empresa dada
+de alta como Empresarial se habría facturado como Esencial. Dos verdades, y la
+falsa era la que se veía.
+
+Se aceptan los dos nombres del campo (`planCode` y `stampPackageCode`): leer sólo
+uno hace caer en el PKG_100 **en silencio**, que es exactamente como este defecto
+sobrevivió.
+
+### 6. La exención: un mecanismo que yo mismo abrí de más
+
+`billing_exempt` la construí como bandera editable desde la pantalla,
+argumentando que así se podría marcar otra empresa del grupo sin redesplegar.
+**Esa comodidad era el defecto.** Una empresa exenta no se factura: si eso se
+activa con un clic, un error de fila deja de cobrarle a un cliente de pago y el
+cierre mensual lo salta en silencio, mes tras mes, sin que nada lo delate.
+
+Antonio lo señaló y tenía razón. Quedó cerrado por partida doble: fuera el
+endpoint, y un `CHECK` en la base —`chk_billing_exempt_solo_hcgm`— que sólo
+admite `GHC1707275Y0` y `SAJ10120859A`. Ni un `UPDATE` directo desde consola
+puede exentar a una tercera. Agregar otra exige una migración nueva; que cueste
+un poco es el punto.
+
+### Errores propios de esta jornada
+
+1. **Construir una puerta que nadie pidió**, razonando desde la comodidad del
+   operador en vez de desde lo que pasa si se usa mal. La exención.
+2. **Precios escritos a mano en la pantalla** — puse `$1,399` en el selector de
+   paquetes el mismo día que Empresarial subió a `$1,800`. Ahora el importe lo
+   da el servidor leyendo `stamp_packages`, que es lo que de verdad se cobra.
+3. **Un envoltorio que borraba sus propios mensajes**: `correr()` pisaba el aviso
+   con la cadena vacía justo en las acciones que arman su propio texto — o sea,
+   en las que reportan si el correo salió y si la factura se timbró.
+
+### Estado al cierre
+
+La promoción, el cobro prepago, el aviso y la emisión del CFDI están desplegados
+en producción y en NEXO. **Nada de esto se ha ejercitado con un cliente real**:
+la primera vez conviene hacerla con una empresa de prueba, no con el primer
+cliente que llegue. `PLATFORM_COMPANY_RFC` debe estar en Render con
+`GHC1707275Y0` — sin esa variable el CFDI se salta en silencio.

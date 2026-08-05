@@ -4,10 +4,12 @@ Sistema de **facturación electrónica CFDI 4.0** para México **con Complemento
 Backend Node/Express + TypeScript, frontend React + Vite, PostgreSQL 16. Integrado con
 **SW Sapien** como PAC para timbrado real.
 
-**Estado** (al 2026-08-04):
+**Estado** (al 2026-08-05):
 - 🟢 **Producción** — FACTURANDO REAL con **GRUPO HCGM** desde 2026-07-17 · SW Sapien production.
 - 🟢 **Los cuatro comprobantes timbran** — factura (I), complemento de pago (P), nota de crédito (E) y cancelación. Hasta el 08-03 sólo la factura llegaba de verdad al SAT.
 - 🟢 **Multi-empresa** — un correo puede administrar varios RFC y cambiar entre ellos sin cerrar sesión.
+- 🟢 **Cobro a clientes** — prueba de cortesía, contratación prorrateada, aviso por correo y CFDI de HCGM al pagar. En PLATAFORMA → *Promoción y cobros*.
+- 🟡 **Sin estrenar con un cliente real** — el circuito de cobro está desplegado pero nunca se ha corrido de punta a punta. La primera vez, con una empresa de prueba.
 - 🟡 **`hcgm.com.mx/erp`** — el hosting se actualiza con `npm run build:hosting`, que compila con `base=/erp/` y `VITE_API_BASE` al backend de Render. El `npm run build` normal NO sirve aquí: deja el ERP sin backend.
 
 ---
@@ -44,6 +46,43 @@ el portal del SAT, no contra la pantalla.
 SAT valida contra `America/Mexico_City`. Usar `fmtFechaSAT()` de
 `build-cfdi-json.service` — existe desde el principio y aun así pagos y NC
 volvieron a formatear por su cuenta, saliendo seis horas en el futuro.
+
+## 💰 Lo que hay que saber antes de tocar el cobro
+
+**El precio vive en `stamp_packages`, y esa tabla es la que cobra.** La landing,
+el contrato y el selector del alta son texto; el cierre mensual lee la tabla. El
+2026-08-05 llevaban semanas discrepando —Empresarial a $1,800 en la página y
+$1,399 en la base— y el primero en notarlo habría sido el cliente. Si cambia un
+precio, cambia ahí primero.
+
+**El cobro es prepago, y el orden importa:**
+
+```
+contratar → aviso de cobro (sin CFDI) → entra el pago → CFDI + servicio liberado
+```
+
+La factura **no** se emite al avisar: un CFDI emitido antes de cobrar queda
+vigente ante el SAT si el cliente nunca paga, y hay que cancelarlo.
+
+**El primer mes va prorrateado y el cierre tiene que enterarse.** `close-month`
+busca el `plan_charge` PAGADO del periodo; de ahí saca el cupo real y pone la
+renta en cero. Sin eso volvería a cobrar un mes ya pagado y regalaría el cupo
+completo.
+
+**La prueba de cortesía no es un paquete de 10 timbres mensuales.** Si lo fuera,
+el cierre de mes repondría la dotación y la cortesía sería infinita. El saldo
+está en `companies.trial_stamps_left` y **nadie lo repone**.
+
+**La exención de facturación es de dos RFC y de nadie más.** `GHC1707275Y0` y
+`SAJ10120859A`. No hay endpoint para marcar otra, y el `CHECK`
+`chk_billing_exempt_solo_hcgm` lo impide incluso desde una consola. Una empresa
+exenta no se factura: si eso se activa con un clic, se deja de cobrar a un
+cliente de pago **en silencio**. Agregar una tercera exige una migración nueva,
+y es a propósito.
+
+**`PLATFORM_COMPANY_RFC` tiene que estar en Render** con el RFC de HCGM. Sin esa
+variable el CFDI de cobro **se salta sin fallar** y avisa que la factura se hace
+a mano — es fácil no enterarse.
 
 ## 🧾 Verificaciones antes de dar por bueno un cambio
 
