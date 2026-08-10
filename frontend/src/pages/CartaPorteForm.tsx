@@ -978,8 +978,18 @@ export function CartaPorteFormPage() {
                                    disabled={!d.tipoDocumento} placeholder={d.tipoDocumento ? '' : 'Elige primero el tipo'} />
                           </Field>
                         )}
-                        <Field label="RFC importador">
-                          <input value={d.rfcImpo} onChange={e => setDoc({ rfcImpo: e.target.value.toUpperCase() })} maxLength={13} className="input font-mono" />
+                        <Field label="ID fiscal del importador">
+                          {/* No se fuerza el formato mexicano: en una
+                              importación el importador suele ser extranjero y
+                              su identificación tiene otra forma en cada país
+                              —EIN, BN, VAT—. Se sigue subiendo a mayúsculas
+                              porque todas esas claves son mayúsculas, pero no
+                              se rechaza nada por no parecer un RFC. */}
+                          <input value={d.rfcImpo}
+                                 onChange={e => setDoc({ rfcImpo: e.target.value.toUpperCase().replace(/\s+/g, '') })}
+                                 maxLength={13} className="input font-mono"
+                                 placeholder="RFC, EIN, VAT…"
+                                 title="RFC si es mexicano; si no, el identificador fiscal de su país (EIN, BN, VAT…)" />
                         </Field>
                         <div className="flex items-end h-full pb-2">
                           <button onClick={() => updateMer(i, {
@@ -1560,6 +1570,21 @@ export function CartaPorteFormPage() {
           }}
         />
       )}
+      {/* Guardar, al final de todo. */}
+      <div className="mt-8 pt-5 border-t border-slate-200 flex items-center justify-between">
+        <p className="text-xs text-slate-500">
+          Revisa las secciones de arriba antes de guardar. El validador previo al PAC
+          marcará lo que falte.
+        </p>
+        <button
+          onClick={() => save.mutate()}
+          disabled={save.isPending}
+          className="inline-flex items-center gap-2 px-6 py-3 bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 text-white rounded-lg text-sm font-medium shadow-sm"
+        >
+          <Save size={18} /> {save.isPending ? 'Guardando…' : 'Guardar Carta Porte'}
+        </button>
+      </div>
+
       {figPicker !== null && (
         <TemplatePicker
           title="Operadores / Figuras de transporte"

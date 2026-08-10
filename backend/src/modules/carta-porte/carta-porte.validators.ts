@@ -310,8 +310,20 @@ function parseDocAduanera(d: any, p: string): DocAduanera {
     if (numPedimento) throw new ValidationError(`${p}: solo el tipo Pedimento lleva numPedimento`);
   }
 
-  const rfcImpo = str(d?.rfcImpo, `${p}.rfcImpo`, 13);
-  if (rfcImpo && !RFC_RE.test(rfcImpo)) throw new ValidationError(`${p}.rfcImpo inválido`);
+  /* El identificador fiscal del importador NO se valida con las reglas de
+   * México.
+   *
+   * En una importación el importador suele ser extranjero, y su identificación
+   * fiscal tiene otra forma en cada país: EIN de nueve dígitos en Estados
+   * Unidos, BN de nueve en Canadá, VAT con prefijo de país en Europa. Exigirle
+   * el patrón del RFC mexicano hacía imposible capturar precisamente el caso
+   * para el que existe el campo, y el error decía "rfcImpo inválido" sin
+   * explicar que el problema era el país.
+   *
+   * Se conserva el límite de 13 caracteres porque es el que marca el Anexo 20
+   * para el atributo, y se limpian espacios: lo demás lo valida el SAT, que es
+   * quien conoce las reglas de cada país. */
+  const rfcImpo = str(d?.rfcImpo, `${p}.rfcImpo`, 13)?.replace(/\s+/g, '');
 
   return { tipoDocumento: tipo, numPedimento, identDocAduanero: ident, rfcImpo };
 }
