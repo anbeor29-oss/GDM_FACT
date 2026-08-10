@@ -32,12 +32,47 @@ import { isValidRFC, isValidEmail, isValidPostalCode, isValidStateCode } from '.
  */
 const SALDO_SQL = `
   COALESCE((
-    SELECT SUM(i.total - COALESCE((
-             SELECT SUM(p.payment_amount)
-               FROM payments p
-              WHERE p.invoice_id = i.id
-                AND p.document_status = 'STAMPED'
-           ), 0))
+    SELECT SUM(
+             i.total
+             /* Lo pagado. Sale de payment_invoices, que es donde vive el
+              * desglose desde que un pago puede liquidar VARIAS facturas.
+              *
+              * Antes se leía payments.invoice_id, que en un pago multi-factura
+              * apunta sólo a la PRIMERA —"por compatibilidad", dice el propio
+              * código de pagos—. El total del cliente salía bien de milagro
+              * (el importe completo se restaba una vez), pero factura por
+              * factura era falso: la primera quedaba con saldo negativo y las
+              * demás debiendo entero.
+              *
+              * El COALESCE al final cubre los pagos viejos, anteriores a la
+              * tabla puente, que sólo existen en payments.invoice_id. */
+             - COALESCE((
+                 SELECT SUM(pi.monto)
+                   FROM payment_invoices pi
+                   JOIN payments p ON p.id = pi.payment_id
+                  WHERE pi.invoice_id = i.id
+                    AND p.document_status = 'STAMPED'
+                    AND p.deleted_at IS NULL
+               ), (
+                 SELECT SUM(p.payment_amount)
+                   FROM payments p
+                  WHERE p.invoice_id = i.id
+                    AND p.document_status = 'STAMPED'
+                    AND p.deleted_at IS NULL
+               ), 0)
+             /* Las notas de crédito NO se restaban.
+              *
+              * Una NC reduce lo que el cliente debe —para eso existe—, así que
+              * sin esto el sistema le seguía cobrando un descuento que ya se le
+              * había concedido. Sólo cuentan las timbradas: una NC en borrador
+              * no ampara nada y una cancelada dejó de existir. */
+             - COALESCE((
+                 SELECT SUM(cn.total)
+                   FROM credit_notes cn
+                  WHERE cn.invoice_id = i.id
+                    AND cn.status = 'STAMPED'
+               ), 0)
+           )
       FROM invoices i
      WHERE i.customer_id = c.id
        AND i.status = 'STAMPED'
@@ -235,7 +270,19 @@ export async function listCustomers(
   // Calculándolo, el listado dice la verdad sin depender de que nadie olvide
   // una llamada.
   const customersResult = await query<Customer>(
-    `SELECT c.*, ${SALDO_SQL} AS balance
+    /* La columna calculada se llama `saldo_calculado`, no `balance`.
+     *
+     * `c.*` YA trae un `balance`: el de la tabla, que sólo se refresca si
+     * alguien llama updateCustomerBalance() y por eso está viejo. Al aliasar la
+     * calculada con el MISMO nombre, la respuesta traía dos columnas `balance`
+     * y cuál gana depende del driver — no es algo que deba decidir lo que ve el
+     * usuario.
+     *
+     * Se resuelve con un nombre distinto y una asignación explícita al armar la
+     * respuesta (abajo). Enumerar las columnas una por una para excluir la
+     * vieja también servía, pero se rompe en silencio cada vez que alguien
+     * agregue un campo — de hecho me equivoqué al intentarlo. */
+    `SELECT c.*, ${SALDO_SQL} AS saldo_calculado
        FROM customers c ${whereClause}
       ORDER BY ${sortField === 'balance' ? SALDO_SQL : sortField} ${sortOrder}
       LIMIT $${paramCount} OFFSET $${paramCount + 1}`,
@@ -251,7 +298,13 @@ export async function listCustomers(
   const total = parseInt(totalResult.rows[0].count, 10);
 
   return {
-    customers: customersResult.rows,
+    /* `balance` se pisa con el calculado. La columna de la tabla viaja en la
+     * fila pero está vieja; quien consuma esto tiene que ver el saldo real sin
+     * saber que existen dos. */
+    customers: customersResult.rows.map((r: any) => ({
+      ...r,
+      balance: Number(r.saldo_calculado ?? 0),
+    })),
     total,
   };
 }
