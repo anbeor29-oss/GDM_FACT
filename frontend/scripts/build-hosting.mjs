@@ -65,8 +65,20 @@ const htaccess = `# GDM_FAC ERP — SPA React servida desde ${BASE_PATH}
   <FilesMatch "\\.(js|css|woff2?|png|jpe?g|svg|webp)$">
     Header set Cache-Control "public, max-age=31536000, immutable"
   </FilesMatch>
-  <FilesMatch "index\\.html$">
-    Header set Cache-Control "no-cache"
+  # index.html y version.json NUNCA se guardan.
+  #
+  # "no-cache" ya obligaba a revalidar, pero entre proxies y el caché propio del
+  # navegador seguía llegando la copia vieja — y con un index.html viejo se
+  # carga el bundle viejo, que sigue existiendo porque los despliegues no borran
+  # los anteriores. El usuario ve el sistema de la semana pasada sin ninguna
+  # señal de que algo va mal.
+  #
+  # "no-store" es más duro: obliga a bajarlos siempre. Son 3 KB y un JSON de una
+  # línea, un costo irrelevante al lado de trabajar sobre una versión que ya no
+  # existe.
+  <FilesMatch "^(index\\.html|version\\.json)$">
+    Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    Header set Pragma "no-cache"
   </FilesMatch>
 </IfModule>
 `;
