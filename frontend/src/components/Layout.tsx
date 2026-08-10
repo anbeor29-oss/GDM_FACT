@@ -103,7 +103,37 @@ export function Layout() {
                     con drop-shadow para look moderno. Usuarios queda oculto en
                     esta versión (V2 se enfoca en facturación + CP). */}
                 <NavItem to="/dashboard"    icon={emoji3D('🏠')} accent="sky"     label="Dashboard"        open={sidebarOpen} />
-                {show('invoices')     && <NavItem to="/invoices"     icon={emoji3D('🧾')} accent="amber"   label="Facturas"         open={sidebarOpen} />}
+                {/* FACTURAS COMO AGRUPADOR.
+                    Los cinco renglones que colgaban sueltos —facturas, notas de
+                    crédito, complementos de pago, clientes y monedas— son partes
+                    del MISMO ciclo: se factura, se corrige, se cobra, y todo eso
+                    ocurre contra un cliente y en una moneda. Sueltos, el menú se
+                    leía como una lista de pantallas sin relación y había que
+                    recordar en cuál estaba cada cosa.
+                    El grupo abre en Facturas, que es a donde se entra casi
+                    siempre; el resto queda a un clic. */}
+                {show('invoices')     && (
+                  <NavGroup
+                    to="/invoices"
+                    icon={emoji3D('🧾')}
+                    label="Facturas"
+                    accent="amber"
+                    open={sidebarOpen}
+                    pathPrefix="/invoices"
+                    children={[
+                      { to: '/invoices',             icon: emoji3D('🧾'), label: 'Facturas' },
+                      ...(show('credit_notes') ? [
+                        { to: '/credit-notes',       icon: emoji3D('📉'), label: 'Notas de Crédito' },
+                        { to: '/payments',           icon: emoji3D('💵'), label: 'Complementos de Pago' },
+                      ] : []),
+                      ...(show('customers') ? [
+                        { to: '/customers',          icon: emoji3D('👥'), label: 'Clientes' },
+                      ] : []),
+                      { to: '/tipos-de-cambio',      icon: emoji3D('🪙'), label: 'Tipos de cambio' },
+                      { to: '/diferencia-cambiaria', icon: emoji3D('⚖️'), label: 'Diferencia cambiaria' },
+                    ]}
+                  />
+                )}
                 {show('invoices') && (
                   <NavGroup
                     to="/carta-porte"
@@ -121,26 +151,9 @@ export function Layout() {
                     ]}
                   />
                 )}
-                {show('credit_notes') && <NavItem to="/credit-notes" icon={emoji3D('📉')} accent="rose"    label="Notas de Crédito" open={sidebarOpen} />}
-                {show('credit_notes') && <NavItem to="/payments"     icon={emoji3D('💵')} accent="emerald" label="Complementos de Pago" open={sidebarOpen} />}
                 {show('products')     && <NavItem to="/products"     icon={emoji3D('📦')} accent="fuchsia" label="Productos"        open={sidebarOpen} />}
-                {show('customers')    && <NavItem to="/customers"    icon={emoji3D('👥')} accent="emerald" label="Clientes"         open={sidebarOpen} />}
                 {show('invoices')     && <NavItem to="/xml-super-import" icon={emoji3D('📥')} accent="violet"  label="Lector de XML"    open={sidebarOpen} />}
                 {show('reports')      && <NavItem to="/reports"      icon={emoji3D('📊')} accent="violet"  label="Reportes"         open={sidebarOpen} />}
-                {show('invoices')     && (
-                  <NavGroup
-                    to="/tipos-de-cambio"
-                    icon={emoji3D('💱')}
-                    label="Monedas"
-                    accent="emerald"
-                    open={sidebarOpen}
-                    pathPrefix="/tipos-de-cambio"
-                    children={[
-                      { to: '/tipos-de-cambio',      icon: emoji3D('🪙'), label: 'Tipos de cambio' },
-                      { to: '/diferencia-cambiaria', icon: emoji3D('⚖️'), label: 'Diferencia cambiaria' },
-                    ]}
-                  />
-                )}
                 {user?.role === 'ADMIN' && <NavItem to="/contract"   icon={emoji3D('📜')} accent="sky"     label="Contrato"         open={sidebarOpen} />}
                 {/* "Datos de la empresa" ya vive en el modal del emisor
                     (top bar → botón DATOS DE MI EMPRESA), incluye el
