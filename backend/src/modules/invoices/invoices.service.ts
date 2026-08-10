@@ -382,7 +382,16 @@ export async function listInvoices(
                                      AND document_status != 'CANCELLED'), 0)
                       - COALESCE((SELECT SUM(total) FROM credit_notes
                                    WHERE invoice_id = i.id AND deleted_at IS NULL AND status != 'CANCELLED'), 0)
-                    )::numeric AS balance
+                    )::numeric AS balance,
+            /* ¿Esta factura lleva Carta Porte?
+             *
+             * Se resuelve en el listado y no consultando factura por factura:
+             * la pantalla necesita el dato para TODAS las filas a la vez, y
+             * pedirlo una por una serían tantas peticiones como renglones.
+             *
+             * EXISTS y no un JOIN: sólo interesa si hay o no, y un JOIN
+             * duplicaría la factura si algún día llegara a tener dos. */
+            EXISTS (SELECT 1 FROM carta_porte cp WHERE cp.invoice_id = i.id) AS tiene_carta_porte
      FROM invoices i
      JOIN customers c ON i.customer_id = c.id
      ${whereClause}

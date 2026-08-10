@@ -79,6 +79,11 @@ export interface Invoice {
   pdf_url?: string;
   is_stamped?: boolean;
   customer_name?: string;
+  /** Moneda del CFDI (MXN, USD, EUR…). La lista la usa para la bandera. */
+  currency?: string | null;
+  /** Si la factura lleva complemento Carta Porte. Lo calcula el listado con un
+   *  EXISTS; sirve para pintar su icono en rojo sin abrir cada factura. */
+  tiene_carta_porte?: boolean;
 }
 
 export interface InvoiceItem {
