@@ -32,14 +32,6 @@ export function AdminBillingPage() {
   const [closingBusy, setClosingBusy] = useState(false);
   const [closeResult, setCloseResult] = useState<any>(null);
 
-  if (user?.role !== 'SUPER_ADMIN') {
-    return (
-      <div className="bg-amber-50 border border-amber-200 text-amber-900 p-6 rounded-lg">
-        <p className="font-semibold mb-1">Acceso restringido</p>
-        <p className="text-sm">Esta sección requiere rol <b>SUPER_ADMIN</b>. Tu rol: <b>{user?.role}</b>.</p>
-      </div>
-    );
-  }
 
   const currentQ = useQuery({
     queryKey: ['admin-billing-current'],
@@ -105,6 +97,28 @@ export function AdminBillingPage() {
     .filter((h: any) => h.status !== 'CANCELLED')
     .reduce((s: number, h: any) => s + Number(h.total_mxn || 0), 0);
   const pendientes = history.filter((h: any) => h.status === 'PENDING' || h.status === 'INVOICED').length;
+
+  /* El guard de rol va DESPUÉS de los hooks, no antes.
+   *
+   * Estaba arriba, y eso lo convertía en un `return` que se saltaba los
+   * useQuery/useMutation de abajo. React exige que los hooks se llamen siempre
+   * en el mismo orden: si `user` vale undefined por un render —el store es
+   * persistido y se rehidrata, y al cambiar de empresa se reemplaza— el
+   * siguiente render llama MENOS hooks, React pierde la correspondencia entre
+   * estado y componente y descarta el subárbol para volver a montarlo.
+   *
+   * Al remontar, el valor capturado sobrevive porque vive en el estado del
+   * modal, pero el <input> del DOM ya es otro: el foco se queda en el que dejó
+   * de existir. Es el "escribo una letra y se me va el foco".
+   */
+  if (user?.role !== 'SUPER_ADMIN') {
+    return (
+      <div className="bg-amber-50 border border-amber-200 text-amber-900 p-6 rounded-lg">
+        <p className="font-semibold mb-1">Acceso restringido</p>
+        <p className="text-sm">Esta sección requiere rol <b>SUPER_ADMIN</b>. Tu rol: <b>{user?.role}</b>.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
