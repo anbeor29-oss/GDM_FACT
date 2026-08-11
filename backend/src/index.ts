@@ -60,6 +60,15 @@ async function bootstrap() {
       logger.warn(`No se pudo registrar exchange-rate-cron: ${e.message}`);
     }
 
+    // Auditoría: estado de los CFDI ante el SAT cada 72 h
+    // (se apaga con ENABLE_AUDITORIA_CRON=false)
+    try {
+      const { registerAuditoriaCron } = await import('./jobs/auditoria-cron');
+      registerAuditoriaCron();
+    } catch (e: any) {
+      logger.warn(`No se pudo registrar auditoria-cron: ${e.message}`);
+    }
+
     // Graceful shutdown
     const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}, shutting down gracefully...`);

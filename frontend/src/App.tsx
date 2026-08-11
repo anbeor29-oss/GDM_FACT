@@ -14,6 +14,7 @@ import { NewInvoicePage } from '@/pages/NewInvoice';
 import { CustomersPage } from '@/pages/Customers';
 import { ProductsPage } from '@/pages/Products';
 import { ReportsPage } from '@/pages/Reports';
+import { AuditoriaPage } from '@/pages/Auditoria';
 import { CreditNotesPage } from '@/pages/CreditNotes';
 import PaymentsPage from '@/pages/Payments';
 import { AdminPackagesPage } from '@/pages/AdminPackages';
@@ -154,6 +155,7 @@ export function App() {
             <Route path="payments" element={<ModuleRoute module="credit_notes"><PaymentsPage /></ModuleRoute>} />
             <Route path="customers"    element={<ModuleRoute module="customers"><CustomersPage /></ModuleRoute>} />
             <Route path="reports"      element={<ModuleRoute module="reports"><ReportsPage /></ModuleRoute>} />
+            <Route path="auditoria"    element={<ModuleRoute module="auditoria"><AuditoriaPage /></ModuleRoute>} />
             {/* Catálogos. Inventarios, compras, tesorería y proveedores NO viven
                 aquí: son del producto ALMACEN (repo GDM_ALMACEN). GDM_FAC es solo
                 facturación. SuppliersPage sigue existiendo, pero SOLO para el

@@ -51,6 +51,7 @@ import cartaPorteLugaresRoutes from './modules/carta-porte/lugares.routes';
 import cartaPorteCatalogosEmpresaRoutes from './modules/carta-porte/catalogos-empresa.routes';
 import cartaPorteImportarXmlRoutes from './modules/carta-porte/importar-xml.routes';
 import cartaPorteMercanciasRoutes from './modules/carta-porte/mercancias.routes';
+import auditoriaRoutes       from './modules/auditoria/auditoria.routes';
 import exchangeRateRoutes    from './modules/exchange-rates/exchange-rate.routes';
 import fxDifferenceRoutes    from './modules/exchange-rates/fx-difference.routes';
 import xmlSuperImportRoutes from './modules/xml-super-import/xml-super-import.routes';
@@ -181,6 +182,7 @@ export function createApp(): Express {
   app.use(`/api/${config.apiVersion}/carta-porte`,     cartaPorteCatalogsRoutes);
   app.use(`/api/${config.apiVersion}`,                 cartaPorteRoutes);
   // ─── Tipos de cambio (Banxico) ─────────────────────────────────────
+  app.use(`/api/${config.apiVersion}/auditoria`,       auditoriaRoutes);
   app.use(`/api/${config.apiVersion}/exchange-rates`,  exchangeRateRoutes);
   app.use(`/api/${config.apiVersion}/fx-difference`,   fxDifferenceRoutes);
   // app.use(`/api/${config.apiVersion}/payments`, paymentRoutes);

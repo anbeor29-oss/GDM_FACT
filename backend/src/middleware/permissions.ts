@@ -27,7 +27,7 @@ export type WorkGroup = 'ADMIN_ALL' | 'VENTAS' | 'ALMACEN' | 'COMPRAS' | 'TESORE
  */
 export type ModuleKey =
   | 'pos' | 'invoices' | 'credit_notes' | 'customers' | 'reports'
-  | 'products';
+  | 'products' | 'auditoria';
 
 /**
  * Módulos permitidos por grupo (dashboard es común, no se lista).
@@ -37,12 +37,12 @@ export type ModuleKey =
 export const GROUP_MODULES: Record<WorkGroup, ModuleKey[]> = {
   ADMIN_ALL: [
     'invoices', 'credit_notes', 'customers', 'reports',
-    'products',
+    'products', 'auditoria',
   ],
   VENTAS:    ['invoices', 'credit_notes', 'customers', 'reports'],
   ALMACEN:   ['products'],
   COMPRAS:   [],
-  TESORERIA: [],
+  TESORERIA: ['auditoria'],
 };
 
 export function groupCanAccess(group: WorkGroup | undefined, mod: ModuleKey): boolean {

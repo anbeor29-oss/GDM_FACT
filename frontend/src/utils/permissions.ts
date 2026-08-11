@@ -10,7 +10,7 @@ export type WorkGroup = 'ADMIN_ALL' | 'VENTAS' | 'ALMACEN' | 'COMPRAS' | 'TESORE
 
 export type ModuleKey =
   | 'dashboard' | 'invoices' | 'credit_notes' | 'customers' | 'reports'
-  | 'products';
+  | 'products' | 'auditoria';
 
 /**
  * dashboard es común a todos los grupos.
@@ -27,12 +27,12 @@ export type ModuleKey =
 export const GROUP_MODULES: Record<WorkGroup, ModuleKey[]> = {
   ADMIN_ALL: [
     'dashboard', 'invoices', 'credit_notes', 'customers', 'reports',
-    'products',
+    'products', 'auditoria',
   ],
   VENTAS:    ['dashboard', 'invoices', 'credit_notes', 'customers', 'reports'],
   ALMACEN:   ['dashboard', 'products'],
   COMPRAS:   ['dashboard'],
-  TESORERIA: ['dashboard'],
+  TESORERIA: ['dashboard', 'auditoria'],
 };
 
 /** Etiquetas legibles de cada grupo (para selectores/tooltips). */
