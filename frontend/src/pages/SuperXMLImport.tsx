@@ -66,8 +66,12 @@ export function SuperXMLImportPage() {
       // · Si receptor NO existe → sugerir CUSTOMER (venta) por default
       setDecisions((d) => ({
         ...d,
-        emisorAs:   data.duplicates.emisor?.exists   ? '' : 'SUPPLIER',
-        receptorAs: data.duplicates.receptor?.exists ? '' : 'CUSTOMER',
+        /* SALVO EN UN RECIBO DE NÓMINA: ahí el receptor es el TRABAJADOR y
+         * esta preselección lo daba de alta como cliente — la plantilla
+         * entera terminaba en el catálogo de clientes. El emisor tampoco es
+         * un proveedor: es la propia empresa. */
+        emisorAs:   data.detection.type === 'CFDI_NOMINA' || data.duplicates.emisor?.exists   ? '' : 'SUPPLIER',
+        receptorAs: data.detection.type === 'CFDI_NOMINA' || data.duplicates.receptor?.exists ? '' : 'CUSTOMER',
         saveNomina: data.detection.type === 'CFDI_NOMINA',
         saveCartaPorte: data.detection.hasCartaPorte,
       }));
@@ -457,7 +461,11 @@ export function SuperXMLImportPage() {
             </div>
           </div>
 
-          {/* Emisor + Receptor con dedup y decisión */}
+          {/* Emisor + Receptor con dedup y decisión.
+              En un recibo de nómina NO se ofrecen: el receptor es el trabajador
+              y el emisor es esta misma empresa. Ofrecer la opción es invitar al
+              error que ya ocurrió — la plantilla dada de alta como clientes. */}
+          {detection.type !== 'CFDI_NOMINA' && (
           <div className="grid grid-cols-2 gap-4">
             <PartyCard
               title="Emisor"
@@ -476,6 +484,7 @@ export function SuperXMLImportPage() {
               onDecision={(v) => setDecisions({ ...decisions, receptorAs: v })}
             />
           </div>
+          )}
 
           {/* Conceptos → productos */}
           {detection.conceptos && detection.conceptos.length > 0 && (
