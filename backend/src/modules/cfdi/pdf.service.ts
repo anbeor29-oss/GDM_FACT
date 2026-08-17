@@ -36,6 +36,7 @@ import { getCompanyLogo } from './logo-cache';
 import {
   drawTimbreFiscal, drawPageNumbers, extractNoCertificado,
   extractTimbreData, buildQrSatPng, drawCancelledWatermark,
+  montoEnLetra, palabraMoneda, sufijoMoneda,
 } from './pdf-helpers';
 
 type PDFDoc = InstanceType<typeof PDFDocument>;
@@ -67,121 +68,20 @@ function fmtDate(d: any): string {
 
 /** Convierte un número a su representación en letras (español MXN).
  *  Soporta hasta 999,999,999.99. Devuelve la forma: "MIL DOSCIENTOS TREINTA Y CUATRO" */
-function numeroALetras(n: number): string {
-  if (!isFinite(n) || n < 0) return 'CERO';
-  const UNIDADES = ['', 'UNO', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE'];
-  const ESPECIALES: Record<number, string> = {
-    10: 'DIEZ', 11: 'ONCE', 12: 'DOCE', 13: 'TRECE', 14: 'CATORCE', 15: 'QUINCE',
-    16: 'DIECISÉIS', 17: 'DIECISIETE', 18: 'DIECIOCHO', 19: 'DIECINUEVE',
-    20: 'VEINTE', 21: 'VEINTIUNO', 22: 'VEINTIDÓS', 23: 'VEINTITRÉS', 24: 'VEINTICUATRO',
-    25: 'VEINTICINCO', 26: 'VEINTISÉIS', 27: 'VEINTISIETE', 28: 'VEINTIOCHO', 29: 'VEINTINUEVE',
-  };
-  const DECENAS = ['', '', '', 'TREINTA', 'CUARENTA', 'CINCUENTA', 'SESENTA', 'SETENTA', 'OCHENTA', 'NOVENTA'];
-  const CENTENAS = ['', 'CIENTO', 'DOSCIENTOS', 'TRESCIENTOS', 'CUATROCIENTOS', 'QUINIENTOS',
-                    'SEISCIENTOS', 'SETECIENTOS', 'OCHOCIENTOS', 'NOVECIENTOS'];
+/* numeroALetras también estaba duplicado y quedó sin uso al mover el importe
+ * con letra a pdf-helpers. Se retira: código muerto que convierte números a
+ * palabras es exactamente el que alguien copia la próxima vez. */
 
-  function hasta999(num: number): string {
-    if (num === 0) return '';
-    if (num === 100) return 'CIEN';
-    if (ESPECIALES[num]) return ESPECIALES[num];
-    let r = '';
-    const c = Math.floor(num / 100);
-    const resto = num % 100;
-    if (c > 0) r += CENTENAS[c];
-    if (resto > 0) {
-      if (r) r += ' ';
-      if (ESPECIALES[resto]) {
-        r += ESPECIALES[resto];
-      } else {
-        const d = Math.floor(resto / 10);
-        const u = resto % 10;
-        if (d > 0) {
-          r += DECENAS[d];
-          if (u > 0) r += ' Y ' + UNIDADES[u]; // solo enlazar con "Y" si hay decena
-        } else if (u > 0) {
-          r += UNIDADES[u];
-        }
-      }
-    }
-    return r;
-  }
-
-  const entero = Math.floor(n);
-  const millones = Math.floor(entero / 1_000_000);
-  const miles = Math.floor((entero % 1_000_000) / 1000);
-  const resto = entero % 1000;
-
-  let palabras = '';
-  if (millones > 0) {
-    palabras += millones === 1 ? 'UN MILLÓN' : `${hasta999(millones)} MILLONES`;
-  }
-  if (miles > 0) {
-    if (palabras) palabras += ' ';
-    palabras += miles === 1 ? 'MIL' : `${hasta999(miles)} MIL`;
-  }
-  if (resto > 0) {
-    if (palabras) palabras += ' ';
-    palabras += hasta999(resto);
-  }
-  if (!palabras) palabras = 'CERO';
-  return palabras;
-}
-
-/** Palabra plural de la moneda para el importe en letra
- *  (MXN→PESOS, USD→DÓLARES, EUR→EUROS, ...). Si no se conoce, usa la clave ISO. */
-function palabraMoneda(currency = 'MXN'): string {
-  const map: Record<string, string> = {
-    MXN: 'PESOS', USD: 'DÓLARES', EUR: 'EUROS',
-    CAD: 'DÓLARES CANADIENSES', GBP: 'LIBRAS ESTERLINAS',
-    JPY: 'YENES', CHF: 'FRANCOS SUIZOS', CNY: 'YUANES',
-    BRL: 'REALES', ARS: 'PESOS ARGENTINOS', CLP: 'PESOS CHILENOS',
-    COP: 'PESOS COLOMBIANOS', AUD: 'DÓLARES AUSTRALIANOS',
-  };
-  return map[currency] || currency;
-}
-
-/**
- * Cómo cierra el importe con letra.
+/* palabraMoneda, sufijoMoneda y montoEnLetra VIVÍAN AQUÍ, duplicadas.
  *
- * "M.N." quiere decir MONEDA NACIONAL, así que ponerlo detrás de una cifra en
- * euros es una contradicción: el documento dice a la vez que son euros y que
- * son pesos mexicanos. En moneda extranjera se cierra con la clave ISO, que es
- * la misma que ya viaja en el atributo Moneda del CFDI — así el papel y el XML
- * dicen lo mismo.
+ * La otra copia estaba en pdf-helpers y la usaban las notas de crédito y los
+ * complementos de pago. Al corregir el sufijo de moneda se arregló sólo ésta:
+ * las facturas en euros dejaron de decir "M.N." y los complementos siguieron
+ * diciéndolo, que es el mismo error reportado, sin corregir, en otra pantalla.
  *
- * SOBRE LOS CENTAVOS: la fracción NO cambia con la moneda. El "/100" no es una
- * abreviatura de "centavos", es la parte fraccionaria expresada en centésimos,
- * y el dólar, el euro y la libra se dividen igual en cien —centavos, céntimos y
- * peniques—. Lo único que cambia es qué unidad se está partiendo, y eso ya lo
- * dice la palabra de la moneda que va antes.
- *
- * Este campo no lo regula el Anexo 20: el SAT no pide importe con letra en el
- * CFDI. Es costumbre del papel, y la costumbre en operaciones en divisas es
- * cerrar con la clave ISO.
- */
-function sufijoMoneda(currency = 'MXN'): string {
-  const c = String(currency || 'MXN').toUpperCase();
-  return c === 'MXN' ? 'M.N.' : c;
-}
-
-/** Devuelve la cadena del importe con letra: "<LETRAS> <MONEDA> 00/100 <SUFIJO>". */
-function montoEnLetra(total: number, currency = 'MXN'): string {
-  const entero = Math.floor(total);
-  const cent = Math.round((total - entero) * 100);
-  const centStr = String(cent).padStart(2, '0');
-  const letras = numeroALetras(entero);
-
-  /* "UN MILLÓN DE PESOS", no "UN MILLÓN PESOS".
-   *
-   * Millón y millones piden la preposición cuando el sustantivo va justo
-   * después; pero sólo entonces: "UN MILLÓN DOSCIENTOS MIL PESOS" no la lleva,
-   * porque entre el millón y los pesos hay otra cantidad. De ahí que se agregue
-   * únicamente cuando la cifra es millones exactos. */
-  const millonesExactos = entero >= 1_000_000 && entero % 1_000_000 === 0;
-  const de = millonesExactos ? ' DE' : '';
-
-  return `${letras}${de} ${palabraMoneda(currency)} ${centStr}/100 ${sufijoMoneda(currency)}`;
-}
+ * Ahora hay UNA sola implementación, en pdf-helpers, y los tres documentos la
+ * comparten. Una función duplicada no se arregla dos veces: se arregla una y se
+ * olvida la otra. */
 
 const FORMA_PAGO: Record<string, string> = {
   '01': 'Efectivo', '02': 'Cheque nominativo', '03': 'Transferencia electrónica',
