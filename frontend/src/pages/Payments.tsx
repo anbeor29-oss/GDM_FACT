@@ -13,7 +13,7 @@
  * aprender dos pantallas para el mismo trabajo.
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Wallet, FileDown, Eye, Ban } from 'lucide-react';
+import { Wallet, FileDown, Eye, Ban, Download } from 'lucide-react';
 import { api } from '@/services/api';
 
 export default function Payments() {
@@ -165,8 +165,8 @@ export default function Payments() {
                           <button onClick={() => handleCancelar(p)} title="Cancelar ante el SAT"
                             className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg"><Ban size={18} /></button>
                         )}
-                        <button onClick={() => handleXML(p)} title="Descargar XML timbrado"
-                          className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-bold">XML</button>
+                        <button onClick={() => handleXML(p)} title="Descargar XML"
+                          className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg"><Download size={18} /></button>
                         <button onClick={() => handlePDF(p, true)} title="Vista previa"
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Eye size={18} /></button>
                       </div>
